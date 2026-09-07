@@ -1,38 +1,39 @@
-/* Proposed InjOffice design system — Google Sheets–like chrome.
+/* Proposed InjOffice design system — spreadsheet workbench, original mark.
    Scoped to .ds so the current demo is unchanged. */
 
 .ds {
-  --ds-paper: #ffffff;
-  --ds-chrome: #f8f9fa;
-  --ds-chrome-2: #f1f3f4;
-  --ds-ink: #202124;
-  --ds-mute: #5f6368;
-  --ds-line: #dadce0;
-  --ds-grid: #e2e3e3;
-  --ds-header: #f8f9fa;
-  --ds-select: #1a73e8;
-  --ds-select-soft: #e8f0fe;
-  --ds-select-header: #d3e3fd;
-  --ds-green: #188038;
-  --ds-green-soft: #e6f4ea;
-  --ds-refuse: #d93025;
-  --ds-refuse-soft: #fce8e6;
+  --ds-paper: #fbfcfc;
+  --ds-chrome: #f4f6f5;
+  --ds-chrome-2: #eaeeec;
+  --ds-ink: #1a211e;
+  --ds-mute: #5c6a63;
+  --ds-line: #d5ddd8;
+  --ds-grid: #dde3df;
+  --ds-header: #f4f6f5;
+  --ds-select: #215f8a;
+  --ds-select-soft: #e4eef5;
+  --ds-select-header: #d4e4ef;
+  --ds-green: #1f5c45;
+  --ds-green-soft: #e4f0ea;
+  --ds-refuse: #b42318;
+  --ds-refuse-soft: #f8e4e1;
   --ds-on-select: #ffffff;
-  --ds-on-green: #ffffff;
-  --ds-formula: #f9fbfd;
-  --ds-tabbar: #f8f9fa;
-  --ds-focus: #1a73e8;
-  --ds-menu: #202124;
-  --ds-shadow: 0 1px 2px rgba(60, 64, 67, .3), 0 1px 3px 1px rgba(60, 64, 67, .15);
-  --ds-radius: 4px;
-  --ds-radius-dialog: 8px;
-  --ds-row: 24px;
-  --ds-col: 100px;
-  --ds-gutter: 46px;
-  --ds-toolbar: 40px;
-  --ds-type: "Roboto", "Segoe UI", sans-serif;
-  --ds-mono: "Roboto Mono", ui-monospace, monospace;
-  --ds-cell: Arial, Helvetica, sans-serif;
+  --ds-on-green: #f6faf8;
+  --ds-formula: #fbfcfc;
+  --ds-tabbar: #f4f6f5;
+  --ds-focus: #215f8a;
+  --ds-menu: #1a211e;
+  --ds-shadow: 0 8px 24px rgba(26, 33, 30, .08);
+  --ds-radius: 3px;
+  --ds-radius-dialog: 6px;
+  --ds-row: 26px;
+  --ds-col: 104px;
+  --ds-gutter: 48px;
+  --ds-toolbar: 42px;
+  --ds-type: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --ds-display: "Source Serif 4", "Iowan Old Style", serif;
+  --ds-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --ds-cell: "IBM Plex Sans", "Segoe UI", sans-serif;
   color: var(--ds-ink);
   background: var(--ds-paper);
   font-family: var(--ds-type);
@@ -42,28 +43,28 @@
 }
 
 html[data-theme="dark"] .ds {
-  --ds-paper: #131314;
-  --ds-chrome: #1f1f1f;
-  --ds-chrome-2: #2d2e30;
-  --ds-ink: #e3e3e3;
-  --ds-mute: #9aa0a6;
-  --ds-line: #3c4043;
-  --ds-grid: #3c4043;
-  --ds-header: #2d2e30;
-  --ds-select: #8ab4f8;
-  --ds-select-soft: #1a3657;
-  --ds-select-header: #174ea6;
-  --ds-green: #81c995;
-  --ds-green-soft: #0d331d;
-  --ds-refuse: #f28b82;
-  --ds-refuse-soft: #3c1714;
-  --ds-on-select: #202124;
-  --ds-on-green: #202124;
-  --ds-formula: #1f1f1f;
-  --ds-tabbar: #1f1f1f;
-  --ds-focus: #8ab4f8;
-  --ds-menu: #e3e3e3;
-  --ds-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 1px 3px 1px rgba(0, 0, 0, .3);
+  --ds-paper: #121614;
+  --ds-chrome: #1a1f1c;
+  --ds-chrome-2: #242b27;
+  --ds-ink: #e8eeea;
+  --ds-mute: #93a199;
+  --ds-line: #343c37;
+  --ds-grid: #343c37;
+  --ds-header: #1e2420;
+  --ds-select: #8bb4cc;
+  --ds-select-soft: #1b303c;
+  --ds-select-header: #234155;
+  --ds-green: #8fbfa6;
+  --ds-green-soft: #1a2e25;
+  --ds-refuse: #e08b82;
+  --ds-refuse-soft: #3a1e1b;
+  --ds-on-select: #121614;
+  --ds-on-green: #121614;
+  --ds-formula: #121614;
+  --ds-tabbar: #1a1f1c;
+  --ds-focus: #8bb4cc;
+  --ds-menu: #e8eeea;
+  --ds-shadow: 0 10px 28px rgba(0, 0, 0, .35);
 }
 
 .ds *,

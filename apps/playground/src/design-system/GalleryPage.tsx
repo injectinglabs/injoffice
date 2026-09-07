@@ -9,10 +9,15 @@ import {
   DsChip,
   DsField,
   DsInput,
+  DsMark,
   DsSelect,
-  DsSheetsMark,
   DsTextarea,
   DsTool,
+  IconBorder,
+  IconFilter,
+  IconPrint,
+  IconRedo,
+  IconUndo,
 } from './primitives'
 
 const SECTIONS = [
@@ -25,7 +30,7 @@ const SECTIONS = [
   { id: 'inputs', label: 'Inputs' },
   { id: 'dialogs', label: 'Dialogs' },
   { id: 'status', label: 'Status' },
-  { id: 'presence', label: 'Share and comments' },
+  { id: 'presence', label: 'Invite and comments' },
 ]
 
 const COLS = ['A', 'B', 'C', 'D', 'E']
@@ -37,17 +42,15 @@ const CELLS: Record<string, string> = {
   A4: 'Count', D4: '=COUNTA(A2:A3)',
 }
 
-const MENUS = ['File', 'Edit', 'View', 'Insert', 'Format', 'Data', 'Tools', 'Extensions', 'Help']
-const TOOLS = ['↶', '↷', '🖨', '|', 'B', 'I', 'S', '|', '$', '%', '.0', '.00', '|', '☰', '▦', '▼']
-
+const MENUS = ['File', 'Edit', 'View', 'Insert', 'Format', 'Data', 'Tools']
 const SWATCHES: [string, string, string][] = [
   ['Paper', 'var(--ds-paper)', 'Worksheet surface.'],
   ['Chrome', 'var(--ds-chrome)', 'Toolbar and tab bar.'],
   ['Ink', 'var(--ds-ink)', 'Menus, cells, titles.'],
   ['Grid', 'var(--ds-grid)', 'Cell hairlines.'],
   ['Select', 'var(--ds-select)', 'Active cell and primary actions.'],
-  ['Sheets green', 'var(--ds-green)', 'Product mark and selected sheet tab.'],
-  ['Refuse', 'var(--ds-refuse)', 'Fail-closed / #REF!-style error.'],
+  ['Forest', 'var(--ds-green)', 'Selected sheet tab and applied state.'],
+  ['Refuse', 'var(--ds-refuse)', 'Fail-closed. Original bytes unchanged.'],
 ]
 
 function parseSection(hash = location.hash): string | null {
@@ -74,10 +77,10 @@ function MiniWorkbook() {
     <div className="ds-sheet-frame">
       <header className="ds-appbar">
         <a className="ds-product" href="#/design-system">
-          <DsSheetsMark />
+          <DsMark />
           <span className="ds-doc-title">
             <input value={title} onChange={(event) => setTitle(event.target.value)} aria-label="Workbook name" />
-            <small>InjOffice · browser Worker</small>
+            <small>InjOffice</small>
           </span>
         </a>
         <div />
@@ -86,16 +89,25 @@ function MiniWorkbook() {
             <DsAvatar initials="MN" />
             <DsAvatar initials="AK" tone={2} />
           </div>
-          <DsButton variant="filled">Share</DsButton>
+          <DsButton variant="filled">Invite</DsButton>
         </div>
       </header>
       <nav className="ds-menubar" aria-label="Workbook menus">
         {MENUS.map((menu) => <button type="button" key={menu}>{menu}</button>)}
       </nav>
       <div className="ds-toolbar" role="toolbar" aria-label="Formatting">
-        {TOOLS.map((tool, index) => tool === '|'
-          ? <span className="ds-sep" key={`sep-${index}`} />
-          : <DsTool key={`${tool}-${index}`} aria-pressed={tool === 'B' ? false : undefined}>{tool}</DsTool>)}
+        <DsTool aria-label="Undo"><IconUndo /></DsTool>
+        <DsTool aria-label="Redo"><IconRedo /></DsTool>
+        <DsTool aria-label="Print"><IconPrint /></DsTool>
+        <span className="ds-sep" />
+        <DsTool aria-label="Bold"><strong>B</strong></DsTool>
+        <DsTool aria-label="Italic"><em>I</em></DsTool>
+        <span className="ds-sep" />
+        <DsTool aria-label="Currency">$</DsTool>
+        <DsTool aria-label="Percent">%</DsTool>
+        <span className="ds-sep" />
+        <DsTool aria-label="Filter"><IconFilter /></DsTool>
+        <DsTool aria-label="Borders"><IconBorder /></DsTool>
       </div>
       <div className="ds-formula">
         <input className="ds-namebox" value={active} readOnly aria-label="Active cell" />
@@ -182,9 +194,9 @@ export default function GalleryPage() {
             <DsChip tone="green">Proposal</DsChip>
             <DsChip>Does not restyle the live demo</DsChip>
           </p>
-          <h1>InjOffice, in a Sheets workbench.</h1>
+          <h1>A spreadsheet workbench, drawn more quietly.</h1>
           <p className="ds-lede">
-            Menus, a formula bar, A/B/C headers, a blue active cell with a fill handle, and green sheet tabs. Native extract/apply still sits underneath — this is only the chrome. Toggle light and dark, then send notes. After you approve it, we rebuild the demo on these parts.
+            Same bones as last time: menus, formula bar, column letters, active cell, sheet tabs. The mark is ours (a grid with one cell selected), type is IBM Plex and Source Serif, and the green is forest rather than a product logo. Toggle light and dark, then send notes.
           </p>
           <div className="ds-row" style={{ marginBottom: 20 }}>
             <DsButton variant={scheme === 'light' ? 'outlined' : 'text'} onClick={() => setTheme('light')}>Light</DsButton>
@@ -195,13 +207,13 @@ export default function GalleryPage() {
           <section id="intent">
             <h2>Intent</h2>
             <p>
-              People already know how to read a spreadsheet. The playground should feel like opening a workbook: title in the header, File/Edit menus, fx bar, grid, tabs along the bottom. InjOffice-specific meaning (applied vs refused, package SHA) uses Sheets’ own green, blue, and error red instead of a custom stamp language.
+              People already know how to read a spreadsheet. The playground should feel like opening a workbook: title in the header, File/Edit menus, formula bar, grid, tabs along the bottom. Applied and refused stay as quiet chips, not a separate visual language.
             </p>
           </section>
 
           <section id="workbook">
             <h2>Workbook chrome</h2>
-            <p>Product icon, editable title, share cluster, menus, toolbar, formula bar, grid, and sheet tabs — one stacked sheet.</p>
+            <p>Hairline grid mark, serif title, invite cluster, menus, toolbar, formula bar, grid, and sheet tabs — one stacked sheet.</p>
             <MiniWorkbook />
           </section>
 
@@ -214,7 +226,7 @@ export default function GalleryPage() {
 
           <section id="color">
             <h2>Color</h2>
-            <p>Paper, hairline grid, Sheets green, selection blue, error red. No extra accent palette.</p>
+            <p>Paper, hairline grid, forest for the selected tab, steel-blue for the active cell. No extra accent palette.</p>
             <div className="ds-stack">
               {SWATCHES.map(([name, fill, note]) => (
                 <div className="ds-swatch" key={name}>
@@ -231,18 +243,18 @@ export default function GalleryPage() {
           <section id="type">
             <h2>Type</h2>
             <p>
-              Roboto in chrome (menus, tabs, dialogs). Arial in cells, like Sheets. Roboto Mono for formulas and hashes when we show engine output.
+              Source Serif for the workbook title. IBM Plex Sans in chrome and cells. IBM Plex Mono for formulas and hashes.
             </p>
-            <p style={{ fontSize: 28, fontWeight: 400, margin: '0 0 8px' }}>launch-readiness-plan</p>
+            <p style={{ fontFamily: 'var(--ds-display)', fontSize: 28, fontWeight: 500, letterSpacing: '-0.03em', margin: '0 0 8px' }}>launch-readiness-plan</p>
             <p className="ds-lede" style={{ fontFamily: 'var(--ds-cell)' }}>Native XLSX · Mira · Live</p>
             <p className="ds-code">=COUNTA(A2:A3) · sha256:bdf753af2b…612f0d</p>
           </section>
 
           <section id="buttons">
             <h2>Buttons</h2>
-            <p>Text buttons for menus. Pill filled blue for Share. Green only on the product mark and selected tab. Outlined for secondary file actions.</p>
+            <p>Text buttons for menus. Filled steel for Invite. Forest only on the selected cell in the mark and the active tab. Outlined for file actions.</p>
             <div className="ds-row">
-              <DsButton variant="filled">Share</DsButton>
+              <DsButton variant="filled">Invite</DsButton>
               <DsButton variant="green">Apply</DsButton>
               <DsButton>Cancel</DsButton>
               <DsButton variant="outlined">Open .xlsx</DsButton>
@@ -280,7 +292,7 @@ export default function GalleryPage() {
 
           <section id="dialogs">
             <h2>Dialogs</h2>
-            <p>White sheet, 8px corners, actions right-aligned. Snackbars are dark bars, same as Sheets.</p>
+            <p>White sheet, 6px corners, actions right-aligned. Snackbars are dark bars for transient proof results.</p>
             <div className="ds-dialog">
               <h3>Apply this change?</h3>
               <p>cell.set_value on Data!A1, bound to the current package SHA. Everything outside the edit stays byte-identical.</p>
@@ -294,7 +306,7 @@ export default function GalleryPage() {
 
           <section id="status">
             <h2>Status</h2>
-            <p>Chips for runtime and package. Green wash for landed edits. Red wash for fail-closed, using Sheets’ error red.</p>
+            <p>Chips for runtime and package. Forest wash for landed edits. Red wash for fail-closed.</p>
             <div className="ds-row">
               <DsChip>@injoffice/xlsx-wasm</DsChip>
               <DsChip tone="blue">Browser Worker</DsChip>
@@ -302,8 +314,8 @@ export default function GalleryPage() {
               <DsChip tone="refuse">#STALE_REVISION</DsChip>
             </div>
             <div className="ds-stack">
-              <DsCallout tone="note" title="All changes saved in Drive… except this is local">
-                Browser Worker extracted the bundled workbook. No sidecar.
+              <DsCallout tone="note" title="Saved in this browser">
+                The Worker extracted the bundled workbook. No sidecar.
               </DsCallout>
               <DsCallout tone="green" title="Applied">
                 Data!C2 is Live. Package SHA advanced.
@@ -315,18 +327,18 @@ export default function GalleryPage() {
           </section>
 
           <section id="presence">
-            <h2>Share and comments</h2>
-            <p>Overlapping colored avatars in the app bar. Notes are the pale yellow Sheets comment card, not a chat bubble.</p>
+            <h2>Invite and comments</h2>
+            <p>Overlapping initials in the app bar. Notes are a paper card with a select-colored rule, not a sticky.</p>
             <div className="ds-row">
               <div className="ds-people">
                 <DsAvatar initials="MN" />
                 <DsAvatar initials="AK" tone={2} />
                 <DsAvatar initials="JN" tone={3} />
               </div>
-              <DsButton variant="filled">Share</DsButton>
+              <DsButton variant="filled">Invite</DsButton>
             </div>
             <div className="ds-comment">
-              <header>Mira North <span style={{ fontWeight: 400, color: '#5f6368' }}>on C2</span></header>
+              <header>Mira North <span style={{ fontWeight: 400, color: 'var(--ds-mute)' }}>on C2</span></header>
               Keep Status as Live until native extract finishes.
             </div>
           </section>
