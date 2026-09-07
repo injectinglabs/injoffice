@@ -190,9 +190,22 @@
 .ds-rowh,
 .ds-corner {
   height: var(--ds-row);
-  border-right: 1px solid var(--ds-grid);
-  border-bottom: 1px solid var(--ds-grid);
+  border: 0;
+  box-shadow:
+    1px 0 0 var(--ds-grid),
+    0 1px 0 var(--ds-grid);
   font-size: 13px;
+}
+
+@media (min-resolution: 2dppx) {
+  .ds-cell,
+  .ds-colh,
+  .ds-rowh,
+  .ds-corner {
+    box-shadow:
+      0.5px 0 0 var(--ds-grid),
+      0 0.5px 0 var(--ds-grid);
+  }
 }
 
 .ds-corner,
