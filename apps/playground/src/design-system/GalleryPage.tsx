@@ -192,12 +192,12 @@ export default function GalleryPage() {
       <div className="ds-gallery">
         <main className="ds-gallery-main">
           <p className="ds-kicker">
-            <DsChip tone="green">Proposal</DsChip>
-            <DsChip>Does not restyle the live demo</DsChip>
+            <DsChip tone="green">Applied</DsChip>
+            <DsChip>Live playground and guides</DsChip>
           </p>
           <h1>A spreadsheet workbench, a little more current.</h1>
           <p className="ds-lede">
-            Same bones: formula bar, column letters, active cell, sheet tabs. Rounder chrome, airier rows, Instrument Sans, pill tabs, and a rounded grid mark — still not a product logo. Chrome first, then a mock of every playground surface. Toggle light and dark, then send notes.
+            Same bones: formula bar, column letters, active cell, sheet tabs. Rounder chrome, airier rows, Instrument Sans, pill tabs, and a rounded grid mark — still not a product logo. The live playground and guides now use this language. Toggle light and dark here, then open the demo.
           </p>
           <div className="ds-row" style={{ marginBottom: 20 }}>
             <DsButton variant={scheme === 'light' ? 'outlined' : 'text'} onClick={() => setTheme('light')}>Light</DsButton>
@@ -347,7 +347,7 @@ export default function GalleryPage() {
           <section id="surfaces">
             <h2>Surfaces</h2>
             <p>
-              Every playground route, still as a mock. Same tokens and controls as the chrome kit. The live demo, guides, and docs lab are unchanged until this is approved.
+              Reference layouts for every playground route. The live demo and guides now share these tokens and controls. `#/docs` remains the DOCX lab.
             </p>
           </section>
 

@@ -1,4 +1,4 @@
-/* Mock playground surfaces. Scoped to .ds; does not restyle the live demo. */
+/* Playground surface layouts. Scoped to .ds. */
 
 .ds-surf-head {
   display: flex;

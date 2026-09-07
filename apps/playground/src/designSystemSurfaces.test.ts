@@ -14,8 +14,7 @@ describe('design-system surface mocks', () => {
     }
   })
 
-  it('stays a mock gallery and does not restyle the live workbench', () => {
-    expect(gallery).toContain('Does not restyle the live demo')
+  it('keeps the gallery independent of Univer Pro and DeckView', () => {
     expect(gallery).toContain('SURFACE_GALLERY')
     expect(surfaces).not.toContain('@univerjs-pro')
     expect(surfaces).not.toContain('@univerjs/presets')
