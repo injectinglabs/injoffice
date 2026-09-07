@@ -7,6 +7,8 @@ import {
   readStoredColorScheme,
   type ColorScheme,
 } from './colorScheme'
+import GuidedRecipe from './components/GuidedRecipe'
+import DemoSource from './components/DemoSource'
 import { DEMO_BY_SURFACE, DEMO_GROUPS, DEMOS, preloadDemoOnIntent, type DemoDefinition } from './demoRegistry'
 import OverviewPage from './pages/OverviewPage'
 import { isDocsHash, parseSurface, surfaceHref, type Surface } from './route'
@@ -23,16 +25,16 @@ function ToolGlyph({ demo }: { demo: DemoDefinition }) {
 
 function ToolNavigation({ surface, collapsed = false }: { surface: Surface; collapsed?: boolean }) {
   return (
-    <nav className="tool-nav" aria-label="InjOffice tools">
+    <nav className="tool-nav" id="demo-navigation" aria-label="InjOffice tools">
       <a
         className="tool-nav-home"
         href={surfaceHref('overview')}
         aria-current={surface === 'overview' ? 'page' : undefined}
-        aria-label={collapsed ? 'Overview' : undefined}
-        title={collapsed ? 'Overview' : undefined}
+        aria-label={collapsed ? 'Showcase' : undefined}
+        title={collapsed ? 'Showcase' : undefined}
       >
         <span className="tool-glyph tool-glyph--ink" aria-hidden="true">⌂</span>
-        <span><strong>Overview</strong><small>All capabilities</small></span>
+        <span><strong>Showcase</strong><small>Find an example</small></span>
       </a>
       {DEMO_GROUPS.map((group) => (
         <section
@@ -71,7 +73,7 @@ function NavigationToggle({ collapsed, onToggle }: { collapsed: boolean; onToggl
   return (
     <div className="navigation-controls">
       <span>Demo index</span>
-      <button type="button" aria-label={label} title={label} aria-expanded={!collapsed} onClick={onToggle}>
+      <button type="button" aria-label={label} title={label} aria-expanded={!collapsed} aria-controls="demo-navigation" onClick={onToggle}>
         <span className="navigation-toggle-glyph" aria-hidden="true"><i /><i /><i /></span>
       </button>
     </div>
@@ -118,40 +120,26 @@ function AppHeader({ sidecar, scheme, onScheme }: { sidecar: SidecarState; schem
   )
 }
 
-type ShowcaseOverrides = {
-  sourcePath?: string
-  sourceUrl?: string
-  proof?: string
-  proofLabel?: string
-}
-
-function showcaseMetadata(demo: DemoDefinition) {
-  const overrides = demo as DemoDefinition & ShowcaseOverrides
-  const packageSlug = demo.packageName.replace(/^@injoffice\//, '')
-  const sourcePath = overrides.sourcePath ?? `packages/${packageSlug}/src`
-  return {
-    sourcePath,
-    sourceUrl: overrides.sourceUrl ?? `https://github.com/injectinglabs/injoffice/tree/main/${sourcePath}`,
-    proof: overrides.proof ?? demo.description,
-    proofLabel: overrides.proofLabel ?? 'Interactive proof',
-  }
-}
-
 function SourceProofDrawer({
   demo,
+  open,
   onClose,
   returnFocusRef,
 }: {
   demo: DemoDefinition
+  open: boolean
   onClose: () => void
   returnFocusRef: RefObject<HTMLButtonElement | null>
 }) {
   const drawerRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
-  const metadata = showcaseMetadata(demo)
 
   useEffect(() => {
+    if (!open) return
     const previousOverflow = document.body.style.overflow
+    const background = Array.from(document.querySelectorAll<HTMLElement>('.app-header, .app-sidebar, .app-main > :not(.source-proof-layer)'))
+    const inertStates = background.map((element) => element.inert)
+    background.forEach((element) => { element.inert = true })
     document.body.style.overflow = 'hidden'
     closeRef.current?.focus()
 
@@ -162,7 +150,7 @@ function SourceProofDrawer({
         return
       }
       if (event.key !== 'Tab' || !drawerRef.current) return
-      const controls = Array.from(drawerRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+      const controls = Array.from(drawerRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter((element) => element.getClientRects().length > 0)
       if (controls.length === 0) return
       const first = controls[0]
       const last = controls[controls.length - 1]
@@ -178,13 +166,14 @@ function SourceProofDrawer({
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.body.style.overflow = previousOverflow
+      background.forEach((element, index) => { element.inert = inertStates[index] })
       document.removeEventListener('keydown', onKeyDown)
       returnFocusRef.current?.focus()
     }
-  }, [onClose, returnFocusRef])
+  }, [open, onClose, returnFocusRef])
 
   return (
-    <div className="source-proof-layer">
+    <div className="source-proof-layer" hidden={!open}>
       <button className="source-proof-backdrop" type="button" tabIndex={-1} aria-label="Close source and proof" onClick={onClose} />
       <aside
         className="source-proof-drawer"
@@ -202,21 +191,9 @@ function SourceProofDrawer({
           <button ref={closeRef} className="source-proof-close" type="button" aria-label="Close source and proof" onClick={onClose}>×</button>
         </header>
         <div className="source-proof-body">
-          <section aria-labelledby="source-heading">
-            <h3 id="source-heading">Source</h3>
-            <p>The implementation behind this demo lives with the published package.</p>
-            <code>{metadata.sourcePath}</code>
-            <a href={metadata.sourceUrl} target="_blank" rel="noreferrer">Browse package source <span aria-hidden="true">↗</span></a>
-          </section>
-          <section aria-labelledby="proof-heading">
-            <h3 id="proof-heading">{metadata.proofLabel}</h3>
-            <p>{metadata.proof}</p>
-            <dl>
-              <div><dt>Capability</dt><dd>{demo.group}</dd></div>
-              <div><dt>Runtime</dt><dd>{demo.runtime}</dd></div>
-              <div><dt>Surface</dt><dd>{demo.title}</dd></div>
-            </dl>
-          </section>
+          <p className="source-proof-runtime">{demo.title} · {demo.runtime}</p>
+          <GuidedRecipe recipe={demo.recipe} accent={demo.accent} className="guided-recipe--drawer" />
+          <DemoSource source={demo.recipe.sources[0]} />
         </div>
       </aside>
     </div>
@@ -229,9 +206,17 @@ export default function App() {
   const [scheme, setScheme] = useState<ColorScheme>(() => currentColorScheme())
   const [navigationExpanded, setNavigationExpanded] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [demoRevision, setDemoRevision] = useState(0)
   const [isRoutePending, startRouteTransition] = useTransition()
   const detailsButtonRef = useRef<HTMLButtonElement>(null)
+  const previousSurfaceRef = useRef(surface)
   const closeDetails = useCallback(() => setDetailsOpen(false), [])
+
+  useEffect(() => {
+    if (previousSurfaceRef.current === surface) return
+    previousSurfaceRef.current = surface
+    document.querySelector<HTMLElement>('.app-main h1')?.focus({ preventScroll: true })
+  }, [surface])
 
   useEffect(() => {
     const sync = () => {
@@ -306,13 +291,20 @@ export default function App() {
               <header className={`page-heading demo-context-header page-heading--${demo.accent}`}>
                 <div className="page-heading-copy">
                   <nav className="demo-breadcrumb" aria-label="Breadcrumb">
-                    <a href={surfaceHref('overview')}>Overview</a><span aria-hidden="true">/</span><span>{demo.group}</span>
+                    <a href={surfaceHref('overview')}>Showcase</a><span aria-hidden="true">/</span><span>{demo.group}</span>
                   </nav>
-                  <div className="demo-title-line"><ToolGlyph demo={demo} /><h1>{demo.title}</h1><code>{demo.packageName}</code></div>
+                  <div className="demo-title-line"><ToolGlyph demo={demo} /><h1 tabIndex={-1}>{demo.title}</h1><code>{demo.packageName}</code></div>
                   <p>{demo.description}</p>
                 </div>
                 <div className="demo-context-actions">
                   <RuntimePill demo={demo} sidecar={sidecar} />
+                  <button
+                    className="demo-reset-trigger"
+                    type="button"
+                    onClick={() => setDemoRevision((revision) => revision + 1)}
+                  >
+                    Reset demo
+                  </button>
                   <button
                     ref={detailsButtonRef}
                     className="source-proof-trigger"
@@ -327,12 +319,12 @@ export default function App() {
                 </div>
               </header>
               <section className="demo-stage" data-accent={demo.accent} aria-label={`${demo.title} interactive demo`}>
-                <DemoComponent />
+                <DemoComponent key={`${demo.surface}:${demoRevision}`} />
               </section>
             </>
           ) : null}
         </Suspense>
-        {detailsOpen && demo ? <SourceProofDrawer demo={demo} onClose={closeDetails} returnFocusRef={detailsButtonRef} /> : null}
+        {demo ? <SourceProofDrawer key={demo.surface} demo={demo} open={detailsOpen} onClose={closeDetails} returnFocusRef={detailsButtonRef} /> : null}
       </main>
     </div>
   )

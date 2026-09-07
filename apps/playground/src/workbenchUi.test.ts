@@ -72,10 +72,8 @@ describe('playground workbench design system', () => {
 
   it('provides an accessible source and proof drawer from demo metadata', () => {
     expect(app).toContain('function SourceProofDrawer')
-    expect(app).toContain('function showcaseMetadata')
-    expect(app).toContain('demo.packageName.replace')
-    expect(app).toContain('overrides.sourcePath')
-    expect(app).toContain('overrides.proof')
+    expect(app).toContain('<GuidedRecipe recipe={demo.recipe}')
+    expect(app).toContain('<DemoSource source={demo.recipe.sources[0]}')
     expect(app).toContain('aria-haspopup="dialog"')
     expect(app).toContain('role="dialog"')
     expect(app).toContain('aria-modal="true"')

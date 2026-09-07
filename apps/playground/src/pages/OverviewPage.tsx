@@ -39,12 +39,11 @@ export default function OverviewPage({ sidecar }: { sidecar: 'checking' | 'conne
     document.querySelector<HTMLInputElement>('#showcase-query')?.focus({ preventScroll: true })
   }
 
-  return (
-    <div className="overview-page">
+  const authorityProof = (
       <section className="overview-hero" aria-labelledby="overview-title">
         <div className="overview-copy">
           <p className="hero-note"><span aria-hidden="true">↻</span> Original Office bytes stay authoritative</p>
-          <h1 id="overview-title">Choose the job. Keep the source file.</h1>
+          <h2 id="overview-title">Choose the job. Keep the source file.</h2>
           <p className="hero-lede">Open-source TypeScript, Go, and browser-WASM engines for agents and web applications. Inspect a real file, apply a bounded change, reopen the exact output, and preserve everything outside the edit.</p>
           <div className="hero-actions">
             <button className="primary-action" type="button" onClick={focusCatalog}>Find a working proof</button>
@@ -70,15 +69,24 @@ export default function OverviewPage({ sidecar }: { sidecar: 'checking' | 'conne
           <footer><span aria-hidden="true">✓</span><div><strong>Fail closed</strong><small>Unsafe or stale changes produce no replacement file.</small></div></footer>
         </div>
       </section>
+  )
 
+  return (
+    <div className="overview-page">
       <section className="showcase-catalog" id="showcase-catalog" aria-labelledby="showcase-title">
         <header className="showcase-heading">
           <div>
-            <h2 id="showcase-title">Start with what you need to do</h2>
+            <h1 id="showcase-title" tabIndex={-1}>Start with what you need to do</h1>
             <p>Filter fifteen focused surfaces across the twenty-four packages. Shared infrastructure appears inside the workflows it powers. These are bounded proofs, not a claim of unrestricted Microsoft Office parity.</p>
           </div>
           <span className={`overview-runtime overview-runtime--${sidecar}`} role="status" aria-live="polite">{runtimeLabel}</span>
         </header>
+        <div className="showcase-shortcuts">
+          <a href={`${surfaceHref('sheets')}?view=editor`} onPointerEnter={warmSheets} onPointerDown={warmSheets} onFocus={warmSheets}>Try the spreadsheet editor</a>
+          <a href={`${surfaceHref('sheets')}?view=native`} onPointerEnter={warmSheets} onPointerDown={warmSheets} onFocus={warmSheets}>Verify an XLSX round trip</a>
+          <a href={`${surfaceHref('sheets')}?view=tools`} onPointerEnter={warmSheets} onPointerDown={warmSheets} onFocus={warmSheets}>Explore workbook tools</a>
+          <a href="#/guides">Integration guides</a>
+        </div>
 
         <form className="showcase-filters" role="search" onSubmit={(event) => event.preventDefault()}>
           <div className="showcase-search">
@@ -125,20 +133,20 @@ export default function OverviewPage({ sidecar }: { sidecar: 'checking' | 'conne
                 <li key={demo.surface}>
                   <a
                     className={`showcase-item showcase-item--${demo.accent}`}
-                    href={surfaceHref(demo.surface)}
+                    href={demo.surface === 'sheets' ? `${surfaceHref('sheets')}?view=native` : surfaceHref(demo.surface)}
                     onPointerEnter={warmRoute}
                     onPointerDown={warmRoute}
                     onFocus={warmRoute}
                   >
                     <span className="showcase-item__glyph" aria-hidden="true">{demo.glyph}</span>
                     <span className="showcase-item__body">
-                      <span className="showcase-item__title"><strong>{demo.title}</strong><code>{demo.packageName}</code></span>
-                      <span className="showcase-item__description">{demo.description}</span>
-                      <span className="showcase-item__tasks">{demo.tasks.join(' · ')}</span>
+                      <span className="showcase-item__title"><strong>{demo.recipe.title}</strong></span>
+                      <span className="showcase-item__description">{demo.recipe.outcome}</span>
+                      <span className="showcase-item__tasks">{demo.title} · {demo.tasks.join(' · ')}</span>
                     </span>
                     <span className="showcase-item__meta">
                       <span>{demo.formats.join(' + ')}</span>
-                      <small>{demo.runtime}</small>
+                      <small>{demo.runtime} · {demo.recipe.minutes} min</small>
                       <b>Open proof</b>
                     </span>
                   </a>
@@ -154,6 +162,7 @@ export default function OverviewPage({ sidecar }: { sidecar: 'checking' | 'conne
           </div>
         )}
       </section>
+      {authorityProof}
     </div>
   )
 }

@@ -11,7 +11,7 @@ describe('showcase catalog filtering', () => {
 
   it('combines task, format, and text filters', () => {
     const results = filterShowcaseDemos(DEMOS, { query: 'text', task: 'Review changes', format: 'DOCX' })
-    expect(results.map((demo) => demo.surface)).toEqual(['docs', 'history'])
+    expect(results.map((demo) => demo.surface)).toEqual(['docs', 'history', 'font-metrics'])
   })
 
   it('treats blank and whitespace-only queries as the full catalog', () => {

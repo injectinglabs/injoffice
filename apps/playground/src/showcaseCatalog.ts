@@ -12,6 +12,8 @@ function searchableText(demo: DemoDefinition): string {
     demo.navTitle,
     demo.packageName,
     demo.description,
+    demo.recipe.title,
+    demo.recipe.outcome,
     demo.group,
     ...demo.tasks,
     ...demo.formats,

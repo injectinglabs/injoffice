@@ -39,7 +39,7 @@ export function GuidedRecipe({ recipe, accent = 'blue', className = '' }: Guided
     <aside className={`guided-recipe guided-recipe--${accent}${className ? ` ${className}` : ''}`} aria-labelledby={`${recipe.id}-title`}>
       <header className="guided-recipe__header">
         <div>
-          <p className="guided-recipe__kind">Guided proof · about {recipe.minutes} min</p>
+          <p className="guided-recipe__kind">Try this · about {recipe.minutes} min</p>
           <h2 id={`${recipe.id}-title`}>{recipe.title}</h2>
           <p>{recipe.outcome}</p>
         </div>
@@ -52,7 +52,7 @@ export function GuidedRecipe({ recipe, accent = 'blue', className = '' }: Guided
           aria-valuenow={completeCount}
         >
           <strong>{completeCount}/{recipe.steps.length}</strong>
-          <span>steps done</span>
+          <span>steps checked</span>
         </div>
       </header>
 
@@ -65,7 +65,7 @@ export function GuidedRecipe({ recipe, accent = 'blue', className = '' }: Guided
               <button
                 type="button"
                 aria-current={isActive ? 'step' : undefined}
-                aria-label={`${isComplete ? 'Completed' : 'Step'} ${index + 1}: ${step.title}`}
+                aria-label={`${isComplete ? 'Checked step' : 'Step'} ${index + 1}: ${step.title}`}
                 onClick={() => setActiveIndex(index)}
               >
                 <span aria-hidden="true">{isComplete ? '✓' : index + 1}</span>
@@ -89,10 +89,10 @@ export function GuidedRecipe({ recipe, accent = 'blue', className = '' }: Guided
           </div>
           <div className="guided-recipe__actions">
             <button className="guided-recipe__complete" type="button" onClick={completeActiveStep} disabled={completed.has(activeStep.id)}>
-              {completed.has(activeStep.id) ? 'Step complete' : activeIndex === recipe.steps.length - 1 ? 'Finish proof' : 'Mark done & continue'}
+              {completed.has(activeStep.id) ? 'Step checked' : activeIndex === recipe.steps.length - 1 ? 'Finish checklist' : 'Mark done & continue'}
             </button>
             {completeCount > 0 ? <button className="guided-recipe__reset" type="button" onClick={reset}>Start over</button> : null}
-            {allComplete ? <span role="status">Proof complete — keep the output or evidence you produced.</span> : null}
+            {allComplete ? <span role="status">Checklist complete. Check the demo’s actual results before relying on the output.</span> : null}
           </div>
         </section>
       ) : null}
