@@ -34,4 +34,12 @@ describe('XLSX agent session', () => {
     const change = await session.plan([{ name: 'xlsx.cell.clear_value', input: { sheetId: 'missing', cell: { row: 0, column: 0 } } }]); const report = await change.validate()
     expect(report.valid).toBe(false); expect(report.issues.some(({ code }) => code === 'STALE_TARGET')).toBe(true); expect(artifact.batches).toHaveLength(0)
   })
+  it('rejects unverifiable style clears and detects a lying preview host', async () => {
+    const artifact = hostArtifact(); artifact.preview = async () => artifact.snapshot()
+    const session = await createAgentSession({ artifact, actor: { id: 'agent-1', kind: 'agent' }, adapter: createXlsxAgentAdapter(), confirmDestructive: () => true })
+    const clearStyle = await session.plan([{ name: 'xlsx.style.patch', input: { sheetId: '1', range: { row: 0, column: 0, endRow: 0, endColumn: 0 }, style: { bold: null } } }])
+    expect((await clearStyle.validate()).valid).toBe(false)
+    const value = await session.plan([{ name: 'xlsx.cell.set_value', input: { sheetId: '1', cell: { row: 1, column: 0 }, value: 'not-applied' } }])
+    const preview = await value.preview(); expect(preview.data).toMatchObject({ readbackPassed: false }); expect(preview.issues).toContainEqual(expect.objectContaining({ code: 'PREVIEW_MISMATCH' }))
+  })
 })

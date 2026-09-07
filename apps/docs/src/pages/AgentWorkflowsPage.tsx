@@ -58,9 +58,9 @@ if (!receipt.verification.verified) throw new Error('Committed output verificati
       <h2 id="capabilities">Discover capabilities at runtime</h2>
       <p>Do not teach an agent a fictional universal Office API. Ask the selected adapter what it supports for this artifact and version. Capability records distinguish reads, writes, destructive operations, and required confirmation.</p>
       <ul>
-        <li><strong>XLSX:</strong> bounded inspection plus native v1 cell, formula, style, dimension, and merge operations.</li>
+        <li><strong>XLSX:</strong> bounded inspection of native v1/v2 projections plus v1 cell, formula, style, dimension, and merge mutations.</li>
         <li><strong>DOCX:</strong> bounded document inspection and semantic guarded text replacement.</li>
-        <li><strong>PPTX:</strong> authored-deck inspection and slide insert, update, remove, move, or deck update operations.</li>
+        <li><strong>PPTX:</strong> authored-deck slide operations plus source-anchored native text and AutoShape updates.</li>
         <li><strong>PDF:</strong> bounded page inspection and rotate, insert, delete, reorder, crop, resize, or n-up operations.</li>
       </ul>
       <p>Support remains operation-specific. Encrypted files, macros, embedded objects, ambiguous targets, or features outside an adapter’s contract are refused rather than approximated.</p>

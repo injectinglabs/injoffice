@@ -7,7 +7,7 @@ async function artifact(): Promise<PdfAgentArtifact> { const document = await PD
 describe('PDF agent session', () => {
   it('runs bounded discovery through a confirmed, freshly verified byte transform', async () => {
     const input = await artifact(); const session = await createAgentSession({ artifact: input, actor: { id: 'agent-1', kind: 'agent' }, adapter: createPdfAgentAdapter(), confirmDestructive: () => true })
-    expect((await session.capabilities()).capabilities.some(({ name }) => name === 'pdf.page.delete')).toBe(true); expect((await session.inspect({ maxItems: 5, maxBytes: 2_000 })).itemCount).toBe(2); expect((await session.read({ query: { page: 1 }, maxItems: 1, maxBytes: 2_000 })).itemCount).toBe(1)
+    const capabilities = await session.capabilities(); expect(capabilities.capabilities.some(({ name }) => name === 'pdf.page.delete')).toBe(true); expect(capabilities.capabilities.find(({ name }) => name === 'pdf.page.crop')?.inputSchema).toMatchObject({ properties: { box: { required: ['x', 'y', 'width', 'height'], additionalProperties: false } } }); expect((await session.inspect({ maxItems: 5, maxBytes: 2_000 })).itemCount).toBe(2); expect((await session.read({ query: { page: 1 }, maxItems: 1, maxBytes: 2_000 })).itemCount).toBe(1)
     const change = await session.plan([{ name: 'pdf.page.delete', input: { pages: [2] } }]); expect((await change.validate()).valid).toBe(true); expect((await change.preview()).data).toMatchObject({ pageCount: 1 }); expect((await change.diff()).data).toHaveProperty('before')
     const committed = await change.commit({ idempotencyKey: 'pdf-save-1', confirmation: true }); expect(committed.verification.verified).toBe(true); expect(session.artifact.bytes).not.toEqual(input.bytes)
   })

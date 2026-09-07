@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "author": "Injecting Inc.",
-  "description": "Provider-neutral agent adapters for safe XLSX, DOCX, authored-deck, and PDF changes.",
+  "description": "Provider-neutral agent adapters for safe XLSX, DOCX, authored and native PPTX, and PDF changes.",
   "engines": { "node": ">=22" },
   "type": "module",
   "main": "./dist/index.js",
@@ -49,6 +49,7 @@
     }
   },
   "scripts": {
+    "prebuild": "npm run build -w @injoffice/agent-tools -w @injoffice/docs -w @injoffice/pdf -w @injoffice/pptx-native -w @injoffice/sheets -w @injoffice/slides",
     "build": "node ../../scripts/build-package.mjs && tsc -p tsconfig.build.json --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

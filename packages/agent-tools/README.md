@@ -23,7 +23,8 @@ const session = await createAgentSession({
 const { capabilities } = await session.capabilities()
 const context = await session.inspect({ query: { scope: 'sheet:Revenue' }, maxItems: 100 })
 const changeSet = await session.plan([
-  { name: 'sheet.cell.set', input: { sheetId: 'revenue', cell: 'G12', value: 42 } },
+  // The selected adapter defines the operation name and input schema.
+  { name: 'your-format.operation', input: { targetId: 'target-1', value: 42 } },
 ])
 
 await changeSet.validate()

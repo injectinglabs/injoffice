@@ -35,7 +35,7 @@ control and durable idempotency store at the execution boundary.
 
 ## Honest boundaries
 
-- Native XLSX support is limited to the public v1 mutation protocol.
+- Native XLSX support is limited to the public v1 mutation protocol. The agent adapter intentionally refuses null style fields because the effective-style projection cannot prove that a direct property was cleared.
 - Native DOCX support is limited to complete source-anchored run or eligible single-run paragraph text replacement.
 - Native PPTX support is limited to exact parsed text and AutoShape mutation; the authored adapter remains a separate `DeckSpec` workflow.
 - PDF support here is page operations; other PDF tools can be added as separate,

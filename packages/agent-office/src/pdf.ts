@@ -3,15 +3,32 @@ import type { AgentArtifactAdapter, AgentArtifactIdentity, AgentCapability, Agen
 import { assertFresh, boundedObject, cursorOffset, errorIssue, fingerprintBytes, toJson } from './hash.js'
 
 export interface PdfAgentArtifact { readonly kind: 'injoffice.pdf'; readonly artifactId: string; readonly bytes: Uint8Array }
-const selector: JsonObject = { oneOf: [{ const: 'all' }, { type: 'array', items: { type: 'integer', minimum: 1 }, uniqueItems: true }] }
+const selector: JsonObject = { oneOf: [{ const: 'all' }, { type: 'array', minItems: 1, items: { type: 'integer', minimum: 1 }, uniqueItems: true }] }
+const pageSize: JsonObject = {
+  type: 'object',
+  properties: { width: { type: 'number', exclusiveMinimum: 0 }, height: { type: 'number', exclusiveMinimum: 0 } },
+  required: ['width', 'height'],
+  additionalProperties: false,
+}
+const pageBox: JsonObject = {
+  type: 'object',
+  properties: {
+    x: { type: 'number' },
+    y: { type: 'number' },
+    width: { type: 'number', exclusiveMinimum: 0 },
+    height: { type: 'number', exclusiveMinimum: 0 },
+  },
+  required: ['x', 'y', 'width', 'height'],
+  additionalProperties: false,
+}
 const CAPABILITIES: readonly AgentCapability[] = [
   ['pdf.page.rotate', 'Rotate selected pages in 90-degree increments.', false, { pages: selector, degrees: { enum: [90, 180, 270, -90, -180, -270] } }, ['pages', 'degrees']],
-  ['pdf.page.insert_blank', 'Insert a blank page.', false, { at: { type: 'integer', minimum: 1 }, size: { type: 'object', additionalProperties: false } }, ['at']],
-  ['pdf.page.delete', 'Permanently remove selected pages.', true, { pages: { type: 'array', items: { type: 'integer', minimum: 1 }, uniqueItems: true } }, ['pages']],
-  ['pdf.page.reorder', 'Rebuild the document in a requested page order.', true, { order: { type: 'array', items: { type: 'integer', minimum: 1 }, uniqueItems: true } }, ['order']],
-  ['pdf.page.crop', 'Replace selected page media and crop boxes.', true, { pages: selector, box: { type: 'object', additionalProperties: false } }, ['pages', 'box']],
+  ['pdf.page.insert_blank', 'Insert a blank page.', false, { at: { type: 'integer', minimum: 1 }, size: pageSize }, ['at']],
+  ['pdf.page.delete', 'Permanently remove selected pages.', true, { pages: { type: 'array', minItems: 1, items: { type: 'integer', minimum: 1 }, uniqueItems: true } }, ['pages']],
+  ['pdf.page.reorder', 'Rebuild the document in a requested page order.', true, { order: { type: 'array', minItems: 1, items: { type: 'integer', minimum: 1 }, uniqueItems: true } }, ['order']],
+  ['pdf.page.crop', 'Replace selected page media and crop boxes.', true, { pages: selector, box: pageBox }, ['pages', 'box']],
   ['pdf.page.resize', 'Scale selected page content and page geometry.', true, { pages: selector, width: { type: 'number', exclusiveMinimum: 0 }, height: { type: 'number', exclusiveMinimum: 0 }, fit: { enum: ['stretch', 'contain'] } }, ['pages', 'width', 'height', 'fit']],
-  ['pdf.page.n_up', 'Compose source pages into a new n-up document.', true, { n: { enum: [2, 4, 6, 9] }, pageSize: { type: 'object', additionalProperties: false } }, ['n']],
+  ['pdf.page.n_up', 'Compose source pages into a new n-up document.', true, { n: { enum: [2, 4, 6, 9] }, pageSize }, ['n']],
 ].map(([name, description, destructive, properties, required]) => ({ name, description, destructive, requiresConfirmation: destructive, inputSchema: { type: 'object', properties, required, additionalProperties: false }, metadata: { execution: 'local' } } as AgentCapability))
 
 async function identity(artifact: PdfAgentArtifact): Promise<AgentArtifactIdentity> { const fingerprint = await fingerprintBytes(artifact.bytes); return { artifactId: artifact.artifactId, format: 'pdf', mediaType: 'application/pdf', revision: fingerprint, fingerprint } }
