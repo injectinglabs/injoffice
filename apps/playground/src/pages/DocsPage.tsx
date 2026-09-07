@@ -429,7 +429,7 @@ export default function DocsPage() {
             <p className="native-kicker ds-eyebrow">02 · Mutate</p>
             {target ? (
               <>
-                <DsField label="Safe text run">
+                <DsField className="native-field" label="Safe text run">
                   <DsSelect value={target.key} onChange={(event) => {
                     const next = targets.find((candidate) => candidate.key === event.target.value)
                     if (next) chooseTarget(next)
@@ -437,7 +437,7 @@ export default function DocsPage() {
                     {targets.map((candidate) => <option key={candidate.key} value={candidate.key}>{candidate.label}</option>)}
                   </DsSelect>
                 </DsField>
-                <DsField label="Replacement text">
+                <DsField className="native-field" label="Replacement text">
                   <DsTextarea value={draft} maxLength={DOCX_WASM_NATIVE_MAX_TEXT_CODE_UNITS} rows={4} onChange={(event) => {
                     setDraft(event.target.value)
                     setProof(null)

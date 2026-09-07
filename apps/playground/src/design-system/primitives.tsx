@@ -72,8 +72,16 @@ export function DsSegment({
   )
 }
 
-export function DsField({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="ds-field">{label}{children}</label>
+export function DsField({
+  label,
+  children,
+  className,
+}: {
+  label: string
+  children: ReactNode
+  className?: string
+}) {
+  return <label className={`ds-field${className ? ` ${className}` : ''}`}>{label}{children}</label>
 }
 
 export function DsInput(props: InputHTMLAttributes<HTMLInputElement>) {

@@ -316,14 +316,14 @@ export default function PptxNativePage() {
 
           <div className="native-panel ds-panel"><span className="native-kicker ds-eyebrow">02 · Mutate</span>{target ? (
             <>
-              <DsField label="Exact mutation target">
+              <DsField className="native-field" label="Exact mutation target">
                 <DsSelect value={pptxTargetKey(target)} onChange={(event) => {
                   const next = targets.find((candidate) => pptxTargetKey(candidate) === event.target.value)
                   if (next) chooseTarget(next)
                 }}>{targets.map((candidate) => <option key={pptxTargetKey(candidate)} value={pptxTargetKey(candidate)}>Slide {candidate.slideIndex + 1} · {candidate.elementName} · {candidate.operationKind}</option>)}</DsSelect>
               </DsField>
               {target.operationKind === 'text.replace' ? (
-                <DsField label="New first-run text">
+                <DsField className="native-field" label="New first-run text">
                   <DsInput value={draft} maxLength={32_767} onChange={(event) => {
                     setDraft(event.target.value)
                     setProof(null)
@@ -331,14 +331,14 @@ export default function PptxNativePage() {
                   }} />
                 </DsField>
               ) : <>
-                <DsField label="Exact preset">
+                <DsField className="native-field" label="Exact preset">
                   <DsSelect value={shapePreset} onChange={(event) => {
                     setShapePreset(event.target.value as ExactPptxShapePreset)
                     setProof(null)
                     setOutput(null)
                   }}>{exactPptxShapePresets.map((preset) => <option key={preset} value={preset}>{preset}</option>)}</DsSelect>
                 </DsField>
-                <DsField label="Fill (blank means no fill)">
+                <DsField className="native-field" label="Fill (blank means no fill)">
                   <DsInput value={shapeFill} maxLength={6} pattern="[0-9A-Fa-f]{6}" onChange={(event) => {
                     setShapeFill(event.target.value.toUpperCase().replace(/[^0-9A-F]/g, '').slice(0, 6))
                     setProof(null)

@@ -437,7 +437,7 @@ export default function NativeRoundTripPage() {
             <span className="native-kicker ds-eyebrow">02 · Mutate</span>
             {target ? (
               <>
-                <DsField label="Safe cell">
+                <DsField className="native-field" label="Safe cell">
                   <DsSelect value={targetKey(target)} onChange={(event) => {
                     const next = targets.find((candidate) => targetKey(candidate) === event.target.value)
                     if (next) chooseTarget(next)
@@ -445,7 +445,7 @@ export default function NativeRoundTripPage() {
                     {targets.map((candidate) => <option key={targetKey(candidate)} value={targetKey(candidate)}>{candidate.sheetName}!{candidate.ref}</option>)}
                   </DsSelect>
                 </DsField>
-                <DsField label="New literal value">
+                <DsField className="native-field" label="New literal value">
                   <DsInput value={draft} maxLength={32767} onChange={(event) => setDraft(event.target.value)} />
                 </DsField>
                 <div className="native-actions">
