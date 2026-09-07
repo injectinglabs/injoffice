@@ -45,6 +45,33 @@ export function DsTool(props: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button type="button" {...props} className="ds-tool" />
 }
 
+export function DsSegment({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: readonly { id: string; label: string }[]
+  onChange: (id: string) => void
+}) {
+  return (
+    <div className="ds-segment" role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          type="button"
+          key={option.id}
+          aria-pressed={value === option.id}
+          onClick={() => onChange(option.id)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function DsField({ label, children }: { label: string; children: ReactNode }) {
   return <label className="ds-field">{label}{children}</label>
 }

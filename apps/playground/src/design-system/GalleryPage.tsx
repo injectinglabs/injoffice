@@ -19,8 +19,9 @@ import {
   IconRedo,
   IconUndo,
 } from './primitives'
+import { SURFACE_GALLERY } from './surfaces'
 
-const SECTIONS = [
+const CHROME_SECTIONS = [
   { id: 'intent', label: 'Intent' },
   { id: 'workbook', label: 'Workbook chrome' },
   { id: 'grid', label: 'Grid' },
@@ -196,7 +197,7 @@ export default function GalleryPage() {
           </p>
           <h1>A spreadsheet workbench, a little more current.</h1>
           <p className="ds-lede">
-            Same bones: formula bar, column letters, active cell, sheet tabs. Rounder chrome, airier rows, Instrument Sans, pill tabs, and a rounded grid mark — still not a product logo. Toggle light and dark, then send notes.
+            Same bones: formula bar, column letters, active cell, sheet tabs. Rounder chrome, airier rows, Instrument Sans, pill tabs, and a rounded grid mark — still not a product logo. Chrome first, then a mock of every playground surface. Toggle light and dark, then send notes.
           </p>
           <div className="ds-row" style={{ marginBottom: 20 }}>
             <DsButton variant={scheme === 'light' ? 'outlined' : 'text'} onClick={() => setTheme('light')}>Light</DsButton>
@@ -342,10 +343,36 @@ export default function GalleryPage() {
               Keep Status as Live until native extract finishes.
             </div>
           </section>
+
+          <section id="surfaces">
+            <h2>Surfaces</h2>
+            <p>
+              Every playground route, still as a mock. Same tokens and controls as the chrome kit. The live demo, guides, and docs lab are unchanged until this is approved.
+            </p>
+          </section>
+
+          {SURFACE_GALLERY.map((item) => (
+            <section id={item.id} key={item.id}>
+              <h2>{item.label}</h2>
+              <p>{item.blurb}</p>
+              <item.Mock />
+            </section>
+          ))}
         </main>
 
         <nav className="ds-toc" aria-label="Design system sections">
-          {SECTIONS.map((item) => (
+          <p className="ds-toc-group">Chrome</p>
+          {CHROME_SECTIONS.map((item) => (
+            <a
+              key={item.id}
+              href={`#/design-system?section=${item.id}`}
+              aria-current={section === item.id ? 'true' : undefined}
+            >
+              {item.label}
+            </a>
+          ))}
+          <p className="ds-toc-group">Surfaces</p>
+          {SURFACE_GALLERY.map((item) => (
             <a
               key={item.id}
               href={`#/design-system?section=${item.id}`}

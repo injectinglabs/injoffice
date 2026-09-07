@@ -60,6 +60,14 @@
 
 .ds-doc-title small { color: var(--ds-mute); padding-left: 6px; font-size: 12px; }
 
+.ds-doc-title strong {
+  padding-left: 6px;
+  font-family: var(--ds-display);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
 .ds-appbar-end {
   display: flex;
   align-items: center;
@@ -125,6 +133,36 @@
   margin: 0 6px;
   background: var(--ds-line);
   flex: 0 0 1px;
+}
+
+.ds-segment {
+  display: inline-flex;
+  flex-wrap: wrap;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--ds-chrome-2);
+}
+
+.ds-segment button {
+  appearance: none;
+  border: 0;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ds-mute);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ds-segment button:hover { color: var(--ds-ink); }
+
+.ds-segment button[aria-pressed="true"] {
+  background: var(--ds-paper);
+  color: var(--ds-ink);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px var(--ds-line);
 }
 
 .ds-formula {
@@ -507,7 +545,7 @@ html[data-theme="dark"] .ds-snack { background: #e3e3e3; color: #202124; }
 
 .ds-gallery-main {
   padding: 24px 24px 80px;
-  max-width: 980px;
+  max-width: 1100px;
 }
 
 .ds-gallery-main > section { margin: 32px 0 40px; }
@@ -556,13 +594,25 @@ html[data-theme="dark"] .ds-snack { background: #e3e3e3; color: #202124; }
   position: sticky;
   top: 0;
   align-self: start;
+  max-height: 100vh;
+  overflow: auto;
   padding: 24px 16px 48px 0;
   font-size: 13px;
 }
 
+.ds-toc-group {
+  margin: 18px 12px 6px;
+  color: var(--ds-mute);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.ds-toc-group:first-child { margin-top: 0; }
+
 .ds-toc a {
   display: block;
-  padding: 6px 12px;
+  padding: 5px 12px;
   color: var(--ds-mute);
   text-decoration: none;
   border-radius: 0 16px 16px 0;
