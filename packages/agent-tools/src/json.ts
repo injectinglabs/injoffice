@@ -2,19 +2,31 @@ import { AgentToolsError } from './errors'
 import type { JsonValue } from './types'
 
 const encoder = new TextEncoder()
+const MAX_JSON_DEPTH = 100
 
 export function cloneJson<T>(value: T, label: string): T {
   const seen = new Set<object>()
-  const visit = (current: unknown, path: string): JsonValue => {
+  const visit = (current: unknown, path: string, depth = 0): JsonValue => {
+    if (depth > MAX_JSON_DEPTH) invalid(label, path, `nesting may not exceed ${MAX_JSON_DEPTH} levels`)
     if (current === null || typeof current === 'string' || typeof current === 'boolean') return current
     if (typeof current === 'number') {
       if (!Number.isFinite(current)) invalid(label, path, 'numbers must be finite')
-      return current
+      return Object.is(current, -0) ? 0 : current
     }
     if (Array.isArray(current)) {
       if (seen.has(current)) invalid(label, path, 'cyclic values are not supported')
+      const keys = Reflect.ownKeys(current)
+      if (keys.some((key) => typeof key === 'symbol')) invalid(label, path, 'symbol properties are not valid JSON')
+      const stringKeys = keys.filter((key): key is string => typeof key === 'string' && key !== 'length')
+      if (stringKeys.length !== current.length) invalid(label, path, 'arrays must be dense and may not have extra properties')
       seen.add(current)
-      const result = current.map((entry, index) => visit(entry, `${path}/${index}`))
+      const result: JsonValue[] = []
+      for (let index = 0; index < current.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, String(index))
+        if (!descriptor || !descriptor.enumerable || !('value' in descriptor)) invalid(label, `${path}/${index}`, 'array entries must be enumerable data properties')
+        if (descriptor.value === undefined) invalid(label, `${path}/${index}`, 'undefined is not valid JSON')
+        result.push(visit(descriptor.value, `${path}/${index}`, depth + 1))
+      }
       seen.delete(current)
       return result
     }
@@ -22,12 +34,22 @@ export function cloneJson<T>(value: T, label: string): T {
       const prototype = Object.getPrototypeOf(current)
       if (prototype !== Object.prototype && prototype !== null) invalid(label, path, 'values must use plain JSON objects')
       if (seen.has(current)) invalid(label, path, 'cyclic values are not supported')
+      const ownKeys = Reflect.ownKeys(current)
+      if (ownKeys.some((key) => typeof key === 'symbol')) invalid(label, path, 'symbol properties are not valid JSON')
+      if (ownKeys.some((key) => typeof key === 'string' && !Object.prototype.propertyIsEnumerable.call(current, key))) invalid(label, path, 'object properties must be enumerable')
       seen.add(current)
       const result: Record<string, JsonValue> = {}
       for (const key of Object.keys(current as object).sort()) {
-        const entry = (current as Record<string, unknown>)[key]
+        const descriptor = Object.getOwnPropertyDescriptor(current, key)
+        if (!descriptor || !('value' in descriptor)) invalid(label, `${path}/${escapePointer(key)}`, 'accessor properties are not valid JSON data')
+        const entry = descriptor.value
         if (entry === undefined) invalid(label, `${path}/${escapePointer(key)}`, 'undefined is not valid JSON')
-        result[key] = visit(entry, `${path}/${escapePointer(key)}`)
+        Object.defineProperty(result, key, {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: visit(entry, `${path}/${escapePointer(key)}`, depth + 1),
+        })
       }
       seen.delete(current)
       return result

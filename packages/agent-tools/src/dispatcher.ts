@@ -1,7 +1,7 @@
 import { AgentToolsError, asAgentToolsError } from './errors'
-import { cloneJson, immutableJson } from './json'
+import { canonicalJson, cloneJson, immutableJson } from './json'
 import type { AgentChangeSet, AgentSession } from './session'
-import type { AgentChangeSetEnvelope, AgentOperationInput, AgentToolCall, AgentToolCallResult, AgentToolDescriptor, AgentToolMethod, JsonObject, JsonValue } from './types'
+import type { AgentOperationInput, AgentToolCallResult, AgentToolDescriptor, AgentToolMethod, JsonObject, JsonValue } from './types'
 import { AGENT_TOOLS_PROTOCOL, AGENT_TOOLS_PROTOCOL_VERSION } from './types'
 
 const EMPTY_SCHEMA = schema({}, [])
@@ -31,7 +31,8 @@ export interface AgentToolDispatcherOptions { maxChangeSets?: number }
 export interface AgentToolDispatcher {
   readonly descriptors: readonly AgentToolDescriptor[]
   readonly changeSetCount: number
-  dispatch(call: AgentToolCall): Promise<AgentToolCallResult>
+  /** Accepts decoded, untrusted JSON and validates the complete tool envelope. */
+  dispatch(call: unknown): Promise<AgentToolCallResult>
   forget(changeSetId: string): boolean
 }
 
@@ -39,22 +40,23 @@ export function createAgentToolDispatcher<TArtifact>(session: AgentSession<TArti
   const maxChangeSets = options.maxChangeSets ?? 64
   if (!Number.isSafeInteger(maxChangeSets) || maxChangeSets < 1 || maxChangeSets > 10_000) throw new AgentToolsError('INVALID_ARGUMENT', 'maxChangeSets must be an integer between 1 and 10000.')
   const changeSets = new Map<string, AgentChangeSet<TArtifact>>()
-  const descriptors = session.adapter.restore ? AGENT_TOOL_DESCRIPTORS : AGENT_TOOL_DESCRIPTORS.filter(({ name }) => name !== 'office.restore')
+  const descriptors = session.adapter.restore ? AGENT_TOOL_DESCRIPTORS : immutableJson(AGENT_TOOL_DESCRIPTORS.filter(({ name }) => name !== 'office.restore'), 'agent tool descriptors')
 
   return {
     descriptors,
     get changeSetCount() { return changeSets.size },
     forget(changeSetId) { return changeSets.delete(changeSetId) },
     async dispatch(call) {
-      const requestId = typeof call?.requestId === 'string' ? call.requestId : ''
+      const requestId = safeRequestId(call)
       try {
         const request = cloneJson(call, 'tool call')
+        if (!object(request)) throw new AgentToolsError('INVALID_ARGUMENT', 'Tool call must be a JSON object.')
         if (!object(request.params)) throw new AgentToolsError('INVALID_ARGUMENT', 'Tool call params must be a JSON object.')
-        exactKeys(request as unknown as JsonObject, ['protocol', 'protocolVersion', 'requestId', 'method', 'params'])
+        exactKeys(request, ['protocol', 'protocolVersion', 'requestId', 'method', 'params'])
         if (request.protocol !== AGENT_TOOLS_PROTOCOL || request.protocolVersion !== AGENT_TOOLS_PROTOCOL_VERSION) throw new AgentToolsError('INVALID_ARGUMENT', 'Unsupported agent tools protocol or version.')
         if (!requestId.trim() || requestId.length > 192) throw new AgentToolsError('INVALID_ARGUMENT', 'requestId must be 1-192 characters.')
         if (!descriptors.some(({ name }) => name === request.method)) throw new AgentToolsError('INVALID_ARGUMENT', `Unknown or unavailable tool method ${String(request.method)}.`)
-        const result = await execute(request.method, request.params)
+        const result = await execute(request.method as AgentToolMethod, request.params)
         return immutableJson({ protocol: AGENT_TOOLS_PROTOCOL, protocolVersion: AGENT_TOOLS_PROTOCOL_VERSION, requestId, ok: true as const, result }, 'tool result')
       } catch (error) {
         return immutableJson({ protocol: AGENT_TOOLS_PROTOCOL, protocolVersion: AGENT_TOOLS_PROTOCOL_VERSION, requestId, ok: false as const, error: asAgentToolsError(error).toJSON() }, 'tool error')
@@ -70,12 +72,17 @@ export function createAgentToolDispatcher<TArtifact>(session: AgentSession<TArti
       case 'office.plan': {
         exactKeys(params, ['operations', 'expectedRevision', 'expectedFingerprint', 'metadata'])
         if (!Array.isArray(params.operations)) throw new AgentToolsError('INVALID_ARGUMENT', 'office.plan operations must be an array.')
+        optionalString(params, 'expectedRevision', 'office.plan')
+        optionalString(params, 'expectedFingerprint', 'office.plan')
+        if (params.metadata !== undefined && !object(params.metadata)) throw new AgentToolsError('INVALID_ARGUMENT', 'office.plan metadata must be an object.')
         const changeSet = await session.plan(params.operations as unknown as AgentOperationInput[], {
           ...(typeof params.expectedRevision === 'string' ? { expectedRevision: params.expectedRevision } : {}),
           ...(typeof params.expectedFingerprint === 'string' ? { expectedFingerprint: params.expectedFingerprint } : {}),
           ...(object(params.metadata) ? { metadata: params.metadata } : {}),
         })
-        if (!changeSets.has(changeSet.envelope.changeSetId) && changeSets.size >= maxChangeSets) throw new AgentToolsError('LIMIT_EXCEEDED', `Dispatcher retains at most ${maxChangeSets} change sets; forget one before planning another.`)
+        const retained = changeSets.get(changeSet.envelope.changeSetId)
+        if (retained && canonicalJson(retained.envelope) !== canonicalJson(changeSet.envelope)) throw new AgentToolsError('INVALID_ARGUMENT', 'A different retained change set has the same compact id.')
+        if (!retained && changeSets.size >= maxChangeSets) throw new AgentToolsError('LIMIT_EXCEEDED', `Dispatcher retains at most ${maxChangeSets} change sets; forget one before planning another.`)
         changeSets.set(changeSet.envelope.changeSetId, changeSet)
         return asJson(changeSet.envelope)
       }
@@ -91,6 +98,7 @@ export function createAgentToolDispatcher<TArtifact>(session: AgentSession<TArti
       case 'office.restore': {
         exactKeys(params, ['versionId', 'expectedRevision', 'expectedFingerprint', 'idempotencyKey', 'confirmation'])
         if (typeof params.versionId !== 'string' || typeof params.expectedRevision !== 'string' || typeof params.idempotencyKey !== 'string') throw new AgentToolsError('INVALID_ARGUMENT', 'office.restore requires versionId, expectedRevision, and idempotencyKey.')
+        optionalString(params, 'expectedFingerprint', 'office.restore')
         return asJson(await session.restore({ versionId: params.versionId, expectedRevision: params.expectedRevision, idempotencyKey: params.idempotencyKey, ...(typeof params.expectedFingerprint === 'string' ? { expectedFingerprint: params.expectedFingerprint } : {}), ...(params.confirmation !== undefined ? { confirmation: params.confirmation } : {}) }))
       }
     }
@@ -111,7 +119,7 @@ function schema(properties: Record<string, JsonObject>, required: readonly strin
 
 function boundedParams(params: JsonObject): { query?: JsonObject; cursor?: string; maxItems?: number; maxBytes?: number } {
   exactKeys(params, ['query', 'cursor', 'maxItems', 'maxBytes'])
-  if (params.query !== undefined && !object(params.query) || params.cursor !== undefined && typeof params.cursor !== 'string' || params.maxItems !== undefined && typeof params.maxItems !== 'number' || params.maxBytes !== undefined && typeof params.maxBytes !== 'number') throw new AgentToolsError('INVALID_ARGUMENT', 'Bounded request has invalid parameter types.')
+  if ((params.query !== undefined && !object(params.query)) || (params.cursor !== undefined && typeof params.cursor !== 'string') || (params.maxItems !== undefined && typeof params.maxItems !== 'number') || (params.maxBytes !== undefined && typeof params.maxBytes !== 'number')) throw new AgentToolsError('INVALID_ARGUMENT', 'Bounded request has invalid parameter types.')
   return { ...(object(params.query) ? { query: params.query } : {}), ...(typeof params.cursor === 'string' ? { cursor: params.cursor } : {}), ...(typeof params.maxItems === 'number' ? { maxItems: params.maxItems } : {}), ...(typeof params.maxBytes === 'number' ? { maxBytes: params.maxBytes } : {}) }
 }
 
@@ -119,5 +127,11 @@ function exactKeys(value: JsonObject, allowed: readonly string[]): void {
   const extras = Object.keys(value).filter((key) => !allowed.includes(key))
   if (extras.length) throw new AgentToolsError('INVALID_ARGUMENT', `Unsupported parameter(s): ${extras.sort().join(', ')}.`)
 }
-function object(value: JsonValue | undefined): value is JsonObject { return typeof value === 'object' && value !== null && !Array.isArray(value) }
+function object(value: unknown): value is JsonObject { return typeof value === 'object' && value !== null && !Array.isArray(value) }
 function asJson(value: unknown): JsonValue { return cloneJson(value, 'tool result') as JsonValue }
+function optionalString(params: JsonObject, key: string, method: string): void { if (params[key] !== undefined && typeof params[key] !== 'string') throw new AgentToolsError('INVALID_ARGUMENT', `${method} ${key} must be a string.`) }
+function safeRequestId(call: unknown): string {
+  if (typeof call !== 'object' || call === null || Array.isArray(call)) return ''
+  const descriptor = Object.getOwnPropertyDescriptor(call, 'requestId')
+  return descriptor && 'value' in descriptor && typeof descriptor.value === 'string' ? descriptor.value : ''
+}

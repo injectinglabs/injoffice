@@ -4,6 +4,7 @@ import {
   AGENT_TOOLS_PROTOCOL,
   AGENT_TOOLS_PROTOCOL_VERSION,
   AgentAdapterRegistry,
+  AgentChangeSet,
   AgentToolsError,
   createAgentSession,
   createAgentToolDispatcher,
@@ -140,10 +141,92 @@ describe('agent session', () => {
     expect(confirm).toHaveBeenCalledTimes(3)
   })
 
+  it('fails closed when a JavaScript confirmation hook returns a truthy non-boolean', async () => {
+    const subject = await session({ confirmDestructive: (async () => 'approved') as never })
+    const removal = await subject.plan([{ name: 'value.delete', input: {} }])
+    await expect(removal.commit({ idempotencyKey: 'invalid-confirmation-hook', confirmation: 'approved' })).rejects.toMatchObject({ code: 'CONFIRMATION_DENIED' })
+  })
+
   it('refuses oversized or malformed adapter output', async () => {
     const subject = await session({ adapter: adapter({ read: async () => ({ data: 'x'.repeat(100), itemCount: 1, truncated: false }) }) })
     await expect(subject.read({ maxBytes: 10 })).rejects.toMatchObject({ code: 'INVALID_ADAPTER_RESULT' })
     await expect(subject.plan([{ name: 'value.set', input: { value: Number.NaN } }])).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  })
+
+  it('rejects adapter envelope shadowing and malformed nested result fields', async () => {
+    const read = async () => ({
+      data: { safe: true },
+      itemCount: 1,
+      truncated: false,
+      protocol: 'attacker-controlled',
+    }) as unknown as ReturnType<AgentArtifactAdapter<Artifact>['read']> extends Promise<infer T> ? T : never
+    const subject = await session({ adapter: adapter({ read }) })
+    await expect(subject.read()).rejects.toMatchObject({ code: 'INVALID_ADAPTER_RESULT' })
+
+    const preview = async () => ({ data: {}, issues: [], evidence: [], changeSetId: 'forged' }) as never
+    const previewSubject = await session({ adapter: adapter({ preview }) })
+    const changeSet = await previewSubject.plan([{ name: 'value.set', input: { value: 8 } }])
+    await expect(changeSet.preview()).rejects.toMatchObject({ code: 'INVALID_ADAPTER_RESULT' })
+
+    const malformedIssues = await session({ adapter: adapter({ validate: async () => [null] as never }) })
+    const malformedPlan = await malformedIssues.plan([{ name: 'value.set', input: { value: 8 } }])
+    await expect(malformedPlan.validate()).rejects.toMatchObject({ code: 'INVALID_ADAPTER_RESULT' })
+
+    let getterCalls = 0
+    const maliciousCommit = async () => {
+      const result: Record<string, unknown> = { artifact: { id: 'artifact-1', revision: 2, value: 8 } }
+      Object.defineProperty(result, 'identity', { enumerable: true, get: () => { getterCalls += 1; return identity(result.artifact as Artifact) } })
+      return result as never
+    }
+    const commitSubject = await session({ adapter: adapter({ commit: maliciousCommit }) })
+    const commitPlan = await commitSubject.plan([{ name: 'value.set', input: { value: 8 } }])
+    await expect(commitPlan.commit({ idempotencyKey: 'malicious-result' })).rejects.toMatchObject({ code: 'INVALID_ADAPTER_RESULT' })
+    expect(getterCalls).toBe(0)
+  })
+
+  it('reports post-commit verification failures without making a successful mutation look retryable', async () => {
+    const commit = vi.fn(adapter().commit)
+    const subject = await session({ adapter: adapter({ commit, verify: async () => { throw Object.assign(new Error('proof timed out'), { name: 'AbortError' }) } }) })
+    const changeSet = await subject.plan([{ name: 'value.set', input: { value: 11 } }])
+    const first = await changeSet.commit({ idempotencyKey: 'proof-failure' })
+    const duplicate = await changeSet.commit({ idempotencyKey: 'proof-failure' })
+    expect(commit).toHaveBeenCalledTimes(1)
+    expect(subject.identity.revision).toBe('2')
+    expect(first).toEqual(duplicate)
+    expect(first.verification).toMatchObject({ verified: false, checks: [{ passed: false }], issues: [{ code: 'POST_COMMIT_ABORTED' }] })
+  })
+
+  it('does not replay an idempotency key after an ambiguous adapter commit failure', async () => {
+    const commit = vi.fn(async () => { throw new Error('connection dropped after write') })
+    const subject = await session({ adapter: adapter({ commit }) })
+    const changeSet = await subject.plan([{ name: 'value.set', input: { value: 11 } }])
+    await expect(changeSet.commit({ idempotencyKey: 'ambiguous-write' })).rejects.toMatchObject({ code: 'ADAPTER_ERROR' })
+    await expect(changeSet.commit({ idempotencyKey: 'ambiguous-write' })).rejects.toMatchObject({ code: 'ADAPTER_ERROR' })
+    expect(commit).toHaveBeenCalledTimes(1)
+  })
+
+  it('observes aborts after an adapter that ignores its signal returns', async () => {
+    let release!: (value: { data: JsonObject; itemCount: number; truncated: boolean }) => void
+    const subject = await session({ adapter: adapter({ read: async () => new Promise((resolve) => { release = resolve }) }) })
+    const controller = new AbortController()
+    const pending = subject.read({ signal: controller.signal })
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    controller.abort()
+    release({ data: {}, itemCount: 0, truncated: false })
+    await expect(pending).rejects.toMatchObject({ code: 'ABORTED' })
+  })
+
+  it('rejects foreign change-set instances and malformed loaded envelopes', async () => {
+    const first = await session()
+    const second = await session()
+    const planned = await first.plan([{ name: 'value.set', input: { value: 8 } }])
+    await expect(second.validate(planned)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    const forged = new AgentChangeSet(planned.envelope, second)
+    await expect(second.validate(forged)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+
+    const malformed = structuredClone(planned.envelope) as unknown as { operations: unknown[] }
+    malformed.operations = [null]
+    expect(() => second.loadChangeSet(malformed as never)).toThrowError(AgentToolsError)
   })
 })
 
@@ -179,5 +262,60 @@ describe('registry and JSON dispatcher', () => {
     cyclic.self = cyclic
     const malformed = await dispatcher.dispatch({ protocol: AGENT_TOOLS_PROTOCOL, protocolVersion: AGENT_TOOLS_PROTOCOL_VERSION, requestId: 'cycle', method: 'office.inspect', params: cyclic })
     expect(malformed).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+  })
+
+  it('rejects non-JSON JavaScript graphs without invoking accessors', async () => {
+    const dispatcher = createAgentToolDispatcher(await session())
+    const base = { protocol: AGENT_TOOLS_PROTOCOL, protocolVersion: AGENT_TOOLS_PROTOCOL_VERSION, requestId: 'unsafe', method: 'office.inspect' }
+    let getterCalls = 0
+    const accessorCall: Record<string, unknown> = { ...base }
+    Object.defineProperty(accessorCall, 'params', { enumerable: true, get: () => { getterCalls += 1; return {} } })
+    await expect(dispatcher.dispatch(accessorCall)).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    expect(getterCalls).toBe(0)
+
+    const symbolCall = { ...base, params: {} }
+    Object.defineProperty(symbolCall.params, Symbol('hidden'), { enumerable: true, value: true })
+    await expect(dispatcher.dispatch(symbolCall)).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+
+    const sparseOperations = new Array(1)
+    await expect(dispatcher.dispatch({ ...base, requestId: 'sparse', method: 'office.plan', params: { operations: sparseOperations } })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+  })
+
+  it('normalizes negative zero and safely preserves prototype-shaped JSON keys', async () => {
+    const inspect = async ({ query }: { query?: JsonObject }) => ({ data: query ?? {}, itemCount: 1, truncated: false })
+    const subject = await session({ adapter: adapter({ inspect: inspect as AgentArtifactAdapter<Artifact>['inspect'] }) })
+    const dispatcher = createAgentToolDispatcher(subject)
+    const invoke = (method: AgentToolCall['method'], params: JsonObject, requestId = method) => dispatcher.dispatch({ protocol: AGENT_TOOLS_PROTOCOL, protocolVersion: AGENT_TOOLS_PROTOCOL_VERSION, requestId, method, params })
+    const planned = await invoke('office.plan', { operations: [{ name: 'value.set', input: { value: -0 } }] })
+    expect(planned).toMatchObject({ ok: true, result: { operations: [{ input: { value: 0 } }] } })
+    if (planned.ok) {
+      const value = (planned.result as unknown as { operations: Array<{ input: { value: number } }> }).operations[0]!.input.value
+      expect(Object.is(value, -0)).toBe(false)
+    }
+
+    const query = JSON.parse('{"__proto__":{"polluted":true},"constructor":"kept"}') as JsonObject
+    const inspected = await invoke('office.inspect', { query })
+    expect(inspected.ok).toBe(true)
+    if (inspected.ok) {
+      const data = (inspected.result as unknown as { data: Record<string, unknown> }).data
+      expect(Object.prototype.hasOwnProperty.call(data, '__proto__')).toBe(true)
+      expect(data.constructor).toBe('kept')
+      expect((Object.prototype as { polluted?: boolean }).polluted).toBeUndefined()
+    }
+  })
+
+  it('rejects wrong optional wire types instead of silently dropping them', async () => {
+    const dispatcher = createAgentToolDispatcher(await session())
+    const call = (params: JsonObject) => dispatcher.dispatch({ protocol: AGENT_TOOLS_PROTOCOL, protocolVersion: AGENT_TOOLS_PROTOCOL_VERSION, requestId: 'wrong-type', method: 'office.plan', params })
+    await expect(call({ operations: [{ name: 'value.set', input: { value: 1 } }], expectedRevision: 1 })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    await expect(call({ operations: [{ name: 'value.set', input: { value: 1 } }], metadata: [] })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+  })
+
+  it('keeps per-dispatcher descriptors immutable when restore is unavailable', async () => {
+    const withoutRestore = adapter()
+    delete withoutRestore.restore
+    const dispatcher = createAgentToolDispatcher(await session({ adapter: withoutRestore }))
+    expect(Object.isFrozen(dispatcher.descriptors)).toBe(true)
+    expect(() => (dispatcher.descriptors as AgentCapability[]).pop()).toThrow()
   })
 })

@@ -27,6 +27,10 @@ export class AgentToolsError extends Error {
 
 export function asAgentToolsError(error: unknown): AgentToolsError {
   if (error instanceof AgentToolsError) return error
-  if (typeof DOMException !== 'undefined' && error instanceof DOMException && error.name === 'AbortError') return new AgentToolsError('ABORTED', 'Agent operation was aborted.', true, undefined, undefined, { cause: error })
+  if (isAbortError(error)) return new AgentToolsError('ABORTED', 'Agent operation was aborted.', true, undefined, undefined, { cause: error })
   return new AgentToolsError('ADAPTER_ERROR', error instanceof Error ? error.message : 'Artifact adapter failed.', true, undefined, undefined, { cause: error })
+}
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
 }
