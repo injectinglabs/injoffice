@@ -194,9 +194,9 @@ export default function GalleryPage() {
             <DsChip tone="green">Proposal</DsChip>
             <DsChip>Does not restyle the live demo</DsChip>
           </p>
-          <h1>A spreadsheet workbench, drawn more quietly.</h1>
+          <h1>A spreadsheet workbench, a little more current.</h1>
           <p className="ds-lede">
-            Same bones as last time: menus, formula bar, column letters, active cell, sheet tabs. The mark is ours (a grid with one cell selected), type is IBM Plex and Source Serif, and the green is forest rather than a product logo. Toggle light and dark, then send notes.
+            Same bones: formula bar, column letters, active cell, sheet tabs. Rounder chrome, airier rows, Instrument Sans, pill tabs, and a rounded grid mark — still not a product logo. Toggle light and dark, then send notes.
           </p>
           <div className="ds-row" style={{ marginBottom: 20 }}>
             <DsButton variant={scheme === 'light' ? 'outlined' : 'text'} onClick={() => setTheme('light')}>Light</DsButton>
@@ -243,7 +243,7 @@ export default function GalleryPage() {
           <section id="type">
             <h2>Type</h2>
             <p>
-              Source Serif for the workbook title. IBM Plex Sans in chrome and cells. IBM Plex Mono for formulas and hashes.
+              Source Serif for the workbook title. Instrument Sans in chrome and cells. IBM Plex Mono for formulas and hashes.
             </p>
             <p style={{ fontFamily: 'var(--ds-display)', fontSize: 28, fontWeight: 500, letterSpacing: '-0.03em', margin: '0 0 8px' }}>launch-readiness-plan</p>
             <p className="ds-lede" style={{ fontFamily: 'var(--ds-cell)' }}>Native XLSX · Mira · Live</p>
