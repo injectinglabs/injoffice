@@ -9,6 +9,7 @@ import {
 } from './colorScheme'
 import GuidedRecipe from './components/GuidedRecipe'
 import DemoSource from './components/DemoSource'
+import { DsMark } from './design-system/primitives'
 import { DEMO_BY_SURFACE, DEMO_GROUPS, DEMOS, preloadDemoOnIntent, type DemoDefinition } from './demoRegistry'
 import OverviewPage from './pages/OverviewPage'
 import { isDesignSystemHash, isDocsHash, parseSurface, surfaceHref, type Surface } from './route'
@@ -105,7 +106,7 @@ function AppHeader({ sidecar, scheme, onScheme }: { sidecar: SidecarState; schem
   return (
     <header className="app-header">
       <a className="app-brand" href={surfaceHref('overview')} aria-label="InjOffice overview">
-        <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+        <DsMark />
         <span><strong>InjOffice</strong><small>Source-authoritative file engines</small></span>
       </a>
       <div className={`sidecar-status sidecar-status--${sidecar}`} role="status">
@@ -283,7 +284,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell" data-surface={surface} data-navigation={navigationCollapsed ? 'collapsed' : 'expanded'}>
+    <div className="app-shell ds" data-surface={surface} data-navigation={navigationCollapsed ? 'collapsed' : 'expanded'}>
       <a className="skip-link" href="#main-content">Skip to demo</a>
       <AppHeader sidecar={sidecar} scheme={scheme} onScheme={(next) => { persistColorScheme(next); setScheme(next) }} />
       <aside className="app-sidebar">
