@@ -11,9 +11,10 @@ import GuidedRecipe from './components/GuidedRecipe'
 import DemoSource from './components/DemoSource'
 import { DEMO_BY_SURFACE, DEMO_GROUPS, DEMOS, preloadDemoOnIntent, type DemoDefinition } from './demoRegistry'
 import OverviewPage from './pages/OverviewPage'
-import { isDocsHash, parseSurface, surfaceHref, type Surface } from './route'
+import { isDesignSystemHash, isDocsHash, parseSurface, surfaceHref, type Surface } from './route'
 
 const DocsApp = lazy(() => import('../../docs/src/App'))
+const DesignSystemGallery = lazy(() => import('./design-system/GalleryPage'))
 
 type SidecarState = 'checking' | 'connected' | 'offline'
 
@@ -113,6 +114,7 @@ function AppHeader({ sidecar, scheme, onScheme }: { sidecar: SidecarState; schem
       </div>
       <div className="app-header-actions">
         <ColorSchemeToggle scheme={scheme} onScheme={onScheme} />
+        <a className="github-link" href="#/design-system">Design system</a>
         <a className="github-link" href="#/guides">Guides</a>
         <a className="github-link" href="https://github.com/injectinglabs/injoffice" target="_blank" rel="noreferrer">View source<span aria-hidden="true">↗</span></a>
       </div>
@@ -263,6 +265,14 @@ export default function App() {
   const navigationCollapsed = surface !== 'overview' && !navigationExpanded
   const requestedSurface = parseSurface()
   const requestedTitle = requestedSurface === 'overview' ? 'Overview' : DEMO_BY_SURFACE.get(requestedSurface)?.title
+
+  if (isDesignSystemHash()) {
+    return (
+      <Suspense fallback={<div className="demo-loading" role="status">Opening design system…</div>}>
+        <DesignSystemGallery />
+      </Suspense>
+    )
+  }
 
   if (isDocsHash()) {
     return (

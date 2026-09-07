@@ -1,0 +1,85 @@
+/* Proposed InjOffice design system — review only.
+   Scoped to .ds so the current demo is unchanged. */
+
+.ds {
+  --ds-vellum: #dce6df;
+  --ds-sheet: #f3f7f4;
+  --ds-ink: #141c18;
+  --ds-ink-soft: #3a4840;
+  --ds-mute: #5d6e64;
+  --ds-rule: #9aada0;
+  --ds-rule-soft: #c5d2c8;
+  --ds-applied: #0e6b48;
+  --ds-applied-soft: #d5eee3;
+  --ds-refused: #c4371d;
+  --ds-refused-soft: #f8ddd7;
+  --ds-steel: #35556a;
+  --ds-steel-soft: #d5e3ec;
+  --ds-on-applied: #f3f7f4;
+  --ds-on-refused: #fff7f5;
+  --ds-on-steel: #f3f7f4;
+  --ds-code: #18221c;
+  --ds-code-ink: #d7e4db;
+  --ds-focus: #35556a;
+  --ds-gutter: 40px;
+  --ds-control: 34px;
+  --ds-radius: 2px;
+  --ds-type: "Bricolage Grotesque", "Segoe UI", sans-serif;
+  --ds-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --ds-shadow-sheet: 7px 7px 0 var(--ds-rule);
+  color: var(--ds-ink);
+  background: var(--ds-vellum);
+  font-family: var(--ds-type);
+  font-optical-sizing: auto;
+  font-size: 15px;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+}
+
+html[data-theme="dark"] .ds {
+  --ds-vellum: #101613;
+  --ds-sheet: #171d1a;
+  --ds-ink: #e6eee8;
+  --ds-ink-soft: #c2d0c6;
+  --ds-mute: #8aa094;
+  --ds-rule: #3a4a41;
+  --ds-rule-soft: #27332c;
+  --ds-applied: #3dba86;
+  --ds-applied-soft: #163528;
+  --ds-refused: #ee6a52;
+  --ds-refused-soft: #3a1d17;
+  --ds-steel: #7ea3b8;
+  --ds-steel-soft: #1c2b34;
+  --ds-on-applied: #101613;
+  --ds-on-refused: #101613;
+  --ds-on-steel: #101613;
+  --ds-code: #0c100e;
+  --ds-code-ink: #d7e4db;
+  --ds-focus: #7ea3b8;
+  --ds-shadow-sheet: 7px 7px 0 #0a0e0c;
+}
+
+.ds *,
+.ds *::before,
+.ds *::after { box-sizing: border-box; }
+
+.ds :where(button, input, select, textarea) { font: inherit; }
+
+.ds :focus-visible {
+  outline: 2px solid var(--ds-focus);
+  outline-offset: 2px;
+}
+
+.ds ::selection {
+  background: var(--ds-steel-soft);
+  color: var(--ds-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds *,
+  .ds *::before,
+  .ds *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

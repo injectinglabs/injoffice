@@ -43,3 +43,8 @@ export function isDocsHash(hash = typeof location === 'undefined' ? '' : locatio
   const path = hash.replace(/^#\/?/, '').split(/[/?]/)[0]?.toLowerCase() ?? ''
   return path === 'guides'
 }
+
+export function isDesignSystemHash(hash = typeof location === 'undefined' ? '' : location.hash): boolean {
+  const path = hash.replace(/^#\/?/, '').split(/[/?]/)[0]?.toLowerCase() ?? ''
+  return path === 'design-system'
+}
