@@ -996,6 +996,58 @@ function MockGuides() {
   )
 }
 
+function MockAgent() {
+  const [format, setFormat] = useState('xlsx')
+  return (
+    <Frame>
+      <Head pkg="@injoffice/agent-tools" title="Agent change sets" runtime="Browser" />
+      <div className="ds-workstrip">
+        <DsSegment
+          label="Artifact format"
+          value={format}
+          onChange={setFormat}
+          options={[
+            { id: 'xlsx', label: 'XLSX' },
+            { id: 'docx', label: 'DOCX' },
+            { id: 'pptx', label: 'PPTX' },
+            { id: 'pdf', label: 'PDF' },
+          ]}
+        />
+        <span className="ds-muted">Inspect → plan → preview → validate → host approval → commit → verify</span>
+      </div>
+      <div className="ds-split">
+        <div className="ds-split-main">
+          <span className="ds-eyebrow">Isolated preview</span>
+          {format === 'xlsx' ? (
+            <table className="ds-table">
+              <thead><tr><th>Region</th><th>Owner</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td>West</td><td>Maya</td><td>Watch</td></tr>
+                <tr><td>East</td><td>Theo</td><td className="num">High</td></tr>
+              </tbody>
+            </table>
+          ) : (
+            <p className="ds-muted">Preview of the proposed {format.toUpperCase()} edit. Original bytes stay untouched until commit.</p>
+          )}
+        </div>
+        <aside className="ds-split-side">
+          <div className="ds-panel">
+            <span className="ds-eyebrow">Change set</span>
+            <p className="ds-code">{format === 'xlsx' ? 'xlsx.cell.set_value · Forecast!D5 · High' : `${format}.bounded_edit`}</p>
+          </div>
+          <div className="ds-panel">
+            <span className="ds-eyebrow">Validate</span>
+            <DsChip tone="green">Revision bound</DsChip>
+            <p className="ds-muted">Host approval is required before commit. A stale revision refuses and writes nothing.</p>
+          </div>
+          <DsButton variant="filled">Approve and commit</DsButton>
+          <DsButton variant="refuse">Refuse</DsButton>
+        </aside>
+      </div>
+    </Frame>
+  )
+}
+
 export const SURFACE_GALLERY: {
   id: string
   label: string
@@ -1012,6 +1064,7 @@ export const SURFACE_GALLERY: {
   { id: 'surface-shapes', label: 'Shapes', blurb: 'Preset library and a labeled preview. Approximate kinds stay honest.', Mock: MockShapes },
   { id: 'surface-connectors', label: 'Data connectors', blurb: 'JSON or CSV in, bound grid out. Credentials never enter the package.', Mock: MockConnectors },
   { id: 'surface-formulas', label: 'Formulas', blurb: 'Search the audited set, inspect a fixture invocation, submit a calculation job.', Mock: MockFormulas },
+  { id: 'surface-agent', label: 'Agent workflows', blurb: 'Inspect, plan, preview, validate, and commit a bounded change set. The host owns approval.', Mock: MockAgent },
   { id: 'surface-collab', label: 'Collaboration', blurb: 'Two independent editors, presence, and a format switch. Simulation first.', Mock: MockCollab },
   { id: 'surface-history', label: 'History', blurb: 'Before, after, structured diffs, and an immutable version timeline.', Mock: MockHistory },
   { id: 'surface-font-metrics', label: 'Typography', blurb: 'Browser-safe layout contract. Shaping stays on the Node side of the line.', Mock: MockTypography },
