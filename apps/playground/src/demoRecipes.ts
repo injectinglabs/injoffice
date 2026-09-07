@@ -40,14 +40,14 @@ export const DEMO_RECIPES = {
   sheets: {
     id: 'sheets-native-round-trip',
     title: 'Prove an XLSX edit survives the round trip',
-    outcome: 'Change a real workbook, reopen the emitted bytes, and inspect the preservation evidence.',
+    outcome: 'Change a real workbook, reopen the emitted bytes, and inspect exact cell and revision readback evidence.',
     minutes: 3,
     steps: [
-      { id: 'open-native', title: 'Open the native proof', instruction: 'Choose “Test XLSX round trip,” then load the bundled workbook.', evidence: 'The workbook grid and a revision-bound mutation target appear.' },
-      { id: 'edit-cell', title: 'Make one guarded edit', instruction: 'Select an editable cell, change its value, and save it back to XLSX.', evidence: 'The result reports a successful mutation and produces downloadable bytes.' },
-      { id: 'verify-xlsx', title: 'Read the result back', instruction: 'Inspect the reopened value and the archive-preservation evidence before downloading.', evidence: 'The edited value matches and unrelated workbook parts remain accounted for.' },
+      { id: 'open-native', title: 'Open the native proof', instruction: 'Choose “Test XLSX round trip,” then select “Use bundled .xlsx.”', evidence: 'The workbook grid and a revision-bound Safe cell target appear.' },
+      { id: 'edit-cell', title: 'Make one guarded edit', instruction: 'Choose a Safe cell, change its New literal value, and select “Save to XLSX.”', evidence: 'The status reports a successful mutation and verified download bytes become available.' },
+      { id: 'verify-xlsx', title: 'Read the result back', instruction: 'In 03 · Verify, compare Cell, Before, After, and CAS moved before downloading.', evidence: 'After matches the value you entered and CAS moved shows the package revision changed.' },
     ],
-    sources: [source('Spreadsheet demo', 'apps/playground/src/pages/SheetsPage.tsx'), source('XLSX browser engine', 'packages/xlsx-wasm/src/index.ts')],
+    sources: [source('Native XLSX proof', 'apps/playground/src/pages/NativeRoundTripPage.tsx'), source('XLSX browser engine', 'packages/xlsx-wasm/src/index.ts')],
     related: [
       { surface: 'formulas', reason: 'Inspect the formula coverage behind calculated workbook cells.' },
       { surface: 'charts', reason: 'Turn a worksheet range into a renderer-neutral chart.' },
@@ -59,9 +59,9 @@ export const DEMO_RECIPES = {
     outcome: 'Replace one exact text run without silently rebuilding the rest of the document.',
     minutes: 3,
     steps: [
-      { id: 'load-docx', title: 'Load known DOCX bytes', instruction: 'Run the bundled proof and keep the default in-browser runtime selected.', evidence: 'The semantic preview lists paragraphs, tables, and explicit limitations.' },
-      { id: 'choose-run', title: 'Choose a guarded run', instruction: 'Pick an exact mutation target in the inspector and edit its text.', evidence: 'The Save to DOCX action becomes available for only that bounded target.' },
-      { id: 'verify-docx', title: 'Save and verify', instruction: 'Save to DOCX, then compare the reopened text and preservation evidence.', evidence: 'The target contains the new text and the output is available to download.' },
+      { id: 'load-docx', title: 'Load known DOCX bytes', instruction: 'Keep “In browser (default)” selected, then choose “Use bundled .docx.”', evidence: 'The preview renders document blocks while Fidelity boundary enumerates parsed content and explicit limitations.' },
+      { id: 'choose-run', title: 'Choose a guarded run', instruction: 'Pick a Safe text run, change its Replacement text, and select “Save to DOCX.”', evidence: 'The save action is enabled only for a changed, bounded target.' },
+      { id: 'verify-docx', title: 'Save and verify', instruction: 'In 03 · Verify, compare Before, After, identities, preserved parts, and CAS moved.', evidence: 'The target contains the new text and “Download verified .docx” becomes available.' },
     ],
     sources: [source('DOCX demo', 'apps/playground/src/pages/DocsPage.tsx'), source('DOCX browser engine', 'packages/docx-wasm/src/index.ts')],
     related: [
@@ -72,11 +72,11 @@ export const DEMO_RECIPES = {
   slides: {
     id: 'slides-outline-to-deck',
     title: 'Build and inspect an editable deck',
-    outcome: 'Turn a plain outline into a themed DeckSpec and check its layout before export.',
+    outcome: 'Turn a plain outline into a themed DeckSpec and check its layout before native compilation.',
     minutes: 3,
     steps: [
       { id: 'revise-outline', title: 'Revise the outline', instruction: 'Edit the title and bullets in the Deck outline field.', evidence: 'The outline remains plain text and is ready to compile deterministically.' },
-      { id: 'build-deck', title: 'Build the slides', instruction: 'Choose a theme, select “Build slides,” and move through the generated thumbnails.', evidence: 'The canvas shows editable slides with stable content derived from the outline.' },
+      { id: 'build-deck', title: 'Build the slides', instruction: 'Choose a Theme, select “Build slides,” then move through the deck with Prev and Next.', evidence: 'The canvas shows editable slides with stable content derived from the outline.' },
       { id: 'check-transition', title: 'Add motion and check layout', instruction: 'Set a transition for one slide, then review the Layout QC panel.', evidence: 'The transition is stored on the slide and QC reports any estimated overlap or overflow.' },
     ],
     sources: [source('Presentation demo', 'apps/playground/src/pages/SlidesPage.tsx'), source('Deck model', 'packages/slides/src/index.ts')],
@@ -91,9 +91,9 @@ export const DEMO_RECIPES = {
     outcome: 'Open real PDF bytes, apply a bounded browser-safe operation, and download the result.',
     minutes: 4,
     steps: [
-      { id: 'open-pdf', title: 'Open a PDF', instruction: 'Use Open PDF to select a local file, then page through the rendered document.', evidence: 'The canvas reports the current page and the inspector panels become available.' },
-      { id: 'inspect-pdf', title: 'Inspect its structure', instruction: 'Search extracted text or open the outline, annotations, and forms panels.', evidence: 'Results link back to exact pages and expose only data the active runtime supports.' },
-      { id: 'edit-pdf', title: 'Apply one page operation', instruction: 'In Page tools, rotate the current page or insert a blank page.', evidence: 'The status describes the completed operation and the page count or orientation updates.' },
+      { id: 'open-pdf', title: 'Open a PDF', instruction: 'Wait for the bundled sample to load, or select “Open PDF” to use a local file, then page through it.', evidence: 'The canvas reports the current page and the PDF tool tabs become available.' },
+      { id: 'inspect-pdf', title: 'Inspect its structure', instruction: 'Use Inspect to search text and read the outline, then open Markup or Forms for their document data.', evidence: 'Search, outline, and annotation results link to pages where available; form values stay explicit.' },
+      { id: 'edit-pdf', title: 'Apply one page operation', instruction: 'Open Pages, then select “Rotate 90°” or “Insert blank after.”', evidence: 'The status describes the completed operation and the geometry or page count updates.' },
       { id: 'download-pdf', title: 'Export the edited bytes', instruction: 'Select “Download edited PDF” and retain the output as the proof artifact.', evidence: 'The downloaded file reflects the browser-local operation.' },
     ],
     sources: [source('PDF workbench', 'apps/playground/src/pages/PdfPage.tsx'), source('PDF operations', 'packages/pdf/src/index.ts')],
@@ -174,7 +174,7 @@ export const DEMO_RECIPES = {
     steps: [
       { id: 'find-formula', title: 'Find an audited function', instruction: 'Search for a function family such as lookup, date, or text.', evidence: 'The inventory narrows while preserving each function’s audited status.' },
       { id: 'inspect-fixture', title: 'Inspect a valid invocation', instruction: 'Select one result and read its fixture formula and compatibility details.', evidence: 'The detail panel shows a concrete expression rather than a name-only claim.' },
-      { id: 'calculate-formula', title: 'Run the job', instruction: 'Use the selected formula, then run the calculation job.', evidence: 'The page returns a value or an explicit engine error with no silent fallback.' },
+      { id: 'calculate-formula', title: 'Run the job', instruction: 'Select “Use selected formula,” then select “Submit job.”', evidence: 'The page returns a value or an explicit engine error with no silent fallback.' },
     ],
     sources: [source('Formula demo', 'apps/playground/src/pages/FormulasPage.tsx'), source('Formula calculation API', 'packages/formulas/src/calculation.ts')],
     related: [
@@ -188,11 +188,11 @@ export const DEMO_RECIPES = {
     outcome: 'Make an edit on one surface, observe it on another, and inspect the ordered operation ledger.',
     minutes: 3,
     steps: [
-      { id: 'choose-collab-format', title: 'Choose an artifact', instruction: 'Keep Two-editor simulation selected, then choose sheets, docs, slides, or PDF.', evidence: 'Two independent editors join one browser-local room.' },
+      { id: 'choose-collab-format', title: 'Choose an artifact', instruction: 'Keep “Two-editor simulation” selected, then choose Sheets, Docs, Slides, or PDF.', evidence: 'Two independent editors join one browser-local room.' },
       { id: 'make-collab-edit', title: 'Edit on one side', instruction: 'Change content or presence in the left editor.', evidence: 'The right editor receives the operation while retaining its own local identity.' },
-      { id: 'inspect-ledger', title: 'Inspect ordering', instruction: 'Read the Shared operation ledger and compare durable operations with presence events.', evidence: 'Ordered edits have sequence numbers while ephemeral presence is labeled separately.' },
+      { id: 'inspect-ledger', title: 'Inspect ordering', instruction: 'Read the Shared operation ledger and compare ordered content operations with presence events.', evidence: 'Ordered edits have sequence numbers while ephemeral presence is labeled separately.' },
     ],
-    sources: [source('Collaboration page', 'apps/playground/src/collabPage.tsx'), source('Collaboration core', 'packages/collab/src/index.ts')],
+    sources: [source('Two-editor collaboration proof', 'apps/playground/src/collabSimulator.tsx'), source('Collaboration core', 'packages/collab/src/index.ts')],
     related: [
       { surface: 'history', reason: 'Persist meaningful collaboration checkpoints as durable versions.' },
       { surface: 'pdf', reason: 'Explore the full browser PDF tools behind the shared annotation proof.' },
