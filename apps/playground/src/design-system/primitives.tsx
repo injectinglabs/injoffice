@@ -1,29 +1,29 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 
-export function DsMark() {
-  return <span className="ds-mark" aria-hidden="true"><i /><i /><i /></span>
+export function DsSheetsMark() {
+  return (
+    <span className="ds-sheets-mark" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <rect x="4" y="3" width="16" height="18" rx="1.5" fill="currentColor" opacity="0.2" />
+        <path fill="currentColor" d="M7 7h10v2H7V7zm0 4h10v2H7v-2zm0 4h6v2H7v-2z" />
+      </svg>
+    </span>
+  )
 }
 
 export function DsButton({
-  variant = 'sheet',
+  variant = 'text',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'sheet' | 'apply' | 'steel' | 'ghost' | 'refuse' }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'text' | 'filled' | 'green' | 'outlined' | 'refuse' }) {
   return <button type="button" {...props} className={`ds-btn ds-btn--${variant}${props.className ? ` ${props.className}` : ''}`} />
 }
 
-export function DsField({
-  label,
-  children,
-}: {
-  label: string
-  children: ReactNode
-}) {
-  return (
-    <label className="ds-field">
-      {label}
-      {children}
-    </label>
-  )
+export function DsTool(props: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type="button" {...props} className="ds-tool" />
+}
+
+export function DsField({ label, children }: { label: string; children: ReactNode }) {
+  return <label className="ds-field">{label}{children}</label>
 }
 
 export function DsInput(props: InputHTMLAttributes<HTMLInputElement>) {
@@ -38,29 +38,14 @@ export function DsTextarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} />
 }
 
-export function DsBadge({
+export function DsChip({
   tone = 'plain',
   children,
 }: {
-  tone?: 'plain' | 'applied' | 'refused' | 'steel'
+  tone?: 'plain' | 'green' | 'blue' | 'refuse'
   children: ReactNode
 }) {
-  return <span className={`ds-badge ds-badge--${tone}`}>{children}</span>
-}
-
-export function DsStatus({
-  state,
-  children,
-}: {
-  state: 'live' | 'down' | 'idle'
-  children: ReactNode
-}) {
-  return (
-    <span className={`ds-status ds-status--${state}`}>
-      <i aria-hidden="true" />
-      {children}
-    </span>
-  )
+  return <span className={`ds-chip ds-chip--${tone}`}>{children}</span>
 }
 
 export function DsCallout({
@@ -68,100 +53,24 @@ export function DsCallout({
   title,
   children,
 }: {
-  tone?: 'note' | 'applied' | 'refused'
+  tone?: 'note' | 'green' | 'refuse'
   title: string
   children: ReactNode
 }) {
   return (
-    <div className={`ds-callout ds-callout--${tone}`} role={tone === 'refused' ? 'alert' : 'status'}>
+    <div className={`ds-callout ds-callout--${tone}`} role={tone === 'refuse' ? 'alert' : 'status'}>
       <strong>{title}</strong>
       <p>{children}</p>
     </div>
   )
 }
 
-export function DsTabs({
-  value,
-  options,
-  onChange,
-  label,
-}: {
-  value: string
-  options: { id: string; label: string }[]
-  onChange: (id: string) => void
-  label: string
-}) {
-  return (
-    <div className="ds-tabs" role="tablist" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          role="tab"
-          aria-selected={value === option.id}
-          onClick={() => onChange(option.id)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-export function DsFileObject({
-  name,
-  detail,
-  runtime,
-  children,
-}: {
-  name: string
-  detail: string
-  runtime: string
-  children?: ReactNode
-}) {
-  return (
-    <article className="ds-file">
-      <header>
-        <div>
-          <strong>{name}</strong>
-          <span>{detail}</span>
-        </div>
-        <DsBadge tone="steel">{runtime}</DsBadge>
-      </header>
-      {children}
-    </article>
-  )
-}
-
-export function DsProof({ steps }: { steps: { title: string; detail: string }[] }) {
-  return (
-    <ol className="ds-proof">
-      {steps.map((step) => (
-        <li key={step.title}>
-          <div>
-            <strong>{step.title}</strong>
-            <small>{step.detail}</small>
-          </div>
-        </li>
-      ))}
-    </ol>
-  )
-}
-
-export function DsPresence({
+export function DsAvatar({
   initials,
-  name,
-  cell,
+  tone = 1,
 }: {
   initials: string
-  name: string
-  cell: string
+  tone?: 1 | 2 | 3
 }) {
-  return (
-    <span className="ds-presence">
-      <b aria-hidden="true">{initials}</b>
-      {name}
-      <span className="ds-hash">{cell}</span>
-    </span>
-  )
+  return <span className={`ds-avatar${tone === 1 ? '' : ` ds-avatar--${tone}`}`}>{initials}</span>
 }
