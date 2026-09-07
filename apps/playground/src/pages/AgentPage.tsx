@@ -11,13 +11,16 @@ import {
   type AgentVerification,
 } from '../agentDemoRuntime'
 import { createAgentDemoScenario, type AgentDemoFormat, type AgentDemoMode } from '../agentDemoScenario'
-import { DsButton, DsCallout, DsChip, DsField, DsSegment, DsSelect } from '../design-system/primitives'
+import { AGENT_TOOLS, agentFormatFromTool, agentHref, parseAgentTool, type AgentTool } from '../route'
+import { DsButton, DsCallout, DsChip, DsSegment } from '../design-system/primitives'
 import '../design-system/live-tools.css'
 
 type WorkflowState = 'ready' | 'preparing' | 'awaiting-approval' | 'refused' | 'committing' | 'verified' | 'error'
 type WorkflowStep = 'Inspect' | 'Plan' | 'Preview + diff' | 'Validate' | 'Approve' | 'Commit' | 'Verify'
+type AgentToolName = 'office.capabilities' | 'office.inspect' | 'office.plan' | 'office.preview' | 'office.diff' | 'office.validate' | 'office.commit' | 'office.verify'
 
 const STEPS: WorkflowStep[] = ['Inspect', 'Plan', 'Preview + diff', 'Validate', 'Approve', 'Commit', 'Verify']
+const AGENT_TOOL_METHODS: AgentToolName[] = ['office.capabilities', 'office.inspect', 'office.plan', 'office.preview', 'office.diff', 'office.validate', 'office.commit', 'office.verify']
 
 function stepState(step: WorkflowStep, state: WorkflowState): 'done' | 'active' | 'waiting' | 'refused' {
   const progress: Record<WorkflowState, number> = {
@@ -88,7 +91,9 @@ function ArtifactView({ format, content, highlighted }: { format: AgentDemoForma
 }
 
 export default function AgentPage() {
-  const [format, setFormat] = useState<AgentDemoFormat>('xlsx')
+  const [, setRouteTick] = useState(0)
+  const tool = parseAgentTool()
+  const format: AgentDemoFormat = agentFormatFromTool(tool)
   const [mode, setMode] = useState<AgentDemoMode>('safe')
   const [state, setState] = useState<WorkflowState>('ready')
   const [approved, setApproved] = useState(false)
@@ -101,7 +106,10 @@ export default function AgentPage() {
   const [receipt, setReceipt] = useState<AgentCommitReceipt | null>(null)
   const [verification, setVerification] = useState<AgentVerification | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [toolLog, setToolLog] = useState<AgentToolName[]>([])
   const scenario = useMemo(() => createAgentDemoScenario(format, mode), [format, mode])
+  const toolMeta = AGENT_TOOLS.find((item) => item.tool === tool) ?? AGENT_TOOLS[0]
+  const markTool = (name: AgentToolName) => setToolLog((log) => log.includes(name) ? log : [...log, name])
 
   const reset = () => {
     setState('ready')
@@ -114,7 +122,14 @@ export default function AgentPage() {
     setReceipt(null)
     setVerification(null)
     setError(null)
+    setToolLog([])
   }
+
+  useEffect(() => {
+    const syncTool = () => setRouteTick((tick) => tick + 1)
+    window.addEventListener('hashchange', syncTool)
+    return () => window.removeEventListener('hashchange', syncTool)
+  }, [])
 
   useEffect(() => {
     reset()
@@ -125,18 +140,28 @@ export default function AgentPage() {
     })
   }, [format, mode])
 
+  const selectTool = (next: AgentTool) => {
+    if (parseAgentTool() !== next) window.location.hash = agentHref(next)
+  }
+
   const prepare = async () => {
     reset()
     setState('preparing')
     try {
       const { session, operations } = createDemoSessionInput(format, mode)
       const report = await session.capabilities()
+      markTool('office.capabilities')
       setCapabilities(report.operations)
       const inspected = await session.inspect({ selection: format === 'xlsx' ? 'sheet-forecast!A1:D5' : 'document', maxItems: 20, maxBytes: 16_000 })
+      markTool('office.inspect')
       setInspection(inspected)
       const planned = await session.plan(operations, { expectedRevision: inspected.revision })
+      markTool('office.plan')
       setChangeSet(planned)
       const [nextPreview, nextDiff, nextValidation] = await Promise.all([planned.preview(), planned.diff(), planned.validate()])
+      markTool('office.preview')
+      markTool('office.diff')
+      markTool('office.validate')
       setPreview(nextPreview)
       setDiff(nextDiff)
       setValidation(nextValidation)
@@ -157,8 +182,10 @@ export default function AgentPage() {
         idempotencyKey: `demo-${changeSet.id}`,
         confirmation: 'approved',
       })
+      markTool('office.commit')
       setReceipt(nextReceipt)
       const nextVerification = await changeSet.verify(nextReceipt)
+      markTool('office.verify')
       setVerification(nextVerification)
       setState(nextVerification.ok ? 'verified' : 'error')
       if (!nextVerification.ok) setError('The committed output did not match its receipt.')
@@ -185,16 +212,14 @@ export default function AgentPage() {
 
   return (
     <div className="ds">
-    <section className="tool-page" data-demo-surface="agent" aria-label="Agent change set workbench">
+    <section className="tool-page" data-demo-surface="agent" data-agent-tool={tool} aria-label={toolMeta.title}>
       <div className="agent-demo__toolbar workbench-toolbar ds-workstrip" role="toolbar" aria-label="Agent workflow controls">
-        <DsField label="Document">
-          <DsSelect value={format} onChange={(event) => setFormat(event.target.value as AgentDemoFormat)}>
-            <option value="xlsx">Spreadsheet · XLSX</option>
-            <option value="docx">Document · DOCX</option>
-            <option value="pptx">Presentation · PPTX</option>
-            <option value="pdf">Portable document · PDF</option>
-          </DsSelect>
-        </DsField>
+        <DsSegment
+          label="Office tool"
+          value={tool}
+          onChange={(id) => selectTool(id as AgentTool)}
+          options={AGENT_TOOLS.map((item) => ({ id: item.tool, label: item.label }))}
+        />
         <DsSegment
           label="Proposal type"
           value={mode}
@@ -204,9 +229,21 @@ export default function AgentPage() {
             { id: 'refusal', label: 'Refusal proof' },
           ]}
         />
-        <DsButton variant="filled" className="workbench-button workbench-button--primary" disabled={state === 'preparing' || state === 'committing'} onClick={() => void prepare()}>Prepare change</DsButton>
+        <DsButton variant="filled" className="workbench-button workbench-button--primary" disabled={state === 'preparing' || state === 'committing'} onClick={() => void prepare()}>Run agent</DsButton>
         <span className="agent-demo__status" data-state={state} role="status" aria-live="polite">{status}</span>
       </div>
+
+      <div className="agent-request">
+        <label htmlFor="agent-prompt">Agent request</label>
+        <textarea id="agent-prompt" readOnly value={scenario.prompt} rows={2} />
+        <small>Deterministic local proposal · lifecycle enforced by @injoffice/agent-tools · no model SDK or network request</small>
+      </div>
+
+      <ol className="agent-tool-log" aria-label="office.* tool calls">
+        {AGENT_TOOL_METHODS.map((method) => (
+          <li key={method} data-state={toolLog.includes(method) ? 'done' : 'waiting'}><code>{method}</code></li>
+        ))}
+      </ol>
 
       <ol className="agent-flight-recorder ds-timeline" aria-label="Agent change set stages">
         {STEPS.map((step) => {

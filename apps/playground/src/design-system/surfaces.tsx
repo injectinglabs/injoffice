@@ -997,19 +997,68 @@ function MockGuides() {
 }
 
 function MockAgent() {
-  const [format, setFormat] = useState('xlsx')
+  const [tool, setTool] = useState<'sheets' | 'docs' | 'slides' | 'pdf'>('sheets')
+  const labels = { sheets: 'Sheets', docs: 'Docs', slides: 'Slides', pdf: 'PDF' } as const
+  const preview = {
+    sheets: {
+      change: 'xlsx.cell.set_value · Forecast!D5 · High',
+      body: (
+        <table className="ds-table">
+          <thead><tr><th>Region</th><th>Plan</th><th>Actual</th><th>Confidence</th></tr></thead>
+          <tbody>
+            <tr><td>North</td><td className="num">120</td><td className="num">126</td><td>High</td></tr>
+            <tr><td>East</td><td className="num">80</td><td className="num">84</td><td className="num">High</td></tr>
+          </tbody>
+        </table>
+      ),
+    },
+    docs: {
+      change: 'docx.text.replace · block-summary',
+      body: (
+        <article className="ds-page">
+          <h4>Northstar launch brief</h4>
+          <p>Launch readiness is on track for the October 18 review.</p>
+          <p>Owner: Product Operations</p>
+        </article>
+      ),
+    },
+    slides: {
+      change: 'pptx.authored.slide.update · 86% → 91%',
+      body: (
+        <div className="ds-slide">
+          <h4>Launch readiness</h4>
+          <ul>
+            <li>Five regions prepared</li>
+            <li>Readiness 91%</li>
+          </ul>
+        </div>
+      ),
+    },
+    pdf: {
+      change: 'pdf.page.rotate · page 2 · 90°',
+      body: (
+        <article className="ds-pdf-sheet">
+          <h4>Approval record</h4>
+          <p className="ds-muted">Review packet · page 2 · rotation 90°</p>
+          <div className="ds-pdf-line" />
+          <div className="ds-pdf-line ds-pdf-line--short" />
+          <div className="ds-pdf-line" />
+        </article>
+      ),
+    },
+  }[tool]
   return (
     <Frame>
-      <Head pkg="@injoffice/agent-tools" title="Agent change sets" runtime="Browser" />
+      <Head pkg="@injoffice/agent-tools" title={`AI change sets · ${labels[tool]}`} runtime="Browser" />
       <div className="ds-workstrip">
         <DsSegment
-          label="Artifact format"
-          value={format}
-          onChange={setFormat}
+          label="Office tool"
+          value={tool}
+          onChange={(id) => setTool(id as 'sheets' | 'docs' | 'slides' | 'pdf')}
           options={[
-            { id: 'xlsx', label: 'XLSX' },
-            { id: 'docx', label: 'DOCX' },
-            { id: 'pptx', label: 'PPTX' },
+            { id: 'sheets', label: 'Sheets' },
+            { id: 'docs', label: 'Docs' },
+            { id: 'slides', label: 'Slides' },
             { id: 'pdf', label: 'PDF' },
           ]}
         />
@@ -1018,22 +1067,12 @@ function MockAgent() {
       <div className="ds-split">
         <div className="ds-split-main">
           <span className="ds-eyebrow">Isolated preview</span>
-          {format === 'xlsx' ? (
-            <table className="ds-table">
-              <thead><tr><th>Region</th><th>Owner</th><th>Status</th></tr></thead>
-              <tbody>
-                <tr><td>West</td><td>Maya</td><td>Watch</td></tr>
-                <tr><td>East</td><td>Theo</td><td className="num">High</td></tr>
-              </tbody>
-            </table>
-          ) : (
-            <p className="ds-muted">Preview of the proposed {format.toUpperCase()} edit. Original bytes stay untouched until commit.</p>
-          )}
+          {preview.body}
         </div>
         <aside className="ds-split-side">
           <div className="ds-panel">
             <span className="ds-eyebrow">Change set</span>
-            <p className="ds-code">{format === 'xlsx' ? 'xlsx.cell.set_value · Forecast!D5 · High' : `${format}.bounded_edit`}</p>
+            <p className="ds-code">{preview.change}</p>
           </div>
           <div className="ds-panel">
             <span className="ds-eyebrow">Validate</span>
@@ -1064,7 +1103,7 @@ export const SURFACE_GALLERY: {
   { id: 'surface-shapes', label: 'Shapes', blurb: 'Preset library and a labeled preview. Approximate kinds stay honest.', Mock: MockShapes },
   { id: 'surface-connectors', label: 'Data connectors', blurb: 'JSON or CSV in, bound grid out. Credentials never enter the package.', Mock: MockConnectors },
   { id: 'surface-formulas', label: 'Formulas', blurb: 'Search the audited set, inspect a fixture invocation, submit a calculation job.', Mock: MockFormulas },
-  { id: 'surface-agent', label: 'Agent workflows', blurb: 'Inspect, plan, preview, validate, and commit a bounded change set. The host owns approval.', Mock: MockAgent },
+  { id: 'surface-agent', label: 'AI change sets', blurb: 'Inspect, plan, preview, validate, and commit a bounded Sheets, Docs, Slides, or PDF change set. The host owns approval.', Mock: MockAgent },
   { id: 'surface-collab', label: 'Collaboration', blurb: 'Two independent editors, presence, and a format switch. Simulation first.', Mock: MockCollab },
   { id: 'surface-history', label: 'History', blurb: 'Before, after, structured diffs, and an immutable version timeline.', Mock: MockHistory },
   { id: 'surface-font-metrics', label: 'Typography', blurb: 'Browser-safe layout contract. Shaping stays on the Node side of the line.', Mock: MockTypography },
