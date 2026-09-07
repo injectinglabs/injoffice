@@ -8,7 +8,7 @@
   --ds-ink: #141816;
   --ds-mute: #5a6560;
   --ds-line: #e3e7e5;
-  --ds-grid: color-mix(in srgb, var(--ds-ink) 10%, transparent);
+  --ds-grid: #d5dad6;
   --ds-header: #f7f8f8;
   --ds-select: #0f6f8f;
   --ds-select-soft: #e7f4f8;
@@ -49,7 +49,7 @@ html[data-theme="dark"] .ds {
   --ds-ink: #eef3f0;
   --ds-mute: #9aa59f;
   --ds-line: #2c3330;
-  --ds-grid: color-mix(in srgb, var(--ds-ink) 16%, transparent);
+  --ds-grid: #3d4541;
   --ds-header: #1b211e;
   --ds-select: #7ec4d8;
   --ds-select-soft: #163038;
