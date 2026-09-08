@@ -21,6 +21,8 @@ let chrome, socket, server
 let chunkFailures = 0
 const reloadDialogs = []
 let allowReloadDialog = false
+let holdChunks = false
+const heldChunks = []
 
 function onMessage({ data }) {
   const message = JSON.parse(data)
@@ -38,7 +40,9 @@ function onMessage({ data }) {
   } else if (message.method === 'Network.requestWillBeSent' && /\/api\/agent\/propose(?:\?|$)/.test(message.params.request.url)) {
     liveProposals.push(message.params.request.url)
   } else if (message.method === 'Fetch.requestPaused') {
-    if (chunkFailures === 0) {
+    if (holdChunks) {
+      heldChunks.push(message.params.requestId)
+    } else if (chunkFailures === 0) {
       chunkFailures++
       void send('Fetch.failRequest', { requestId: message.params.requestId, errorReason: 'ConnectionReset' })
     } else {
@@ -79,9 +83,9 @@ async function screenshot(name) {
   writeFileSync(resolve(output, `${name}.png`), Buffer.from(data, 'base64'))
 }
 
-const active = (key) => `location.hash === ${JSON.stringify(href(key))} && document.querySelector('.app-sidebar a[aria-current="location"]')?.getAttribute('href') === ${JSON.stringify(href(key))}`
+const active = (key, hash = href(key)) => `location.hash === ${JSON.stringify(hash)} && document.querySelector('.app-sidebar a[aria-current="location"]')?.getAttribute('href') === ${JSON.stringify(href(key))}`
 const ready = (key) => `document.querySelector(${JSON.stringify(section(key))})?.dataset.scrollState === 'ready'`
-const agentState = (key, state) => `document.querySelector(${JSON.stringify(`${section(key)} .agent-demo__status`)})?.dataset.state === ${JSON.stringify(state)}`
+const agentState = (key, state) => `document.querySelector(${JSON.stringify(`${section(key)} .agent-demo__status`)})?.dataset.state === ${JSON.stringify(state)}${state === 'ready' ? ` && Array.from(document.querySelector(${JSON.stringify(section(key))}).querySelectorAll('button')).some(button => button.textContent.trim() === 'Run agent' && !button.disabled)` : ''}`
 
 async function anchor(key) {
   await evaluate(`document.querySelector(${JSON.stringify(`.app-sidebar a[href="${href(key)}"]`)}).click()`)
@@ -93,7 +97,7 @@ async function button(key, text) {
   await evaluate(`Array.from(document.querySelector(${JSON.stringify(section(key))}).querySelectorAll('button')).find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`)
 }
 
-async function wheelTo(key) {
+async function wheelTo(key, hash = href(key)) {
   // Native wheel input does not run an anchor's navigation handler. The target
   // offset comes from the real rendered document, so lazy section heights can vary.
   const distance = await evaluate(`(() => {
@@ -101,9 +105,10 @@ async function wheelTo(key) {
     const margin = parseFloat(getComputedStyle(target).scrollMarginTop) || 100;
     return target.getBoundingClientRect().top - margin;
   })()`)
-  // The page gutter avoids editor-owned canvas/textarea wheel handlers.
-  await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 1428, y: 450, deltaX: 0, deltaY: distance + 8 })
-  await until(active(key), `${key} passive wheel scroll updates location`, 90_000)
+  // Exercise wheel input over the visible demo content, not a special gutter.
+  // Agent workbenches should grow naturally within the scrolling document.
+  await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 1100, y: 450, deltaX: 0, deltaY: distance + 8 })
+  await until(active(key, hash), `${key} passive wheel scroll updates location`, 90_000)
   if (key !== 'overview') await until(ready(key), `${key} loads after entering the viewport`, 90_000)
 }
 
@@ -217,6 +222,33 @@ try {
   await wheelTo('formulas')
   await screenshot('scroll-active-sidebar-desktop')
 
+  // A new explicit anchor must win over scroll frames queued by the previous
+  // navigation. These warm neighbors reproduce rapid section changes.
+  for (let index = 0; index < 3; index++) {
+    await anchor('charts')
+    await anchor('shapes')
+    await anchor('pivots')
+    await until(active('pivots'), 'rapid anchors settle on the last explicit destination')
+  }
+
+  // Preserve query intent even when a cold section first mounts after the user
+  // has already moved elsewhere. Re-enter via passive scrolling, not a hashchange.
+  origin.hash = '#/overview'
+  await send('Page.navigate', { url: origin.href })
+  await until(active('overview'), 'fresh document ready for cold Sheets deep link')
+  holdChunks = true
+  await send('Fetch.enable', { patterns: [{ urlPattern: '*SheetsPage*', resourceType: 'Script', requestStage: 'Request' }] })
+  await evaluate(`location.hash = '#/sheets?view=native'`)
+  const coldStart = Date.now()
+  while (heldChunks.length === 0 && Date.now() - coldStart < 10_000) await new Promise(resolve => setTimeout(resolve, 50))
+  assert.ok(heldChunks.length > 0, 'cold native Sheets deep link waits for its lazy chunk')
+  await anchor('history')
+  holdChunks = false
+  await send('Fetch.disable')
+  await until(`document.querySelector('${section('sheets')} .native-toolbar')`, 'cold Sheets mounts its remembered native view while another section owns the URL', 90_000)
+  await wheelTo('sheets', '#/sheets?view=native')
+  assert.equal(await evaluate(`document.querySelector('${section('sheets')} .native-toolbar') !== null`), true, 'passive re-entry preserves both the native view and its original deep link')
+
   // Reloading a shared deep link chooses the exact AI format, not the first
   // mounted agent. Neighboring agents retain their own independent format.
   origin.hash = '#/agent?format=pdf'
@@ -248,7 +280,7 @@ try {
   if (socket?.readyState === WebSocket.OPEN) {
     try {
       await screenshot('failure')
-      console.error(JSON.stringify({ screenshots: output, errors, state: await evaluate(`({ hash: location.hash, y: scrollY, active: document.querySelector('.app-sidebar a[aria-current]')?.outerHTML, sections: Array.from(document.querySelectorAll('[data-scroll-section]')).map(element => ({ key: element.dataset.scrollSection, state: element.dataset.scrollState, top: Math.round(element.getBoundingClientRect().top) })) })`) }, null, 2))
+      console.error(JSON.stringify({ screenshots: output, errors, state: await evaluate(`({ hash: location.hash, y: scrollY, active: document.querySelector('.app-sidebar a[aria-current]')?.outerHTML, sections: Array.from(document.querySelectorAll('[data-scroll-section]')).map(element => ({ key: element.dataset.scrollSection, state: element.dataset.scrollState, top: Math.round(element.getBoundingClientRect().top), agentState: element.querySelector('.agent-demo__status')?.dataset.state, prompt: element.querySelector('[data-agent-request]')?.value, error: element.querySelector('.tool-error')?.textContent })) })`) }, null, 2))
     } catch (diagnosticError) { console.error(`Could not collect failure diagnostics: ${diagnosticError.message}`) }
   }
   throw error
