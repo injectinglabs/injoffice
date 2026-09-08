@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PDFDocument, degrees } from 'pdf-lib'
 import { PdfViewerDocument } from '../../../packages/pdf/src/viewer'
+import { annotationEntries, numberArray } from '../../../packages/pdf/src/annotate/pdfObjects'
 import { applyPdfPageOp, applyPdfMarkup, applyPdfNote, applyPdfPlacedDrawing, listPdfAnnots } from './pdfWorkbench'
 import { pointerToPdf, rangesOverlap, recordPdfEdit, travelPdfHistory, type PdfSnapshot } from './pdfInteraction'
 
@@ -31,7 +32,11 @@ describe('PDF user interaction', () => {
     expect(annots.find(a => a.subtype === 'note')?.rect.slice(0, 2)).toEqual([230, 80])
     for (const kind of ['rect', 'ellipse', 'line', 'arrow', 'ink'] as const) {
       const result = await applyPdfPlacedDrawing(noted, 1, kind, [[210, 120], [180, 150], [130, 90]])
-      expect((await PDFDocument.load(result)).getPageCount()).toBe(1)
+      const doc = await PDFDocument.load(result)
+      const drawing = annotationEntries(doc.getPage(0)).at(-1)!.dict
+      if (kind === 'rect' || kind === 'ellipse') expect(numberArray(drawing, 'Rect')).toEqual([130, 90, 210, 120])
+      if (kind === 'line' || kind === 'arrow') expect(numberArray(drawing, 'L')).toEqual([210, 120, 130, 90])
+      if (kind === 'ink') expect(numberArray(drawing, 'Rect')).toEqual([129.25, 89.25, 210.75, 150.75])
     }
   })
 
