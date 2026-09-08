@@ -8,8 +8,13 @@ export const useCollabComposition = () => useContext(CollabCompositionContext)
 /** Embedded rooms may consume their explicit deep link, never another workspace's URL. */
 export function initialCollabArtifact(scope: CollabCompositionProps, currentHref: string): string {
   if (scope.fixedFormat !== undefined && !scope.initialHash) return ''
-  const parsed = parseCollabQuery(scope.initialHash ?? currentHref)
-  if (scope.fixedFormat !== undefined && parsed.format !== scope.fixedFormat) return ''
+  const href = scope.initialHash ?? currentHref
+  const parsed = parseCollabQuery(href)
+  // Canonical workspace URLs name their format in the path, not ?format=.
+  // Keep the same precedence as workspace routing: a direct tool path wins.
+  const path = new URL(href, 'http://collab.invalid').hash.replace(/^#\/?/, '').split(/[/?#]/)[0]?.toLowerCase()
+  const format = path === 'sheets' || path === 'docs' || path === 'slides' || path === 'pdf' ? path : parsed.format
+  if (scope.fixedFormat !== undefined && format !== scope.fixedFormat) return ''
   return parsed.artifact
 }
 

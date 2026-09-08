@@ -26,6 +26,15 @@ describe('shared panel composition', () => {
     expect(initialCollabArtifact({}, 'http://localhost:3100/?artifact=current&format=docs#/collab')).toBe('current')
     expect(initialCollabArtifact({ initialHash: '#/collab?artifact=initial&format=docs' }, 'http://localhost:3100/?artifact=current')).toBe('initial')
   })
+  it.each(formats)('accepts an explicit canonical %s room deep link without a redundant format query', (fixedFormat) => {
+    expect(initialCollabArtifact({ fixedFormat, initialHash: `#/${fixedFormat}?feature=collab&artifact=canonical-room` }, 'http://localhost:3100/?format=pdf&artifact=unrelated'))
+      .toBe('canonical-room')
+    const differentFormat = fixedFormat === 'docs' ? 'sheets' : 'docs'
+    expect(initialCollabArtifact({ fixedFormat, initialHash: `#/${differentFormat}?feature=collab&artifact=other-room` }, 'http://localhost:3100/'))
+      .toBe('')
+    expect(initialCollabArtifact({ fixedFormat, initialHash: `#/${fixedFormat}?feature=collab&format=${differentFormat}&artifact=canonical-room` }, 'http://localhost:3100/'))
+      .toBe('canonical-room')
+  })
   it.each(formats)('builds an isolated %s sharing link without altering other URL settings', (fixedFormat) => {
     const current = 'http://localhost:3100/demo?theme=dark&artifact=old&format=pdf#/docs?panel=history'
     const href = collabRoomHref(current, 'art a&b', fixedFormat)
