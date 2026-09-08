@@ -149,6 +149,14 @@ try {
   await until(agentState('agent-docs', 'awaiting-approval'), 'real DOCX preview ready', 90_000)
   const plan = await evaluate(`document.querySelector('${section('agent-docs')} .agent-diff').textContent`)
   await anchor('charts')
+  await until(`document.querySelector('${section('charts')} input[aria-label="Jan revenue"]')`, 'editable chart mounted')
+  await evaluate(`(() => {
+    const input = document.querySelector('${section('charts')} input[aria-label="Jan revenue"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '999');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    window.__persistedChartInput = input;
+  })()`)
+  await until(`document.querySelector('${section('charts')} .tool-metrics').textContent.includes('999')`, 'chart analysis reflects the real source edit')
   await anchor('agent-docs')
   assert.equal(await evaluate(agentState('agent-docs', 'awaiting-approval')), true, 'returning to a section preserves its pending approval')
   assert.equal(await evaluate(`document.querySelector('${section('agent-docs')} .agent-diff').textContent`), plan, 'the exact reviewed change survives navigation')
@@ -163,6 +171,7 @@ try {
 
   // Explicit anchors add navigable entries; scroll updates alone do not.
   await anchor('charts')
+  assert.equal(await evaluate(`window.__persistedChartInput.isConnected && document.querySelector('${section('charts')} input[aria-label="Jan revenue"]').value === '999'`), true, 'chart source edits survive navigating to another live editor')
   await anchor('shapes')
   await evaluate('history.back()')
   await until(active('charts'), 'browser Back restores the previous section')
