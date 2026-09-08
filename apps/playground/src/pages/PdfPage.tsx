@@ -312,9 +312,13 @@ export default function PdfPage() {
     if (!file) return
     if (edited && !window.confirm('Open another PDF and discard your current edits? Download your edited PDF first if you want to keep it.')) return
     setError(null)
+    setBusy('loading')
     try {
       const nextBytes = new Uint8Array(await file.arrayBuffer())
       if (nextBytes.length === 0) throw new Error('the selected file is empty')
+      // Keep the current document and undo stack until the replacement is usable.
+      const candidate = await PdfViewerDocument.load(nextBytes)
+      try { await candidate.getPage(1) } finally { await candidate.destroy() }
       setFileName(file.name || 'document.pdf')
       setEdited(false)
       setHistory({ past: [], future: [] })
@@ -322,6 +326,8 @@ export default function PdfPage() {
       setBytes(nextBytes)
     } catch (reason: unknown) {
       setError(`Could not read the selected PDF: ${errorMessage(reason)}`)
+    } finally {
+      setBusy(null)
     }
   }
 
