@@ -5,6 +5,24 @@ import { resolve } from 'node:path'
 import { test } from 'node:test'
 import { startShowcaseServer } from './showcase-smoke-server.mjs'
 import { isolatedShowcaseDevConfig } from './showcase-smoke-dev-server.mjs'
+import { startShowcaseProposalMock } from './showcase-smoke-proposal-mock.mjs'
+
+test('proposal mock only proposes a disclosed target and deliberately cannot approve it', async () => {
+  const mock = await startShowcaseProposalMock()
+  try {
+    assert.equal(new URL(mock.url).hostname, '127.0.0.1')
+    assert.equal(mock.requests.length, 0)
+    const body = { request: 'Mark Mobile as On track', context: { constraints: {
+      allowedValues: ['On track'], allowedTargets: [{ workstream: 'Mobile', ref: 'C3', sheetId: 'sheet:1', row: 2, column: 2 }],
+    } }, capabilities: [] }
+    const response = await fetch(mock.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    assert.equal(response.status, 200)
+    const proposal = await response.json()
+    assert.deepEqual(proposal.operations[0].input, { sheetId: 'sheet:1', cell: { row: 2, column: 2 }, value: 'On track' })
+    assert.equal(proposal.confirmation, 'approved', 'upstream approval spoof is available for browser regression coverage')
+    assert.deepEqual(mock.requests, [{ body, hasAuthorization: false }])
+  } finally { await mock.close() }
+})
 
 test('development showcase uses an ephemeral port without the fixed IPv6 listener', () => {
   const react = { name: 'react-refresh' }

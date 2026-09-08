@@ -5,10 +5,12 @@ import { resolve } from 'node:path'
 import { launchChromeForCDP, terminateProcess } from './chrome-cdp-startup.mjs'
 import { startShowcaseServer } from './showcase-smoke-server.mjs'
 import { startShowcaseDevServer } from './showcase-smoke-dev-server.mjs'
+import { startShowcaseProposalMock } from './showcase-smoke-proposal-mock.mjs'
 
 const output = process.env.SHOWCASE_OUTPUT ? resolve(process.env.SHOWCASE_OUTPUT) : mkdtempSync(resolve(tmpdir(), 'injoffice-showcase-review-'))
 mkdirSync(output, { recursive: true })
 let chrome, socket, staticServer
+let proposalMock, restoreProposalEnv
 let sequence = 0
 const pending = new Map()
 const errors = []
@@ -93,7 +95,16 @@ async function route(path) {
 try {
   assert.ok(!(process.argv.includes('--built') && process.argv.includes('--dev')), 'choose either --built or --dev')
   if (process.argv.includes('--built')) staticServer = await startShowcaseServer(resolve(import.meta.dirname, '../apps/playground/dist'))
-  if (process.argv.includes('--dev')) staticServer = await startShowcaseDevServer(resolve(import.meta.dirname, '../apps/playground'))
+  if (process.argv.includes('--dev')) {
+    proposalMock = await startShowcaseProposalMock()
+    const saved = ['INJOFFICE_AGENT_PROPOSAL_URL', 'INJOFFICE_AGENT_PROPOSAL_TOKEN'].map((key) => [key, process.env[key]])
+    restoreProposalEnv = () => { for (const [key, value] of saved) { if (value === undefined) delete process.env[key]; else process.env[key] = value } }
+    // Override even a pre-existing provider configuration: this test must never
+    // contact a real model endpoint or forward the developer's credentials.
+    process.env.INJOFFICE_AGENT_PROPOSAL_URL = proposalMock.url
+    delete process.env.INJOFFICE_AGENT_PROPOSAL_TOKEN
+    staticServer = await startShowcaseDevServer(resolve(import.meta.dirname, '../apps/playground'))
+  }
   const origin = new URL(staticServer?.url ?? process.env.SHOWCASE_URL ?? 'http://127.0.0.1:3100/')
   origin.hash = '#/overview'
   chrome = await launchChromeForCDP({
@@ -237,6 +248,47 @@ try {
     await until(`document.querySelector('[data-agent-tool=${tool}]') && document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Run agent' && !button.disabled)`, `${tool} reset reloads the source`, 90_000)
     assert.equal(await evaluate(`!document.querySelector('[data-agent-download]') && !document.querySelector('.agent-diff') && !Array.from(document.querySelectorAll('.agent-tool-log li[data-state=done]')).some(item => /office\\.(plan|commit)/.test(item.textContent)) && document.querySelector('.agent-approval input').checked === false`), true, 'reset clears outputs, plans, commits, and approval; initial capability discovery is allowed')
   }
+  if (proposalMock) {
+    await route('agent?format=sheets')
+    await until(agentReady, 'local sample ready for isolated live proposal test', 90_000)
+    assert.equal(proposalMock.requests.length, 0, 'local workflows never contact the proposal upstream')
+    await evaluate(`(() => { const select = document.querySelector('[data-agent-proposal-source]'); select.value = 'live'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+    await until(`document.querySelector('[data-agent-live-context] pre') && document.querySelector('[data-agent-live-consent]')`, 'live mode discloses bounded context before consent', 90_000)
+    await setAgentRequest('Mark Mobile as On track')
+    const disclosedContext = await evaluate(`JSON.parse(document.querySelector('[data-agent-live-context] pre').textContent)`)
+    assert.ok(disclosedContext.constraints.allowedTargets.some((target) => target.ref === 'C3' && target.workstream === 'Mobile'), 'disclosure identifies the allowed Mobile cell')
+    assert.equal(proposalMock.requests.length, 0, 'selection, request editing, and context discovery do not send anything upstream')
+    assert.equal(await evaluate(`document.querySelector('[data-agent-live-consent]').checked`), false, 'data-sharing consent starts unchecked')
+    assert.equal(await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Run agent').disabled`), true, 'no live request can run without consent')
+    await click('[data-agent-live-consent]')
+    await clickButton('Run agent')
+    await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'awaiting-approval'`, 'mock live proposal enters human review', 90_000)
+    assert.equal(proposalMock.requests.length, 1, 'one consented Run produces exactly one mock upstream request')
+    const sent = proposalMock.requests[0]
+    assert.equal(sent.hasAuthorization, false, 'no existing provider token is forwarded to the test mock')
+    assert.equal(sent.body.request, 'Mark Mobile as On track')
+    const { capabilities: disclosedCapabilities, ...disclosedWorkbook } = disclosedContext
+    assert.deepEqual(sent.body.context, disclosedWorkbook, 'only the exact disclosed bounded workbook context is sent')
+    assert.deepEqual(sent.body.capabilities, disclosedCapabilities, 'only the disclosed capabilities are sent')
+    assert.deepEqual(Object.keys(sent.body).sort(), ['capabilities', 'context', 'request'], 'upstream receives proposal context, not file bytes or approval authority')
+    assert.match(await evaluate(`document.querySelector('.agent-diff').textContent`), /C3/, 'live proposal resolves the disclosed Mobile target')
+    assert.equal(await agentWrites(), 0, 'a live proposal cannot write native bytes')
+    assert.equal(await evaluate(`document.querySelector('.agent-approval input').checked`), false, 'upstream confirmation approved cannot grant host approval')
+    assert.equal(await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Commit approved change').disabled`), true, 'commit remains disabled until separate human approval')
+    assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, 'the unapproved proposal cannot expose output bytes')
+    await screenshot('agent-live-proposal-review')
+    await approveAgentCommit()
+    await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'verified' && document.querySelector('[data-agent-download]')`, 'human-approved live proposal produces verified native output', 90_000)
+    assert.equal(await agentWrites(), 1, 'the approved live proposal writes exactly once')
+    assert.equal(proposalMock.requests.length, 1, 'native commit and verification do not contact the proposal provider')
+    const signature = await evaluate(`(async () => Array.from(new Uint8Array(await (await fetch(document.querySelector('[data-agent-download]').href)).arrayBuffer()).slice(0, 4)))()`)
+    assert.deepEqual(signature, [80, 75, 3, 4], 'live-proposed verified download is a real XLSX archive')
+    await clickButton('Reload sample')
+    await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && !document.querySelector('[data-agent-proposal-source]').disabled`, 'live sample reloaded without automatic proposal', 90_000)
+    await evaluate(`(() => { const select = document.querySelector('[data-agent-proposal-source]'); select.value = 'local'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+    await until(agentReady, 'local proposal mode restored', 90_000)
+    assert.equal(proposalMock.requests.length, 1, 'reset and mode changes do not make hidden upstream requests')
+  }
   await click('.source-proof-trigger')
   await click('.guided-recipe__complete')
   await until(`document.querySelector('[role=progressbar]').getAttribute('aria-valuenow') === '1'`, 'AI guide progress recorded')
@@ -275,6 +327,9 @@ try {
 } finally {
   for (const task of pending.values()) clearTimeout(task.timer)
   socket?.close()
-  if (chrome) await terminateProcess(chrome.child)
-  await staticServer?.close()
+  try { if (chrome) await terminateProcess(chrome.child) }
+  finally {
+    try { await staticServer?.close() }
+    finally { try { await proposalMock?.close() } finally { restoreProposalEnv?.() } }
+  }
 }
