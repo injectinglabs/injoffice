@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { launchChromeForCDP, terminateProcess } from './chrome-cdp-startup.mjs'
 import { startShowcaseServer } from './showcase-smoke-server.mjs'
+import { startShowcaseDevServer } from './showcase-smoke-dev-server.mjs'
 
 const output = process.env.SHOWCASE_OUTPUT ? resolve(process.env.SHOWCASE_OUTPUT) : mkdtempSync(resolve(tmpdir(), 'injoffice-showcase-review-'))
 mkdirSync(output, { recursive: true })
@@ -51,6 +52,24 @@ async function until(expression, label, timeout = 30_000) {
   throw new Error(`Timed out: ${label}`)
 }
 const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`)
+const clickButton = (label) => evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === ${JSON.stringify(label)}).click()`)
+const agentReady = `document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Run agent' && !button.disabled)`
+const agentWrites = () => evaluate(`Number(document.querySelector('[data-agent-native-writes]')?.textContent)`)
+const setAgentRequest = (request) => evaluate(`(() => { const input = document.querySelector('[data-agent-request]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(request)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
+async function prepareAgentRequest(request, target) {
+  await clickButton('Reload sample')
+  await until(agentReady, 'real XLSX sample reload', 90_000)
+  await setAgentRequest(request)
+  await clickButton('Run agent')
+  await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'awaiting-approval'`, 'editable request produces a reviewable plan', 90_000)
+  assert.ok((await evaluate(`document.querySelector('.agent-diff')?.textContent`)).includes(target), `request resolves real target ${target}`)
+  assert.match(await evaluate(`document.querySelector('[data-agent-trace]')?.textContent`), /office\.read/, 'trace includes a real bounded read')
+  assert.equal(await agentWrites(), 0, 'planning does not write native bytes')
+}
+async function approveAgentCommit() {
+  await click('.agent-approval input[type=checkbox]')
+  await clickButton('Commit approved change')
+}
 // Public chart/workbook APIs: an installed float is not proof that it has data.
 const sheetChartState = `(() => {
   const host = window.__injoffice
@@ -72,7 +91,9 @@ async function route(path) {
   await until(`document.querySelector('.app-shell')?.dataset.surface === ${JSON.stringify(surface)} && !document.querySelector('.demo-loading') && document.querySelector('.app-main')?.getAttribute('aria-busy') !== 'true'`, path)
 }
 try {
+  assert.ok(!(process.argv.includes('--built') && process.argv.includes('--dev')), 'choose either --built or --dev')
   if (process.argv.includes('--built')) staticServer = await startShowcaseServer(resolve(import.meta.dirname, '../apps/playground/dist'))
+  if (process.argv.includes('--dev')) staticServer = await startShowcaseDevServer(resolve(import.meta.dirname, '../apps/playground'))
   const origin = new URL(staticServer?.url ?? process.env.SHOWCASE_URL ?? 'http://127.0.0.1:3100/')
   origin.hash = '#/overview'
   chrome = await launchChromeForCDP({
@@ -174,12 +195,43 @@ try {
       assert.ok(download.length > 1000, 'download contains a real workbook archive')
       assert.deepEqual(download.signature, [80, 75, 3, 4], 'download is ZIP bytes, not JSON-shaped simulation')
       await screenshot('agent-real-xlsx-verified')
+      const originalWrites = await agentWrites()
+      assert.equal(originalWrites, 1, 'one approved plan causes exactly one native write')
+      await click('[data-agent-retry]')
+      await until(`!document.querySelector('[data-agent-retry]').disabled && document.querySelector('.agent-demo__status')?.dataset.state === 'verified'`, 'verified commit retry completes', 90_000)
+      assert.equal(await agentWrites(), originalWrites, 'idempotent retry does not duplicate the native write')
+
+      await prepareAgentRequest('Mark Mobile as On track', 'C3')
+      await approveAgentCommit()
+      await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'verified'`, 'different request writes and verifies the Mobile cell', 90_000)
+      assert.match(await evaluate(`document.querySelector('.agent-diff')?.textContent`), /On track/, 'the requested new value is visible in the diff')
+      assert.equal(await agentWrites(), 1, 'different request also applies exactly once')
+
+      await prepareAgentRequest('Mark Security as Ready', 'C5')
+      await click('[data-agent-concurrent-edit]')
+      await until(`!document.querySelector('[data-agent-concurrent-edit]').disabled`, 'concurrent source edit completes', 90_000)
+      const writesBeforeStaleCommit = await agentWrites()
+      await approveAgentCommit()
+      await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'error'`, 'stale approval fails closed', 90_000)
+      assert.match(await evaluate(`document.querySelector('.agent-demo')?.textContent ?? document.querySelector('.app-main').textContent`), /stale|revision/i, 'stale failure explains the revision conflict')
+      assert.equal(await agentWrites(), writesBeforeStaleCommit, 'stale commit causes no additional native write')
+      assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, 'stale approval offers no verified output')
+
+      await prepareAgentRequest('Mark Security as Ready', 'C5')
+      await click('[data-agent-fail-verification]')
+      await approveAgentCommit()
+      await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'unverified'`, 'post-write verification failure has a distinct state', 90_000)
+      assert.match(await evaluate(`document.querySelector('.app-main').textContent`), /Write completed; verification failed/, 'UI distinguishes written bytes from verified output')
+      assert.equal(await agentWrites(), 1, 'verification failure happened after a completed native write')
+      assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, 'unverified bytes are not offered as a verified download')
+      await screenshot('agent-written-but-unverified')
     }
     await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Refusal proof').click()`)
     await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Run agent' && !button.disabled)`, `${tool} refusal ready`, 90_000)
     await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Run agent').click()`)
     await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'refused'`, `${tool} unsupported operation refused`, 90_000)
-    assert.equal(await evaluate(`document.querySelectorAll('.agent-tool-log li[data-state=done]').length === 6 && !document.querySelector('.agent-approval input')`), true, 'refusal stops before commit and verification')
+    assert.equal(await evaluate(`!document.querySelector('.agent-approval input')`), true, 'refusal does not allow approval')
+    if (tool === 'sheets') assert.equal(await agentWrites(), 0, 'unsupported proposal never reaches the native writer')
     assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, 'refusal does not expose a previous output')
     await click('.demo-reset-trigger')
     await until(`document.querySelector('[data-agent-tool=${tool}]') && document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Run agent' && !button.disabled)`, `${tool} reset reloads the source`, 90_000)
@@ -213,7 +265,7 @@ try {
   await until(`document.documentElement.dataset.theme === 'dark'`, 'dark theme')
   await screenshot('focused-chart-dark')
   assert.deepEqual(errors, [], 'uncaught or console errors')
-  console.log(JSON.stringify({ status: 'passed', screenshots: output, checks: ['19 distinct examples', 'search', 'filter return persistence', 'empty recovery', 'text navigation', 'cold-route continuity', 'modal focus/inert', 'checklist persistence', 'source loading', 'all 16 surfaces', 'four AI approvals and refusals', 'AI proof boundaries and resets', 'AI format-specific guides', 'numeric chart source and reset', 'same-surface deep link', 'mobile layout', 'dark theme'], errors }, null, 2))
+  console.log(JSON.stringify({ status: 'passed', mode: process.argv.includes('--dev') ? 'development' : process.argv.includes('--built') ? 'built' : 'existing-server', screenshots: output, checks: ['19 distinct examples', 'search', 'filter return persistence', 'empty recovery', 'text navigation', 'cold-route continuity', 'modal focus/inert', 'checklist persistence', 'source loading', 'all 16 surfaces', 'four AI approvals and refusals', 'editable agent requests and public tool trace', 'idempotent native commit retry', 'stale approval refusal', 'post-write verification failure', 'AI proof boundaries and resets', 'AI format-specific guides', 'numeric chart source and reset', 'same-surface deep link', 'mobile layout', 'dark theme'], errors }, null, 2))
 } catch (error) {
   if (socket?.readyState === WebSocket.OPEN) {
     await screenshot('failure')

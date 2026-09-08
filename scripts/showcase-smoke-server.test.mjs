@@ -4,6 +4,23 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { test } from 'node:test'
 import { startShowcaseServer } from './showcase-smoke-server.mjs'
+import { isolatedShowcaseDevConfig } from './showcase-smoke-dev-server.mjs'
+
+test('development showcase uses an ephemeral port without the fixed IPv6 listener', () => {
+  const react = { name: 'react-refresh' }
+  const config = {
+    plugins: [react, { name: 'injoffice-ipv6-loopback' }],
+    server: { port: 3100, host: 'localhost', strictPort: true, open: true, proxy: { '/healthz': 'http://127.0.0.1:18765' } },
+    resolve: { alias: { '@injoffice/agent-tools': '/source/agent-tools' } },
+  }
+  const isolated = isolatedShowcaseDevConfig(config, '/source/playground')
+  assert.equal(isolated.configFile, false)
+  assert.equal(isolated.root, '/source/playground')
+  assert.deepEqual(isolated.plugins, [react])
+  assert.deepEqual(isolated.server, { ...config.server, port: 0, host: '127.0.0.1', strictPort: false, open: false })
+  assert.equal(isolated.resolve, config.resolve)
+  assert.equal(config.server.port, 3100, 'does not mutate the application configuration')
+})
 
 test('built showcase server respects its base and serves WASM MIME without SPA fallback', async () => {
   const dist = await mkdtemp(resolve(tmpdir(), 'showcase-server-test-'))
