@@ -1,0 +1,24 @@
+.docx-editable-run {
+  appearance: none;
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  white-space: pre-wrap;
+  cursor: text;
+}
+.docx-editable-run:hover { background: #e8f0ff; }
+.docx-editable-run[aria-pressed="true"] { background: #dce9ff; outline: 1px solid #507dc2; }
+.docx-editable-run:focus-visible { outline: 2px solid #2458a6; outline-offset: 3px; }
+.docx-editable-run:disabled { cursor: wait; }
+.docx-preview-story { margin-block-start: 24px; padding-block-start: 12px; border-top: 1px solid #d8dde5; }
+.docx-preview-story h5 { margin-block: 0 12px; color: #596273; font: inherit; }
+.docx-technical-details { padding: 16px; }
+.docx-technical-details > summary { cursor: pointer; font-weight: 600; padding-block: 8px; }
+.docx-technical-details > summary:focus-visible { outline: 2px solid #2458a6; outline-offset: 3px; }
+.docx-technical-details pre { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; }
