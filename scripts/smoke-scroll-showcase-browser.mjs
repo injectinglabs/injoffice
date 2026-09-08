@@ -18,6 +18,7 @@ const errors = []
 const liveProposals = []
 let sequence = 0
 let chrome, socket, server
+let chunkFailures = 0
 
 function onMessage({ data }) {
   const message = JSON.parse(data)
@@ -34,6 +35,13 @@ function onMessage({ data }) {
     errors.push(message.params.args.map((arg) => arg.value ?? arg.description).join(' '))
   } else if (message.method === 'Network.requestWillBeSent' && /\/api\/agent\/propose(?:\?|$)/.test(message.params.request.url)) {
     liveProposals.push(message.params.request.url)
+  } else if (message.method === 'Fetch.requestPaused') {
+    if (chunkFailures === 0) {
+      chunkFailures++
+      void send('Fetch.failRequest', { requestId: message.params.requestId, errorReason: 'ConnectionReset' })
+    } else {
+      void send('Fetch.continueRequest', { requestId: message.params.requestId })
+    }
   }
 }
 
@@ -88,7 +96,8 @@ async function wheelTo(key) {
     const margin = parseFloat(getComputedStyle(target).scrollMarginTop) || 100;
     return target.getBoundingClientRect().top - margin;
   })()`)
-  await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 1100, y: 450, deltaX: 0, deltaY: distance + 8 })
+  // The page gutter avoids editor-owned canvas/textarea wheel handlers.
+  await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 1428, y: 450, deltaX: 0, deltaY: distance + 8 })
   await until(active(key), `${key} passive wheel scroll updates location`, 90_000)
   if (key !== 'overview') await until(ready(key), `${key} loads after entering the viewport`, 90_000)
 }
@@ -125,8 +134,20 @@ try {
   await until(active('overview'), 'overview is the current sidebar location')
   await screenshot('scroll-overview-desktop')
 
+  if (process.argv.includes('--fault')) {
+    await send('Fetch.enable', { patterns: [{ urlPattern: '*PptxRenderPage*', resourceType: 'Script', requestStage: 'Request' }] })
+    await evaluate(`document.querySelector('.app-sidebar a[href="#/pptx-render"]').click()`)
+    await until(`document.querySelector('${section('pptx-render')}')?.dataset.scrollState === 'error'`, 'failed chunk is isolated to its section')
+    assert.equal(chunkFailures, 1, 'the test deliberately failed exactly one lazy chunk')
+    assert.equal(await evaluate(`document.querySelectorAll('[data-scroll-section]').length === 20 && !!document.querySelector('${section('pptx-render')} [role=alert]')`), true, 'one failed editor leaves the document and navigation intact')
+    await button('pptx-render', 'Retry')
+    await until(ready('pptx-render'), 'retry recovers the transient failed chunk', 30_000)
+    await send('Fetch.disable')
+    await anchor('overview')
+  }
+
   // Cold navigation preserves the overview DOM and uses a real section anchor.
-  await evaluate(`window.__overviewNode = document.querySelector('[data-scroll-section="overview"]')`)
+  await evaluate(`void (window.__overviewNode = document.querySelector('[data-scroll-section="overview"]'))`)
   await anchor('agent-docs')
   await until(agentState('agent-docs', 'ready'), 'DOCX agent initialized', 90_000)
   assert.equal(await evaluate(`window.__overviewNode.isConnected && window.__overviewNode === document.querySelector('[data-scroll-section="overview"]')`), true, 'anchor navigation preserves existing sections')
