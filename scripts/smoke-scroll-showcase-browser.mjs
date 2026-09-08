@@ -172,14 +172,44 @@ async function button(key, text) {
 async function assertInternalGroupNavigation(group, feature, key) {
   const navigation = `${toolSection('docs')} .tool-workspace__navigation`
   const groupSelector = `${toolSection('docs')} [data-workspace-group="${group}"]`
-  const beforeTop = await evaluate(`document.querySelector('${navigation}').getBoundingClientRect().top`)
+  // A same-tool anchor can already have the expected hash while its queued
+  // animation frame still positions and focuses the heading. Wait for stable,
+  // hittable real geometry before sending pointer input, not just a ready panel.
+  const targetPoint = await evaluate(`new Promise((resolve, reject) => {
+    let previous = null, stable = 0, attempts = 0;
+    const sample = () => {
+      const button = document.querySelector('${groupSelector}');
+      const rect = button?.getBoundingClientRect();
+      const bar = document.querySelector('${navigation}')?.getBoundingClientRect();
+      if (rect && bar) {
+        const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, top: bar.top };
+        const hit = document.elementFromPoint(point.x, point.y)?.closest('button') === button;
+        const unchanged = previous && ['x', 'y', 'top'].every(axis => Math.abs(point[axis] - previous[axis]) < 0.5);
+        stable = hit && unchanged ? stable + 1 : 0;
+        previous = point;
+        if (stable >= 4) { resolve(point); return; }
+      }
+      if (++attempts > 80) reject(new Error('Capability tab never reached stable, visible hit-test geometry'));
+      else setTimeout(sample, 50);
+    };
+    sample();
+  })`)
+  const beforeTop = targetPoint.top
   if (key) {
     await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: key === 'ArrowLeft' ? 37 : 39 })
     await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: key === 'ArrowLeft' ? 37 : 39 })
   } else {
-    const point = await evaluate(`(() => { const rect = document.querySelector('${groupSelector}').getBoundingClientRect(); return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }; })()`)
+    await evaluate(`(() => {
+      window.__workspacePointerProof = {};
+      for (const type of ['pointerdown', 'click']) window.addEventListener(type, event => {
+        const group = event.target instanceof Element ? event.target.closest('[data-workspace-group]') : null;
+        window.__workspacePointerProof[type] = { group: group?.dataset.workspaceGroup, tool: group?.closest('[data-tool-workspace]')?.dataset.toolWorkspace };
+      }, { once: true, capture: true });
+    })()`)
+    const point = { x: targetPoint.x, y: targetPoint.y }
     await send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, ...point })
     await send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...point })
+    assert.deepEqual(await evaluate('window.__workspacePointerProof'), { pointerdown: { group, tool: 'docs' }, click: { group, tool: 'docs' } }, 'real pointer input hits the intended Docs capability tab')
   }
   rememberedFeatures.docs = feature
   await until(`${ready('docs')} && document.querySelector('${groupSelector}').getAttribute('aria-selected') === 'true'`, `${key ?? 'pointer click'} selects the ${group} capability group`)
@@ -188,12 +218,12 @@ async function assertInternalGroupNavigation(group, feature, key) {
     const sample = () => {
       const bar = document.querySelector('${navigation}');
       const selected = document.querySelector('${groupSelector}');
-      samples.push({ top: bar.getBoundingClientRect().top, focused: document.activeElement === selected, current: document.querySelector('.app-sidebar a[aria-current="location"]')?.getAttribute('href') });
+      samples.push({ top: bar.getBoundingClientRect().top, focused: document.activeElement === selected, active: document.activeElement?.outerHTML.slice(0, 240), current: document.querySelector('.app-sidebar a[aria-current="location"]')?.getAttribute('href') });
       if (samples.length === 5) resolve(samples); else setTimeout(sample, 50);
     };
     sample();
   })`)
-  assert.ok(samples.every(sample => sample.focused), `${key ?? 'pointer click'} retains focus on the selected ${group} tab after its hash change`)
+  assert.ok(samples.every(sample => sample.focused), `${key ?? 'pointer click'} retains focus on the selected ${group} tab after its hash change: ${JSON.stringify(samples)}`)
   assert.ok(samples.every(sample => sample.current === '#/docs'), 'internal navigation keeps Docs selected in the sidebar')
   assert.ok(samples.every(sample => Math.abs(sample.top - beforeTop) <= 2), `${key ?? 'pointer click'} preserves the capability bar offset over 200ms: before=${beforeTop}, samples=${JSON.stringify(samples)}`)
 }
