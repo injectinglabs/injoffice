@@ -12,6 +12,18 @@ const BOUNDS = { maxItems: 100, maxBytes: 32_000 }
 const DEGREES = [90, 180, 270, -90, -180, -270]
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const key = (operations: readonly AgentDemoOperation[]) => JSON.stringify(operations.map((item) => [item.op, item.input]))
+function rotatedInfo(before: PdfDocumentInfo, operations: readonly { name: string; input: Record<string, unknown> }[]): PdfDocumentInfo {
+  const expected = structuredClone(before)
+  for (const operation of operations) {
+    if (operation.name !== 'pdf.page.rotate' || !Array.isArray(operation.input.pages)) throw new Error('The demo only persists PDF rotation proposals.')
+    for (const page of expected.pages) if (operation.input.pages.includes(page.index)) page.rotation = normalizeRotation(page.rotation + Number(operation.input.degrees))
+  }
+  return expected
+}
+function sameInfo(expected: PdfDocumentInfo, candidate: unknown): candidate is PdfDocumentInfo {
+  if (!object(candidate) || candidate.pageCount !== expected.pageCount || !Array.isArray(candidate.pages) || candidate.pages.length !== expected.pages.length) return false
+  return candidate.pages.every((page, index) => object(page) && ['index', 'width', 'height', 'rotation'].every((field) => page[field] === expected.pages[index][field as keyof PdfDocumentInfo['pages'][number]]))
+}
 
 /** Browser-owned real PDF bytes, using the shipped page adapter and public dispatcher. */
 export async function createNativePdfAgentSessionInput(mode: AgentDemoMode, fixture = createPdfDemoFixture) {
@@ -40,11 +52,7 @@ export async function createNativePdfAgentSessionInput(mode: AgentDemoMode, fixt
       const before = await readInfo(host.bytes)
       const result = await publicAdapter.commit(request)
       assertOpen()
-      const expected = structuredClone(before)
-      for (const operation of request.changeSet.operations) {
-        if (operation.name !== 'pdf.page.rotate') throw new Error('The demo only persists PDF rotation proposals.')
-        for (const page of expected.pages) if ((operation.input.pages as number[]).includes(page.index)) page.rotation = normalizeRotation(page.rotation + Number(operation.input.degrees))
-      }
+      const expected = rotatedInfo(before, request.changeSet.operations)
       host.bytes = result.artifact.bytes.slice(); info = await readInfo(host.bytes); nativeWrites += 1; verifiedBytes = null
       expectedOutputs.set(request.changeSet.changeSetId, expected)
       return { ...result, artifact: host }
@@ -55,7 +63,7 @@ export async function createNativePdfAgentSessionInput(mode: AgentDemoMode, fixt
       const reopened = await readInfo(request.artifact.bytes)
       const expected = expectedOutputs.get(request.changeSet.changeSetId)
       const checks = [...result.checks,
-        { name: 'pdf-exact-output-page-rotation-and-geometry', passed: !!expected && JSON.stringify(expected) === JSON.stringify(reopened), message: 'Reopened output has the requested rotation, unchanged page count, and unchanged page geometry.' },
+        { name: 'pdf-exact-output-page-rotation-and-geometry', passed: !!expected && sameInfo(expected, reopened), message: 'Reopened output has the requested rotation, unchanged page count, and unchanged page geometry.' },
         { name: 'pdf-demo-verification-read', passed: !failVerification, message: failVerification ? 'Demo fault: write completed, but verification was intentionally failed.' : 'Verification fault injection is disabled.' }]
       return { ...result, checks, verified: result.verified && checks.every((check) => check.passed) }
     },
@@ -111,7 +119,16 @@ export async function createNativePdfAgentSessionInput(mode: AgentDemoMode, fixt
       const params = { changeSetId: envelope.changeSetId }; const before = structuredClone(info); const page = selectedPage
       return { id: envelope.changeSetId, expectedRevision: envelope.baseRevision, operations: structuredClone(operations),
         async validate() { const result = await call<AgentValidationReport>('office.validate', params); return { ok: result.valid, issues: result.issues.map((item) => ({ code: item.code.toLowerCase(), path: item.path ?? '', message: item.message })) } },
-        async preview() { const result = await call<AgentArtifactView>('office.preview', params); const data = result.data as unknown as PdfDocumentInfo; const candidate = Array.isArray(data.pages) ? data : before; return { artifact: artifactView(candidate, envelope.baseRevision, page), summary: result.issues.length ? 'Unsupported PDF operation; no source file was written.' : 'Real PDF rotation preview; the source bytes are unchanged.', evidence: result.evidence.map((item) => item.description ?? item.kind) } },
+        async preview() {
+          const result = await call<AgentArtifactView>('office.preview', params)
+          const errors = result.issues.filter((issue) => issue.severity === 'error')
+          if (errors.length) throw new Error(`PDF preview failed: ${errors.map((issue) => `${issue.code}: ${issue.message}`).join('; ')}. No source write was committed.`)
+          const refused = result.issues.some((issue) => issue.severity === 'refusal') && object(result.data) && result.data.mode === 'refused'
+          if (refused) return { artifact: artifactView(before, envelope.baseRevision, page), summary: 'Unsupported PDF operation; no source file was written.', evidence: result.evidence.map((item) => item.description ?? item.kind) }
+          const expected = rotatedInfo(before, envelope.operations)
+          if (!sameInfo(expected, result.data)) throw new Error('PDF preview failed: PREVIEW_MISMATCH. Reopened preview must prove the requested rotation, page count, and unchanged page geometry. No source write was committed.')
+          return { artifact: artifactView(result.data, envelope.baseRevision, page), summary: 'Real PDF rotation preview; the source bytes are unchanged.', evidence: result.evidence.map((item) => item.description ?? item.kind) }
+        },
         async diff() {
           const validation = await call<AgentValidationReport>('office.validate', params)
           if (!validation.valid) return { changes: [] }
@@ -123,7 +140,7 @@ export async function createNativePdfAgentSessionInput(mode: AgentDemoMode, fixt
           if (input.expectedRevision !== envelope.baseRevision) throw new Error('Commit revision does not match the reviewed PDF plan.')
           const result = await call<AgentCommitResult>('office.commit', { ...params, idempotencyKey: input.idempotencyKey, confirmation: input.confirmation })
           const current = await publicAdapter.identity({ artifact: host, actor: { id: 'playground-pdf-host', kind: 'agent' } })
-          if (result.verification.verified && result.identity.fingerprint === current.fingerprint) verifiedBytes = host.bytes.slice()
+          verifiedBytes = result.verification.verified && result.identity.fingerprint === current.fingerprint ? host.bytes.slice() : null
           return { artifactId: result.identity.artifactId, previousRevision: envelope.baseRevision, revision: result.identity.revision, fingerprint: result.identity.fingerprint,
             operationIds: envelope.operations.map((item) => item.operationId), evidence: result.evidence?.map((item) => item.description ?? item.kind) ?? [], verification: result.verification, content: projection(info, page) }
         },

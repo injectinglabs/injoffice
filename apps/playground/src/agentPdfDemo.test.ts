@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as pdfAdapter from '@injoffice/agent-office/pdf'
 import { readInfo } from '@injoffice/pdf/browser'
 import { createNativePdfAgentSessionInput } from './agentPdfDemo'
 import { createPdfDemoFixture } from './pdfDemoFixture'
@@ -10,6 +11,38 @@ async function prepare(input: Awaited<ReturnType<typeof createNativePdfAgentSess
 }
 
 describe('real PDF agent demo host', () => {
+  afterEach(() => vi.restoreAllMocks())
+  it.each(['error', 'missing-pages', 'rotation', 'page-count', 'geometry'])('rejects failed or mismatched PDF preview proof (%s)', async (failure) => {
+    const adapter = pdfAdapter.createPdfAgentAdapter()
+    const originalPreview = adapter.preview.bind(adapter)
+    vi.spyOn(pdfAdapter, 'createPdfAgentAdapter').mockReturnValue({ ...adapter, async preview(request) {
+      const result = await originalPreview(request)
+      if (failure === 'error') return { ...result, issues: [{ severity: 'error', code: 'PREVIEW_FAILED', message: 'Injected failed proof' }] }
+      const data = result.data as unknown as { pageCount: number; pages?: Array<{ rotation: number; width: number }> }
+      if (failure === 'missing-pages') delete data.pages
+      if (failure === 'rotation') data.pages![1].rotation = 0
+      if (failure === 'page-count') data.pageCount++
+      if (failure === 'geometry') data.pages![1].width++
+      return result
+    } })
+    const input = await createNativePdfAgentSessionInput('safe'); const { plan } = await prepare(input)
+    expect((await plan.validate()).ok).toBe(true)
+    await expect(plan.preview()).rejects.toThrow(/PDF preview failed/)
+    expect(input.stats().nativeWrites).toBe(0); expect(input.download()).toBeNull(); input.dispose()
+  })
+  it('revokes previously verified download bytes when the cached receipt no longer matches current identity', async () => {
+    const adapter = pdfAdapter.createPdfAgentAdapter()
+    let mismatch = false
+    vi.spyOn(pdfAdapter, 'createPdfAgentAdapter').mockReturnValue({ ...adapter, async identity(request) {
+      const identity = await adapter.identity(request)
+      return mismatch ? { ...identity, fingerprint: 'sha256:' + '0'.repeat(64) } : identity
+    } })
+    const input = await createNativePdfAgentSessionInput('safe'); const { plan, commit } = await prepare(input)
+    await input.approve(plan.id); await commit(); expect(input.download()).not.toBeNull()
+    mismatch = true
+    await commit()
+    expect(input.download()).toBeNull(); expect(input.stats().nativeWrites).toBe(1); input.dispose()
+  })
   it('previews without source writes, approves, downloads exact verified PDF bytes, and caches retries', async () => {
     const original = await createPdfDemoFixture(); const snapshot = original.slice()
     const input = await createNativePdfAgentSessionInput('safe', async () => original)
