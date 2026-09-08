@@ -182,6 +182,10 @@ try {
   await anchor('agent-docs')
   await until(agentState('agent-docs', 'ready'), 'neighbor DOCX agent is ready', 90_000)
   assert.equal(await evaluate(`document.querySelector('${section('agent-pdf')} [data-agent-tool]')?.dataset.agentTool`), 'pdf', 'changing the current section does not retarget an already mounted agent')
+  assert.equal(await evaluate(`(() => {
+    const prompts = Array.from(document.querySelectorAll('[data-agent-request]'));
+    return prompts.length >= 2 && new Set(prompts.map(input => input.id)).size === prompts.length && prompts.every(input => Array.from(input.labels ?? []).some(label => label.closest('[data-scroll-section]') === input.closest('[data-scroll-section]')));
+  })()`), true, 'mounted agents have unique prompt ids with labels belonging to their own section')
 
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
   await anchor('agent-pdf')
