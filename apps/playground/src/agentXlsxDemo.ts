@@ -247,6 +247,8 @@ export async function createNativeAgentSessionInput(
           },
           async preview() {
             const result = await call<AgentArtifactView>('office.preview', params)
+            const failedProof = result.issues.filter((item) => item.severity === 'error')
+            if (failedProof.length) throw new Error(`Native preview failed: ${failedProof.map((item) => `${item.code}: ${item.message}`).join('; ')}. No source write was committed.`)
             const candidate = previews.get(String((result.data as JsonObject).resultingRevision)) ?? before
             return { artifact: { ...artifactView(candidate), content: projection(candidate, selected) },
               summary: result.issues.length ? result.issues.map((item) => item.message).join('; ') : 'Native preview applied to a copy and reopened; source unchanged.',

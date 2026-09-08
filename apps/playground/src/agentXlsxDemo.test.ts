@@ -103,11 +103,24 @@ describe('public XLSX agent host and dispatcher', () => {
     input.dispose()
   })
 
+  it('fails closed on native preview readback errors even when the operation validates', async () => {
+    const fixture = setup({ wrongValue: true })
+    const input = await createNativeAgentSessionInput('safe', fixture.runtime, fixture.fetcher)
+    const change = await planned(input)
+    expect((await change.validate()).ok).toBe(true)
+    await expect(change.preview()).rejects.toThrow('PREVIEW_MISMATCH')
+    expect(input.stats().nativeWrites).toBe(0)
+    expect(input.download()).toBeNull()
+    input.dispose()
+  })
+
   it('refuses unsupported proposals before preview writes or commit', async () => {
     const fixture = setup()
     const input = await createNativeAgentSessionInput('refusal', fixture.runtime, fixture.fetcher)
     const change = await planned(input)
     expect((await change.validate()).ok).toBe(false)
+    // Unsupported operations remain a refusal result, so the dedicated refusal UI can render.
+    await expect(change.preview()).resolves.toMatchObject({ artifact: { format: 'xlsx' } })
     await input.approve(change.id)
     await expect(change.commit({ expectedRevision: change.expectedRevision, idempotencyKey: 'no', confirmation: 'approved' })).rejects.toThrow('VALIDATION_FAILED')
     expect(fixture.runtime.apply).not.toHaveBeenCalled()
