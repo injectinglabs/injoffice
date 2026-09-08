@@ -51,6 +51,16 @@ async function until(expression, label, timeout = 30_000) {
   throw new Error(`Timed out: ${label}`)
 }
 const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`)
+// Public chart/workbook APIs: an installed float is not proof that it has data.
+const sheetChartState = `(() => {
+  const host = window.__injoffice
+  const spec = host?.charts?.list()[0]
+  const sheet = spec && host.univerAPI.getActiveWorkbook()?.getSheetBySheetId(spec.range.sheetId)
+  if (!sheet) return null
+  const ref = spec.range
+  const values = sheet.getRange(ref.startRow, ref.startColumn, ref.endRow - ref.startRow + 1, ref.endColumn - ref.startColumn + 1).getRawValues()
+  return { series: host.charts.getSeriesNames(spec.id), numericCells: values.flat().filter(value => typeof value === 'number' && Number.isFinite(value)), firstValue: sheet.getRange(5, 1).getRawValues()[0][0] }
+})()`
 async function screenshot(name) {
   await new Promise((resolve) => setTimeout(resolve, 250))
   const { data } = await send('Page.captureScreenshot', { format: 'png' })
@@ -82,6 +92,13 @@ try {
   await screenshot('catalogue-desktop')
   await evaluate(`(() => { const input = document.querySelector('#showcase-query'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'redact'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
   await until(`document.querySelectorAll('.showcase-item').length === 1 && document.querySelector('.showcase-item').getAttribute('href') === '#/pdf'`, 'search narrows to PDF')
+  await evaluate(`Array.from(document.querySelectorAll('.showcase-filter-group button')).find(button => button.textContent === 'Edit files').click()`)
+  await evaluate(`Array.from(document.querySelectorAll('.showcase-filter-group--formats button')).find(button => button.textContent === 'PDF').click()`)
+  await click('.showcase-item')
+  await until(`document.querySelector('.app-shell')?.dataset.surface === 'pdf' && !document.querySelector('.demo-loading')`, 'filtered result opens')
+  await click('.demo-back')
+  await until(`document.querySelector('#showcase-query')?.value === 'redact' && document.querySelectorAll('.showcase-item').length === 1`, 'Back preserves search')
+  assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.showcase-filter-group button[aria-pressed=true]')).map(button => button.textContent)`), ['Edit files', 'PDF'], 'Back preserves task and file-type filters')
   await evaluate(`(() => { const input = document.querySelector('#showcase-query'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'zzznomatch'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
   await until(`!!document.querySelector('.showcase-empty')`, 'empty search')
   await click('.showcase-empty button')
@@ -121,8 +138,14 @@ try {
   await screenshot('focused-chart')
   for (const surface of ['pivots', 'shapes', 'connectors', 'formulas', 'docs', 'slides', 'pdf', 'history', 'font-metrics', 'pptx-authored', 'pptx-native', 'pptx-render', 'sheets']) await route(surface)
   await until(`document.querySelector('[data-demo-surface="sheets"] canvas') && window.__injoffice?.charts?.list().length > 0`, 'seeded sheet chart')
+  await until(`(${sheetChartState})?.series.length > 0 && (${sheetChartState})?.numericCells.length === 5`, 'seeded chart has a numeric series')
+  const originalChart = await evaluate(sheetChartState)
+  await evaluate(`(() => { const host = window.__injoffice; const spec = host.charts.list()[0]; host.univerAPI.getActiveWorkbook().getSheetBySheetId(spec.range.sheetId).getRange(5, 1).setValue(999); })()`)
+  await until(`(${sheetChartState})?.firstValue === 999`, 'overview chart source is editable')
   await click('.demo-reset-trigger')
   await until(`document.querySelector('[data-demo-surface="sheets"] canvas') && window.__injoffice?.charts?.list().length > 0`, 'reset restores workbook')
+  await until(`(${sheetChartState})?.firstValue === ${JSON.stringify(originalChart.firstValue)} && (${sheetChartState})?.series.length > 0`, 'reset restores seeded chart data')
+  assert.deepEqual(await evaluate(sheetChartState), originalChart, 'reset restores the complete numeric chart source')
   for (let i = 0; i < 2; i++) { await route('charts'); await route('sheets'); await until(`document.querySelector('[data-demo-surface="sheets"] canvas')`, 'remounted sheet') }
   await evaluate(`location.hash = '#/sheets?view=native'`)
   await until(`!!document.querySelector('.native-toolbar')`, 'same-surface deep link switches mode')
@@ -131,6 +154,9 @@ try {
   for (const tool of ['sheets', 'docs', 'slides', 'pdf']) {
     await route(`agent?format=${tool}`)
     await until(`document.querySelector('[data-agent-tool=${tool}]') && document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Run agent' && !button.disabled)`, `${tool} AI deep link`, 90_000)
+    const boundary = await evaluate(`document.querySelector('[data-agent-boundary]')?.textContent`)
+    if (tool === 'sheets') assert.match(boundary, /Real XLSX file.*native browser write and exact-byte reopen/, 'native workflow describes real byte proof')
+    else assert.match(boundary, /Lifecycle simulation.*not Office file bytes/, 'simulated formats disclose their file boundary')
     await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Run agent').click()`)
     await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'awaiting-approval'`, `${tool} preview and validation`, 90_000)
     assert.equal(await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Commit approved change').disabled`), true, 'commit requires explicit approval')
@@ -155,7 +181,18 @@ try {
     await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'refused'`, `${tool} unsupported operation refused`, 90_000)
     assert.equal(await evaluate(`document.querySelectorAll('.agent-tool-log li[data-state=done]').length === 6 && !document.querySelector('.agent-approval input')`), true, 'refusal stops before commit and verification')
     assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, 'refusal does not expose a previous output')
+    await click('.demo-reset-trigger')
+    await until(`document.querySelector('[data-agent-tool=${tool}]') && document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Run agent' && !button.disabled)`, `${tool} reset reloads the source`, 90_000)
+    assert.equal(await evaluate(`!document.querySelector('[data-agent-download]') && !document.querySelector('.agent-diff') && document.querySelectorAll('.agent-tool-log li[data-state=done]').length === 0 && document.querySelector('.agent-approval input').checked === false`), true, 'reset clears outputs, proof, and approval')
   }
+  await click('.source-proof-trigger')
+  await click('.guided-recipe__complete')
+  await until(`document.querySelector('[role=progressbar]').getAttribute('aria-valuenow') === '1'`, 'AI guide progress recorded')
+  await route('agent?format=docs')
+  await until(`document.querySelector('.source-proof-layer').hidden && document.querySelector('[data-agent-tool=docs]')`, 'same-surface format switch closes stale guide')
+  await click('.source-proof-trigger')
+  assert.equal(await evaluate(`document.querySelector('[role=progressbar]').getAttribute('aria-valuenow')`), '0', 'new AI format starts its own guide progress')
+  await click('.source-proof-close')
   await route('overview')
   await evaluate(`document.querySelector('.app-main').scrollTop = 0`)
   for (const width of [1200, 1024, 768]) {
@@ -176,7 +213,7 @@ try {
   await until(`document.documentElement.dataset.theme === 'dark'`, 'dark theme')
   await screenshot('focused-chart-dark')
   assert.deepEqual(errors, [], 'uncaught or console errors')
-  console.log(JSON.stringify({ status: 'passed', screenshots: output, checks: ['19 distinct examples', 'search', 'empty recovery', 'text navigation', 'cold-route continuity', 'modal focus/inert', 'checklist persistence', 'source loading', 'all 16 surfaces', 'four AI approvals and refusals', 'sheet reset', 'same-surface deep link', 'mobile layout', 'dark theme'], errors }, null, 2))
+  console.log(JSON.stringify({ status: 'passed', screenshots: output, checks: ['19 distinct examples', 'search', 'filter return persistence', 'empty recovery', 'text navigation', 'cold-route continuity', 'modal focus/inert', 'checklist persistence', 'source loading', 'all 16 surfaces', 'four AI approvals and refusals', 'AI proof boundaries and resets', 'AI format-specific guides', 'numeric chart source and reset', 'same-surface deep link', 'mobile layout', 'dark theme'], errors }, null, 2))
 } catch (error) {
   if (socket?.readyState === WebSocket.OPEN) {
     await screenshot('failure')
