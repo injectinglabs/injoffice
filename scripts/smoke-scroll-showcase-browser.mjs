@@ -392,6 +392,11 @@ try {
   await until(`document.querySelector('${section('charts')}').dataset.scrollState === 'idle' && !document.querySelector('${section('charts')} input')`, 'close releases the mounted editor')
   await evaluate(`document.querySelector('${section('charts')} .demo-section-placeholder button').click()`)
   await until(ready('charts'), 'closed demo can be reopened')
+  allowResetDialog = true
+  await evaluate(`Array.from(document.querySelectorAll('${section('charts')} .demo-context-actions button')).find(button => button.textContent.trim() === 'Close demo').click()`)
+  allowResetDialog = false
+  await anchor('charts')
+  await until(ready('charts'), 'same sidebar destination reopens a closed demo')
   assert.deepEqual(liveProposals, [], 'scroll demo never calls a real model endpoint')
   assert.deepEqual(errors, [], 'no uncaught errors or console errors')
   console.log(JSON.stringify({ status: 'passed', mode: process.argv.includes('--dev') ? 'development' : process.argv.includes('--built') ? 'built' : 'existing-server', screenshots: output, checks: ['20 continuous sections', 'lazy editor initialization', 'sidebar scroll spy', 'passive scroll replaces history', 'passive scroll preserves focus', 'persistent prompt and pending approval', 'same anchor returns to heading', 'Back and Forward', 'shared format-specific deep links', 'independent mounted agent formats', 'sticky mobile navigator', 'mobile overflow', 'no real model calls'], errors }, null, 2))

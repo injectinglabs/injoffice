@@ -210,6 +210,7 @@ function DemoSection({
   onOpenProof,
   section,
   requested,
+  requestVersion,
   initialHash,
 }: {
   demo: DemoDefinition
@@ -218,6 +219,7 @@ function DemoSection({
   onOpenProof: (button: HTMLButtonElement) => void
   section: ScrollSection
   requested: boolean
+  requestVersion: number
   initialHash: string
 }) {
   const [revision, setRevision] = useState(0)
@@ -267,7 +269,7 @@ function DemoSection({
   useEffect(() => () => { attempt.current++; loading.current = false }, [])
   useEffect(() => () => retention.dispose(), [retention])
   useEffect(() => { retention.setLoaded(loadState === 'ready') }, [loadState, retention])
-  useEffect(() => { if (requested) load() }, [requested, load])
+  useEffect(() => { if (requested) load() }, [requested, requestVersion, load])
   useEffect(() => {
     const element = sectionRef.current
     if (!element) return
@@ -371,6 +373,7 @@ export default function App() {
   const [proofSection, setProofSection] = useState<ScrollSection | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [requestedKey, setRequestedKey] = useState(() => sectionForHash(location.hash).key)
+  const [requestVersion, setRequestVersion] = useState(0)
   const detailsButtonRef = useRef<HTMLButtonElement>(null)
   const closeDetails = useCallback(() => setDetailsOpen(false), [])
   const sectionHashes = useRef(new Map<string, string>())
@@ -398,6 +401,7 @@ export default function App() {
       handledHash.current = location.hash || section.href
       sectionHashes.current.set(section.key, location.hash || section.href)
       setRequestedKey(section.key)
+      setRequestVersion(value => value + 1)
       setRoute({ surface: section.surface, hash: location.hash || section.href })
       setDetailsOpen(false)
       navigating.current = true
@@ -516,6 +520,7 @@ export default function App() {
             demo={section.demo!}
             sidecar={sidecar}
             requested={requestedKey === section.key}
+            requestVersion={requestVersion}
             initialHash={sectionHashes.current.get(section.key) ?? section.href}
             proofOpen={detailsOpen && proofSection?.key === section.key}
             onOpenProof={button => { detailsButtonRef.current = button; setProofSection(section); setDetailsOpen(true) }}
