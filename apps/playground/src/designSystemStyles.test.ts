@@ -45,13 +45,16 @@ describe('playground design-system layering', () => {
     expect(read('workbench.css')).toContain('button:not(.ds-btn)')
   })
 
-  it('reserves a responsive 640px workspace and contains local overflow', () => {
+  it('reserves a viewport-aware workspace and lets reading surfaces rejoin document flow', () => {
     const workbench = read('workbench.css')
 
-    expect(workbench).toContain('--workspace-floor: 640px')
-    expect(workbench).toContain('height: clamp(var(--workspace-floor), calc(100dvh - 160px), 880px)')
+    expect(workbench).toContain('--workspace-reserved-min: clamp(480px, 72dvh, 640px)')
+    expect(workbench).toContain('--workspace-reserved-min: clamp(360px, 60dvh, 520px)')
+    expect(workbench).toContain('height: clamp(var(--workspace-reserved-min), calc(100dvh - 160px), 880px)')
     expect(workbench).toMatch(/\.demo-section \.demo-stage \{[\s\S]*?overflow: hidden;/)
     expect(workbench).toContain('scrollbar-gutter: stable')
-    expect(workbench).not.toContain('[data-section-loaded="true"] .demo-preview')
+    expect(workbench).toContain('[data-scroll-section^="agent-"][data-section-loaded="true"] .demo-preview')
+    expect(workbench).toContain('[data-scroll-section="docs"]')
+    expect(workbench).toContain('[data-scroll-section="pdf"]')
   })
 })

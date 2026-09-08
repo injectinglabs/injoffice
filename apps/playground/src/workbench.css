@@ -61,7 +61,7 @@ html[data-theme="light"] {
   --type-body: "Instrument Sans", "Segoe UI", sans-serif;
   --type-mono: "IBM Plex Mono", ui-monospace, monospace;
   --control-height: 36px;
-  --workspace-floor: 640px;
+  --workspace-reserved-min: clamp(480px, 72dvh, 640px);
   --radius-control: 8px;
   --radius-panel: 16px;
   --shadow-float: 0 12px 40px rgba(20, 24, 22, .08);
@@ -411,8 +411,8 @@ body {
   display: flex;
   flex: 0 0 auto;
   width: 100%;
-  height: clamp(var(--workspace-floor), calc(100dvh - 160px), 880px);
-  min-height: var(--workspace-floor);
+  height: clamp(var(--workspace-reserved-min), calc(100dvh - 160px), 880px);
+  min-height: var(--workspace-reserved-min);
   flex-direction: column;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--rule) 80%, transparent);
@@ -448,9 +448,8 @@ body {
   flex: 1 1 auto;
 }
 
-/* The document remains the outer scroll container. Each live workspace owns
- * its local overflow so tall toolbars, canvases, and evidence never stretch
- * every section below it or shift unloaded placeholders. */
+/* Editor canvases keep local overflow, but deliberately allow scroll chaining
+ * back to the continuous document. Stable gutters prevent width jumps. */
 .demo-preview :where(
   .pages,
   .split-side,
@@ -462,7 +461,6 @@ body {
   .agent-demo__document,
   .agent-demo__inspector
 ) {
-  overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
 .demo-chips {
@@ -2329,6 +2327,10 @@ body {
 }
 
 @media (max-width: 760px) {
+  :root,
+  html[data-theme="light"],
+  html[data-theme="dark"] { --workspace-reserved-min: clamp(360px, 60dvh, 520px); }
+
   .app-shell { display: flex; flex-direction: column; height: auto; }
   .app-header { position: sticky; }
   .app-header-inner { padding-inline: 10px; }
@@ -2383,6 +2385,46 @@ body {
   .agent-demo__document,
   .agent-demo__inspector { overflow: visible; }
   .agent-demo__inspector { border-top: 1px solid var(--rule); border-left: 0; }
+
+  /* Reading surfaces should join the document flow on narrow screens. Their
+   * toolbar, preview, and evidence remain one continuous reading sequence
+   * instead of becoming a tall scroll region inside the page. */
+  .app-shell[data-navigation="scroll"] :is(
+    [data-scroll-section="docs"],
+    [data-scroll-section="pdf"]
+  )[data-section-loaded="true"] .demo-preview,
+  .app-shell[data-navigation="scroll"] :is(
+    [data-scroll-section="docs"],
+    [data-scroll-section="pdf"]
+  )[data-section-loaded="true"] .demo-stage,
+  .app-shell[data-navigation="scroll"] :is(
+    [data-scroll-section="docs"],
+    [data-scroll-section="pdf"]
+  )[data-section-loaded="true"] .demo-stage > * {
+    height: auto;
+    min-height: var(--workspace-reserved-min);
+    max-height: none;
+    overflow: visible;
+  }
+
+  .app-shell[data-navigation="scroll"] :is(
+    [data-scroll-section="docs"],
+    [data-scroll-section="pdf"]
+  )[data-section-loaded="true"] :is(
+    .native-workspace,
+    .split,
+    .native-main,
+    .split-main,
+    .native-side,
+    .split-side,
+    .pages
+  ) {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+    scrollbar-gutter: auto;
+  }
 }
 
 @media (max-width: 520px) {
@@ -2463,6 +2505,39 @@ body {
 .app-shell[data-navigation="scroll"] .demo-section--overview {
   flex: 0 0 auto;
   overflow: visible;
+}
+
+/* Agent proposals are reading-and-approval workflows. Once loaded, they grow
+ * in the document; unloaded placeholders keep the responsive reservation. */
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"][data-section-loaded="true"] .demo-preview {
+  height: auto;
+  overflow: visible;
+}
+
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .demo-stage,
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .demo-stage > .ds,
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] [data-demo-surface="agent"] {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  flex: 1 0 auto;
+  overflow: visible;
+}
+
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .agent-demo__workspace {
+  height: auto;
+  min-height: auto;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .agent-demo__inspector,
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .agent-artifact,
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .agent-demo__document {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  scrollbar-gutter: auto;
 }
 
 .app-shell[data-navigation="scroll"] .demo-title-line h2 {
