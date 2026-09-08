@@ -122,18 +122,20 @@ async function assertNavigationSelection(viewport) {
 
       // Exercise real keyboard navigation back to the selected link so that
       // removing its selection stripe cannot silently remove its focus ring.
+      await new Promise(resolve => setTimeout(resolve, 750))
       await evaluate(`document.querySelector('.app-sidebar a[aria-current="location"]').focus({ preventScroll: true })`)
       for (const modifiers of [8, 0]) {
         await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers })
         await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers })
       }
-      assert.equal(await evaluate(`(() => {
+      const focusProof = await evaluate(`(() => {
         const selected = document.querySelector('.app-sidebar a[aria-current="location"]');
         const style = getComputedStyle(selected);
-        return document.activeElement === selected && selected.matches(':focus-visible') &&
-          parseFloat(style.outlineWidth) >= 2 && style.outlineStyle !== 'none' &&
-          style.outlineColor !== 'rgba(0, 0, 0, 0)';
-      })()`), true, `${label} retains a visible keyboard focus outline`)
+        return { selected: selected.outerHTML, active: document.activeElement?.outerHTML.slice(0, 500),
+          focused: document.activeElement === selected, visible: selected.matches(':focus-visible'),
+          width: parseFloat(style.outlineWidth), style: style.outlineStyle, color: style.outlineColor };
+      })()`)
+      assert.ok(focusProof.focused && focusProof.visible && focusProof.width >= 2 && focusProof.style !== 'none' && focusProof.color !== 'rgba(0, 0, 0, 0)', `${label} retains a visible keyboard focus outline: ${JSON.stringify(focusProof)}`)
       await screenshot(`scroll-selection-${viewport}-${theme}-keyboard`)
       await evaluate(`document.activeElement.blur()`)
     }
@@ -214,7 +216,7 @@ try {
   await until(active('overview'), 'overview is the current sidebar location')
   assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.app-sidebar a')).map(link => link.getAttribute('href'))`), ['#/sheets', '#/docs', '#/slides', '#/pdf'], 'only four comprehensive tool links appear in navigation')
   await screenshot('scroll-overview-desktop')
-  await anchor('sheets')
+  await anchor('font-metrics')
   await assertNavigationSelection('desktop')
   await anchor('overview')
 

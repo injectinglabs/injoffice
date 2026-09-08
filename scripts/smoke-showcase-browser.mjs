@@ -146,7 +146,7 @@ async function route(path) {
   scopeKey = tool
   scopeFeature = feature
   await evaluate(`location.hash = '#/${path}'`)
-  await until(`document.querySelector('.app-shell')?.dataset.surface === ${JSON.stringify(tool)} && (${feature === null} || (smokeSection?.dataset.scrollState === 'ready' && !!smokePanel && !smokePanel.querySelector('.demo-loading, [data-workspace-loading], [data-workspace-error]'))))`, path, 90_000)
+  await until(`document.querySelector('.app-shell')?.dataset.surface === ${JSON.stringify(tool)} && (${feature === null} || (smokeSection?.dataset.scrollState === 'ready' && !!smokePanel && !smokePanel.querySelector('.demo-loading, [data-workspace-loading], [data-workspace-error]')))`, path, 90_000)
 }
 try {
   assert.ok(!(process.argv.includes('--built') && process.argv.includes('--dev')), 'choose either --built or --dev')
