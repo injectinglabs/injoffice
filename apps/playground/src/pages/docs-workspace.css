@@ -13,8 +13,10 @@
 /* Document text inherits the paragraph, overriding the general UI-control
    font rule. Authored run styles remain inline and take precedence. */
 .docx-demo .docx-contract-sheet .docx-editable-run { font: inherit; line-height: inherit; }
-.docx-editable-run:hover { background: var(--ds-select-soft); }
-.docx-editable-run[aria-pressed="true"] { background: var(--ds-select-header); outline: 1px solid var(--ds-select); }
+/* The document stays white in dark mode; tint its paper instead of applying
+   dark application surfaces behind the authored document text. */
+.docx-editable-run:hover { background: color-mix(in srgb, var(--ds-select) 12%, transparent); }
+.docx-editable-run[aria-pressed="true"] { background: color-mix(in srgb, var(--ds-select) 22%, transparent); outline: 1px solid var(--ds-select); }
 .docx-editable-run:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 3px; }
 .docx-editable-run:disabled { cursor: wait; }
 .docx-preview-story { margin-block-start: 24px; padding-block-start: 12px; border-top: 1px solid var(--ds-line); }
