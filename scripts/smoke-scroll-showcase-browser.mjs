@@ -234,6 +234,7 @@ try {
   // Preserve query intent even when a cold section first mounts after the user
   // has already moved elsewhere. Re-enter via passive scrolling, not a hashchange.
   origin.hash = '#/overview'
+  origin.searchParams.set('scroll-smoke-document', 'cold-sheets')
   await send('Page.navigate', { url: origin.href })
   await until(active('overview'), 'fresh document ready for cold Sheets deep link')
   holdChunks = true
@@ -252,6 +253,7 @@ try {
   // Reloading a shared deep link chooses the exact AI format, not the first
   // mounted agent. Neighboring agents retain their own independent format.
   origin.hash = '#/agent?format=pdf'
+  origin.searchParams.set('scroll-smoke-document', 'pdf-deep-link')
   await send('Page.navigate', { url: origin.href })
   await until(active('agent-pdf'), 'direct AI PDF deep link selects its section', 90_000)
   await until(agentState('agent-pdf', 'ready'), 'deep-linked PDF agent is ready', 90_000)
