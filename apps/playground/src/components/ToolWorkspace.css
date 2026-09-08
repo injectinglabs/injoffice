@@ -1,4 +1,4 @@
-.ds.tool-workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.ds.tool-workspace { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .ds .tool-workspace__navigation { background: var(--ds-paper); border-bottom: 1px solid var(--ds-line); padding: 16px 20px; }
 .ds .tool-workspace__tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .ds .tool-workspace__tabs button { padding: 9px 14px; border: 0; border-radius: 6px; color: var(--ds-mute); background: transparent; font-weight: 500; cursor: pointer; }
@@ -15,6 +15,9 @@
 .ds .tool-workspace__panel > * { flex: 1 1 auto; min-width: 0; }
 .ds .tool-workspace__navigation { flex: 0 0 auto; }
 .ds .tool-workspace__panel[hidden] { display: none; }
+/* Univer keeps measuring while retained. Preserve only its dormant layout,
+   outside normal flow and inaccessible to pointer, focus, and assistive tech. */
+.ds .tool-workspace__panel[hidden][data-workspace-retain-layout="true"] { display: flex; position: absolute; top: 0; left: 0; width: 100%; min-height: 740px; visibility: hidden; pointer-events: none; overflow: hidden; }
 .ds .tool-workspace__loading, .ds .tool-workspace__error { padding: 32px 24px; min-height: 180px; }
 .ds .tool-workspace__error p { max-width: 75ch; overflow-wrap: anywhere; }
 /* Reading and approval flows grow in the continuous document. Canvas views

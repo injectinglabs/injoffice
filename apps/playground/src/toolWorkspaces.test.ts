@@ -60,6 +60,13 @@ describe('four tool workspace catalogue', () => {
     expect(source).toContain('fixedTool={tool}')
     expect(source).toContain('fixedFormat={tool}')
     expect(source).not.toContain("import('../pages/SheetsPage')")
+    expect(source).toContain('if (!(feature in featureHashes.current))')
+    expect(source).toContain('route?.tool === tool && route.feature === feature ? hash : undefined')
+    expect(source).toContain('activate(route.feature, window.location.hash)')
+    expect(source).toContain('initialHash={featureHashes.current[feature.id]}')
+    expect(source).toContain('inert={feature.id !== current.id}')
+    expect(source).toContain('aria-hidden={feature.id !== current.id ? true : undefined}')
+    expect(source).toContain('data-workspace-retain-layout=')
   })
 
   it('uses instance-scoped accessible group tabs and labelled feature selectors', () => {

@@ -46,10 +46,6 @@ function FeatureContent({ tool, feature, initialHash, onRetry }: { tool: AgentTo
   // Explicit retry remounts this component, creating a fresh lazy loader instead
   // of reusing React.lazy's cached rejected promise. Ordinary tab switches retain it.
   const Page = useMemo(() => lazy(() => loadFeature(tool, feature, initialHash)), [tool, feature, initialHash])
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
-    return () => cancelAnimationFrame(frame)
-  }, [])
   return <FeatureBoundary onRetry={onRetry}><Suspense fallback={<div className="tool-workspace__loading" data-workspace-loading role="status">Opening {feature.label.toLowerCase()}…</div>}><Page /></Suspense></FeatureBoundary>
 }
 
@@ -61,28 +57,41 @@ function startingFeature(tool: AgentTool, hash?: string) {
 function ToolWorkspace({ tool, initialHash }: { tool: AgentTool; initialHash?: string }) {
   const definition = TOOL_WORKSPACES.find((item) => item.tool === tool)!
   const instanceId = useId()
-  const entryHash = useRef(initialHash).current
+  const entryHash = useRef(initialHash ?? (typeof location === 'undefined' ? '' : location.hash)).current
   const [active, setActive] = useState(() => startingFeature(tool, initialHash))
   const [visited, setVisited] = useState(() => [startingFeature(tool, initialHash)])
+  const featureHashes = useRef<Record<string, string | undefined>>({ [startingFeature(tool, initialHash)]: resolveToolWorkspace(entryHash)?.tool === tool ? entryHash : undefined })
+  const panelElements = useRef(new Map<string, HTMLElement>())
+  const panelHeights = useRef<Record<string, number>>({})
   const [retryKeys, setRetryKeys] = useState<Record<string, number>>({})
   const lastInGroup = useRef<Record<string, string>>({})
   const groups = [...new Set(definition.features.map((item) => item.group))]
   const current = definition.features.find((item) => item.id === active) ?? definition.features[0]!
   const groupFeatures = definition.features.filter((item) => item.group === current.group)
-  const activate = useCallback((feature: string) => {
+  const activate = useCallback((feature: string, hash: string) => {
+    // A room deep link belongs to the feature's first activation, not the
+    // workspace's earlier editor visit. Never overwrite a retained session.
+    if (!(feature in featureHashes.current)) {
+      const route = resolveToolWorkspace(hash)
+      featureHashes.current[feature] = route?.tool === tool && route.feature === feature ? hash : undefined
+    }
+    for (const [id, element] of panelElements.current) {
+      if (!element.hidden) panelHeights.current[id] = Math.max(740, element.getBoundingClientRect().height)
+    }
     setActive(feature)
     setVisited((previous) => previous.includes(feature) ? previous : [...previous, feature])
-  }, [])
+  }, [tool])
   const choose = (feature: string) => {
-    activate(feature)
     const href = workspaceHref(tool, feature)
+    window.dispatchEvent(new CustomEvent('injoffice:workspace-view', { detail: { tool } }))
+    activate(feature, href)
     if (window.location.hash !== href) window.location.hash = href
   }
 
   useEffect(() => {
     const sync = () => {
       const route = resolveToolWorkspace(window.location.hash)
-      if (route?.tool === tool) activate(route.feature)
+      if (route?.tool === tool) activate(route.feature, window.location.hash)
     }
     window.addEventListener('hashchange', sync)
     return () => window.removeEventListener('hashchange', sync)
@@ -90,6 +99,7 @@ function ToolWorkspace({ tool, initialHash }: { tool: AgentTool; initialHash?: s
 
   useEffect(() => {
     lastInGroup.current[current.group] = current.id
+    if (!['editor', 'native', 'pptx-native', 'collab', 'charts', 'pptx-render'].includes(current.id)) return
     // Canvas-backed editors need their now-visible dimensions after layout.
     const frame = requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
     return () => cancelAnimationFrame(frame)
@@ -118,8 +128,8 @@ function ToolWorkspace({ tool, initialHash }: { tool: AgentTool; initialHash?: s
       </div>
       <p className="tool-workspace__sample-note">Each view has its own sample and state; edits do not transfer between views. Opened views stay available when you switch, including pending approvals.</p>
     </header>
-    {definition.features.filter((feature) => visited.includes(feature.id)).map((feature) => <section key={feature.id} id={`${instanceId}-panel-${feature.id}`} role="tabpanel" tabIndex={0} aria-labelledby={`${instanceId}-group-${groups.indexOf(feature.group)}`} data-workspace-panel={feature.id} hidden={feature.id !== current.id} className="tool-workspace__panel">
-      <FeatureContent key={`${feature.id}-${retryKeys[feature.id] ?? 0}`} tool={tool} feature={feature} initialHash={resolveToolWorkspace(entryHash ?? '')?.tool === tool ? entryHash : undefined} onRetry={() => setRetryKeys((previous) => ({ ...previous, [feature.id]: (previous[feature.id] ?? 0) + 1 }))} />
+    {definition.features.filter((feature) => visited.includes(feature.id)).map((feature) => <section key={feature.id} ref={(element) => { if (element) panelElements.current.set(feature.id, element); else panelElements.current.delete(feature.id) }} id={`${instanceId}-panel-${feature.id}`} role="tabpanel" tabIndex={feature.id === current.id ? 0 : -1} aria-labelledby={`${instanceId}-group-${groups.indexOf(feature.group)}`} data-workspace-panel={feature.id} data-workspace-retain-layout={tool === 'sheets' && (feature.id === 'editor' || feature.id === 'collab') ? 'true' : undefined} hidden={feature.id !== current.id} inert={feature.id !== current.id} aria-hidden={feature.id !== current.id ? true : undefined} style={tool === 'sheets' && feature.id !== current.id && (feature.id === 'editor' || feature.id === 'collab') ? { height: panelHeights.current[feature.id] ?? 740 } : undefined} className="tool-workspace__panel">
+      <FeatureContent key={`${feature.id}-${retryKeys[feature.id] ?? 0}`} tool={tool} feature={feature} initialHash={featureHashes.current[feature.id]} onRetry={() => setRetryKeys((previous) => ({ ...previous, [feature.id]: (previous[feature.id] ?? 0) + 1 }))} />
     </section>)}
   </div>
 }
