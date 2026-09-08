@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { test } from 'node:test'
 import { startShowcaseServer } from './showcase-smoke-server.mjs'
-import { isolatedShowcaseDevConfig } from './showcase-smoke-dev-server.mjs'
+import { isolatedShowcaseDevConfig, showcaseWasmDistDirectories } from './showcase-smoke-dev-server.mjs'
 import { startShowcaseProposalMock } from './showcase-smoke-proposal-mock.mjs'
 
 test('proposal mock only proposes a disclosed target and deliberately cannot approve it', async () => {
@@ -35,9 +35,21 @@ test('development showcase uses an ephemeral port without the fixed IPv6 listene
   assert.equal(isolated.configFile, false)
   assert.equal(isolated.root, '/source/playground')
   assert.deepEqual(isolated.plugins, [react])
-  assert.deepEqual(isolated.server, { ...config.server, port: 0, host: '127.0.0.1', strictPort: false, open: false })
+  assert.deepEqual(isolated.server, { ...config.server, port: 0, host: '127.0.0.1', strictPort: false, open: false, fs: { allow: ['/source/playground'] } })
   assert.equal(isolated.resolve, config.resolve)
   assert.equal(config.server.port, 3100, 'does not mutate the application configuration')
+})
+
+test('development smoke adds only resolved WASM dist directories and preserves Vite workspace and FS rules', () => {
+  const distributions = showcaseWasmDistDirectories((specifier) => `file:///linked/packages/${specifier.split('/')[1]}/dist/index.js`)
+  assert.deepEqual(distributions, ['/linked/packages/xlsx-wasm/dist', '/linked/packages/docx-wasm/dist', '/linked/packages/pptx-wasm/dist'])
+  const automatic = isolatedShowcaseDevConfig({}, '/source/playground', { workspaceRoot: '/source', wasmDirectories: distributions })
+  assert.deepEqual(automatic.server.fs.allow, ['/source', ...distributions], 'retains searchForWorkspaceRoot result, not the linked checkout root')
+  const configured = { server: { fs: { allow: ['/custom/allowed'], strict: true, deny: ['**/.secret'] } } }
+  const isolated = isolatedShowcaseDevConfig(configured, '/source/playground', { workspaceRoot: '/source', wasmDirectories: distributions })
+  assert.deepEqual(isolated.server.fs, { allow: ['/custom/allowed', ...distributions], strict: true, deny: ['**/.secret'] })
+  assert.deepEqual(configured.server.fs.allow, ['/custom/allowed'], 'does not mutate application FS rules')
+  assert.throws(() => showcaseWasmDistDirectories(() => 'file:///linked/index.js'), /refusing to widen/, 'unexpected resolution cannot grant broad filesystem access')
 })
 
 test('built showcase server respects its base and serves WASM MIME without SPA fallback', async () => {
