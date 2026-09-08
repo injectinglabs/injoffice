@@ -487,6 +487,20 @@ body {
 }
 .route-progress[data-active="true"] i { animation: route-progress-sweep 900ms ease-in-out infinite; }
 .app-route-loading { flex: 1; background: var(--workspace); }
+.route-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--action);
+  background: var(--paper);
+  font-size: 13px;
+}
+.route-error p { flex: 1 1 40ch; max-width: 72ch; margin: 0; }
+.route-error button, .route-error a { flex-shrink: 0; }
 
 @keyframes route-progress-sweep {
   50% { transform: translateX(125%); }
@@ -2257,6 +2271,7 @@ body {
   .app-frame { flex-direction: column; min-height: 0; padding: 0 0 48px; }
   .app-sidebar {
     position: relative;
+    flex: 0 0 auto;
     top: 0;
     width: 100%;
     height: auto;
