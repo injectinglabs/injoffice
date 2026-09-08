@@ -1,0 +1,57 @@
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it } from 'vitest'
+import { DsButton } from './design-system/primitives'
+
+const source = dirname(fileURLToPath(import.meta.url))
+const read = (file: string) => readFileSync(resolve(source, file), 'utf8')
+
+describe('playground design-system layering', () => {
+  it('keeps application colors in workbench.css and aliases component tokens', () => {
+    const tokens = read('design-system/tokens.css')
+
+    expect(tokens).toContain('--ds-paper: var(--paper, #ffffff)')
+    expect(tokens).toContain('--ds-select: var(--action, #0f6f8f)')
+    expect(tokens).toContain('--ds-type: var(--type-body')
+    expect(tokens).not.toContain('html[data-theme="dark"] .ds')
+    expect(read('studio.css')).not.toMatch(/(^|\n):root\s*\{/)
+  })
+
+  it('loads base surface styles once and leaves route sheets extension-only', () => {
+    const components = read('design-system/components.css')
+    const liveCreateEdit = read('design-system/live-create-edit.css')
+    const liveTools = read('design-system/live-tools.css')
+
+    expect(components).toContain("@import './surfaces.css';")
+    expect(components.match(/\.ds-btn\s*\{/g)).toHaveLength(1)
+    for (const routeCss of [liveCreateEdit, liveTools]) {
+      expect(routeCss).not.toMatch(/@import ['"].*?(tokens|components|surfaces)\.css['"]/)
+      expect(routeCss).not.toMatch(/\.ds-btn(?:[.:\[\s,{])/)
+    }
+  })
+
+  it('gives design-system buttons one class authority while retaining extensions', () => {
+    const markup = renderToStaticMarkup(createElement(DsButton, {
+      variant: 'filled',
+      className: 'workbench-button workbench-button--primary analytics-trigger',
+      children: 'Run',
+    }))
+
+    expect(markup).toContain('class="ds-btn ds-btn--filled analytics-trigger"')
+    expect(markup).not.toContain('workbench-button')
+    expect(read('workbench.css')).toContain('button:not(.ds-btn)')
+  })
+
+  it('reserves a responsive 640px workspace and contains local overflow', () => {
+    const workbench = read('workbench.css')
+
+    expect(workbench).toContain('--workspace-floor: 640px')
+    expect(workbench).toContain('height: clamp(var(--workspace-floor), calc(100dvh - 160px), 880px)')
+    expect(workbench).toMatch(/\.demo-section \.demo-stage \{[\s\S]*?overflow: hidden;/)
+    expect(workbench).toContain('scrollbar-gutter: stable')
+    expect(workbench).not.toContain('[data-section-loaded="true"] .demo-preview')
+  })
+})
