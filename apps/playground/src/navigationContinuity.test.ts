@@ -22,7 +22,7 @@ describe('playground navigation continuity', () => {
     expect(appSource).not.toContain('isDesignSystemHash')
     expect(appSource).not.toContain('#/guides')
     expect(appSource).not.toContain('#/design-system')
-    expect(appSource).toContain('/logo.svg')
+    expect(appSource).toContain('`${import.meta.env.BASE_URL}logo.svg`')
   })
 
   it('offers recoverable chunk errors without unmounting the current page', () => {

@@ -102,7 +102,7 @@ function AppHeader({ sidecar, scheme, onScheme }: { sidecar: SidecarState; schem
     <header className="app-header">
       <div className="app-header-inner">
         <a className="app-brand" href={surfaceHref('overview')} aria-label="InjOffice overview">
-          <img className="app-logo" src="/logo.svg" alt="" width={32} height={32} />
+          <img className="app-logo" src={`${import.meta.env.BASE_URL}logo.svg`} alt="" width={32} height={32} />
           <span><strong>InjOffice</strong></span>
         </a>
         <div className={`sidecar-status sidecar-status--${sidecar}`} role="status">
