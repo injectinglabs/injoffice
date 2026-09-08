@@ -1,34 +1,36 @@
 // Run with Node 22+. DEMO_UX_URL can target an already-running integrated demo.
-import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { createServer } from 'node:http'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, sep } from 'node:path'
+import { launchChromeForCDP, terminateProcess } from './chrome-cdp-startup.mjs'
+import { startShowcaseServer } from './showcase-smoke-server.mjs'
+import { startShowcaseDevServer } from './showcase-smoke-dev-server.mjs'
 
 const root = resolve(import.meta.dirname, '..')
-const profile = mkdtempSync(resolve(tmpdir(), 'injoffice-ux-chrome-'))
-const artifacts = mkdtempSync(resolve(tmpdir(), 'injoffice-ux-screenshots-'))
+const profiles = []
+const artifacts = process.env.SHOWCASE_OUTPUT ? resolve(process.env.SHOWCASE_OUTPUT) : mkdtempSync(resolve(tmpdir(), 'injoffice-ux-screenshots-'))
+mkdirSync(artifacts, { recursive: true })
 const errors = []
-let chrome, vite, cdp
+let chrome, server, cdp
 const delay = ms => new Promise(resolvePromise => setTimeout(resolvePromise, ms))
 const pdf = `document.querySelector('[data-demo-surface="pdf"]')`
 
 try {
   let url = process.env.DEMO_UX_URL
-  if (!url) {
-    const port = await reservePort()
-    vite = spawn(process.execPath, [resolve(root, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { cwd: resolve(root, 'apps/playground'), stdio: 'ignore' })
-    url = `http://127.0.0.1:${port}/`
-    await poll(async () => { try { return (await fetch(url)).ok } catch { return false } }, 'Vite server')
+  if (process.argv.includes('--built')) {
+    server = await startShowcaseServer(resolve(root, 'apps/playground/dist'), '/injoffice-smoke/')
+    url = server.url
+  } else if (!url) {
+    server = await startShowcaseDevServer(resolve(root, 'apps/playground'))
+    url = server.url
   }
-  const debugPort = await reservePort()
-  chrome = spawn(findChrome(), ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-background-networking', '--remote-allow-origins=*', `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, 'about:blank'], { stdio: 'ignore' })
-  let target
-  await poll(async () => {
-    if (chrome.exitCode !== null) throw new Error('Chrome exited before startup')
-    try { target = (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(item => item.type === 'page'); return Boolean(target?.webSocketDebuggerUrl) } catch { return false }
-  }, 'Chrome target')
-  cdp = await connectCDP(target.webSocketDebuggerUrl)
+  chrome = await launchChromeForCDP({ executable: findChrome(), createProfile: () => {
+    const profile = mkdtempSync(resolve(tmpdir(), 'injoffice-ux-chrome-'))
+    profiles.push(profile)
+    return profile
+  } })
+  cdp = await connectCDP(chrome.target.webSocketDebuggerUrl)
   cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => errors.push(exceptionDetails.exception?.description ?? exceptionDetails.text))
   await cdp.send('Runtime.enable')
   await cdp.send('Page.enable')
@@ -112,13 +114,11 @@ try {
   throw error
 } finally {
   cdp?.close()
-  for (const child of [chrome, vite]) {
-    if (!child || child.exitCode !== null) continue
-    child.kill('SIGTERM')
-    await Promise.race([new Promise(resolvePromise => child.once('exit', resolvePromise)), delay(3000)])
-    if (child.exitCode === null) child.kill('SIGKILL')
+  try { if (chrome) await terminateProcess(chrome.child) }
+  finally {
+    try { await server?.close() }
+    finally { for (const profile of profiles) rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
   }
-  rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 async function evaluate(expression) {
@@ -161,13 +161,6 @@ function findChrome() {
     if (spawnSync(candidate, ['--version'], { stdio: 'ignore' }).status === 0) return candidate
   }
   throw new Error('Chrome/Chromium is required; set CHROME_PATH')
-}
-async function reservePort() {
-  const server = createServer()
-  await new Promise((resolvePromise, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolvePromise) })
-  const port = server.address().port
-  await new Promise(resolvePromise => server.close(resolvePromise))
-  return port
 }
 async function connectCDP(url) {
   const socket = new WebSocket(url)
