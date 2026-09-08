@@ -55,6 +55,7 @@ describe('agent workflow page proof', () => {
   it('does not reset a retained spreadsheet view when an unrelated section changes the hash', () => {
     const sheets = readFileSync(new URL('./pages/SheetsPage.tsx', import.meta.url), 'utf8')
     expect(sheets).toContain("if (parseSurface() === 'sheets') setView(parseSheetsView())")
+    expect(sheets).toContain('parseSheetsView(initialHash)')
     expect(sheets).toContain("window.removeEventListener('hashchange', syncView)")
   })
 

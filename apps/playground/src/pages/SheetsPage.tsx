@@ -12,8 +12,8 @@ const SHEETS_VIEWS: readonly { id: SheetsView; label: string }[] = [
   { id: 'tools', label: 'Package tools' },
 ]
 
-export default function SheetsPage() {
-  const [view, setView] = useState<SheetsView>(() => parseSheetsView())
+export default function SheetsPage({ initialHash }: { initialHash?: string } = {}) {
+  const [view, setView] = useState<SheetsView>(() => parseSheetsView(initialHash))
   useEffect(() => {
     // Retained scroll sections must not reset when another section owns the URL.
     const syncView = () => {

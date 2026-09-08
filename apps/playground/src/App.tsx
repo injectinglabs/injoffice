@@ -209,6 +209,7 @@ function DemoSection({
   onOpenProof,
   section,
   requested,
+  initialHash,
 }: {
   demo: DemoDefinition
   sidecar: SidecarState
@@ -216,6 +217,7 @@ function DemoSection({
   onOpenProof: (button: HTMLButtonElement) => void
   section: ScrollSection
   requested: boolean
+  initialHash: string
 }) {
   const [revision, setRevision] = useState(0)
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
@@ -244,7 +246,7 @@ function DemoSection({
     observer.observe(element)
     return () => observer.disconnect()
   }, [load, loadState])
-  const DemoComponent = demo.component as ComponentType<{ fixedTool?: AgentTool }>
+  const DemoComponent = demo.component as ComponentType<{ fixedTool?: AgentTool; initialHash?: string }>
   const agentTool = section.tool ? AGENT_TOOLS.find((item) => item.tool === section.tool) : undefined
   const title = agentTool?.title ?? demo.title
   const description = agentTool?.description ?? demo.description
@@ -303,7 +305,7 @@ function DemoSection({
         <div className="demo-stage" data-accent={demo.accent} aria-label={`${title} interactive demo`}>
           {loadState === 'ready' ? <SectionBoundary key={revision} onRetry={() => setRevision(value => value + 1)}>
             <Suspense fallback={<div className="demo-loading" role="status">Opening {title}…</div>}>
-              <DemoComponent fixedTool={section.tool} />
+              <DemoComponent fixedTool={section.tool} initialHash={initialHash} />
             </Suspense>
           </SectionBoundary> : <div className={loadState === 'error' ? 'demo-section-error' : 'demo-section-placeholder'} role={loadState === 'error' ? 'alert' : undefined}>
             <p>{loadState === 'error' ? `Could not load ${title}. Other demos are still available.` : loadState === 'loading' ? `Opening ${title}…` : 'This live demo loads as you reach it. Your changes stay here while you explore other sections.'}</p>
@@ -339,6 +341,7 @@ export default function App() {
   const closeDetails = useCallback(() => setDetailsOpen(false), [])
   const sectionHashes = useRef(new Map<string, string>())
   const navigating = useRef(false)
+  const handledHash = useRef(location.hash || surfaceHref('overview'))
 
   useEffect(() => {
     // Scroll the rail only; scrollIntoView here would move the document too.
@@ -356,6 +359,7 @@ export default function App() {
     let frame = 0
     const navigate = (focus = true) => {
       const section = sectionForHash(location.hash)
+      handledHash.current = location.hash || section.href
       sectionHashes.current.set(section.key, location.hash || section.href)
       setRequestedKey(section.key)
       setRoute({ surface: section.surface, hash: location.hash || section.href })
@@ -383,7 +387,9 @@ export default function App() {
     let frame = 0
     const update = () => {
       frame = 0
-      if (navigating.current || document.body.style.overflow === 'hidden') return
+      // A new hash can precede its queued hashchange event. Never let a stale
+      // scroll/resize frame overwrite that explicit navigation intent.
+      if (navigating.current || location.hash !== handledHash.current || document.body.style.overflow === 'hidden') return
       const header = document.querySelector('.app-header')?.getBoundingClientRect().bottom ?? 48
       const rail = document.querySelector('.app-sidebar')?.getBoundingClientRect()
       const top = window.innerWidth <= 760 ? Math.max(header, rail?.bottom ?? 0) : header
@@ -392,6 +398,7 @@ export default function App() {
       if (!section) return
       const nextHash = sectionHashes.current.get(section.key) ?? section.href
       if (location.hash !== nextHash) history.replaceState(history.state, '', nextHash)
+      handledHash.current = nextHash
       setRoute(previous => previous.hash === nextHash ? previous : { surface: section.surface, hash: nextHash })
     }
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update) }
@@ -461,6 +468,7 @@ export default function App() {
             demo={section.demo!}
             sidecar={sidecar}
             requested={requestedKey === section.key}
+            initialHash={sectionHashes.current.get(section.key) ?? section.href}
             proofOpen={detailsOpen && proofSection?.key === section.key}
             onOpenProof={button => { detailsButtonRef.current = button; setProofSection(section); setDetailsOpen(true) }}
           />)}
