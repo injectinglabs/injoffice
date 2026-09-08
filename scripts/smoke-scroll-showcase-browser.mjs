@@ -507,6 +507,8 @@ try {
   await until(ready('font-metrics'), 'untouched typography workspace loads')
   await anchor('charts')
   await until(`document.querySelector('${section('charts')} input[aria-label="Jan revenue"]')`, 'chart input available after retention reload')
+  const sampleChartRevenue = await evaluate(`document.querySelector('${section('charts')} input[aria-label="Jan revenue"]').value`)
+  assert.notEqual(sampleChartRevenue, '999', 'reset sample differs from the retained edit')
   await evaluate(`(() => {
     const input = document.querySelector('${section('charts')} input[aria-label="Jan revenue"]');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '999');
@@ -521,7 +523,7 @@ try {
   allowResetDialog = true
   await evaluate(resetChart)
   allowResetDialog = false
-  await until(`document.querySelector('${section('charts')} input[aria-label="Jan revenue"]').value !== '999'`, 'confirmed reset restores the sample')
+  await until(`document.querySelector('${section('charts')} input[aria-label="Jan revenue"]')?.value === ${JSON.stringify(sampleChartRevenue)}`, 'confirmed reset remounts the chart with the exact original sample')
   await evaluate(`Array.from(document.querySelectorAll('${toolSection('charts')} .demo-context-actions button')).find(button => button.textContent.trim() === 'Close demo').click()`)
   await until(`document.querySelector('${toolSection('charts')}').dataset.scrollState === 'idle' && !document.querySelector('${section('charts')} input')`, 'close releases the mounted workspace')
   await evaluate(`document.querySelector('${toolSection('charts')} .demo-section-placeholder button').click()`)
