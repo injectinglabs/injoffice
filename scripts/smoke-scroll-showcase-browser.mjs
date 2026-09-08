@@ -169,6 +169,35 @@ async function button(key, text) {
   await evaluate(`Array.from(document.querySelector(${JSON.stringify(section(key))}).querySelectorAll('button')).find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`)
 }
 
+async function assertInternalGroupNavigation(group, feature, key) {
+  const navigation = `${toolSection('docs')} .tool-workspace__navigation`
+  const groupSelector = `${toolSection('docs')} [data-workspace-group="${group}"]`
+  const beforeTop = await evaluate(`document.querySelector('${navigation}').getBoundingClientRect().top`)
+  if (key) {
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: key === 'ArrowLeft' ? 37 : 39 })
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: key === 'ArrowLeft' ? 37 : 39 })
+  } else {
+    const point = await evaluate(`(() => { const rect = document.querySelector('${groupSelector}').getBoundingClientRect(); return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }; })()`)
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, ...point })
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...point })
+  }
+  rememberedFeatures.docs = feature
+  await until(`${ready('docs')} && document.querySelector('${groupSelector}').getAttribute('aria-selected') === 'true'`, `${key ?? 'pointer click'} selects the ${group} capability group`)
+  const samples = await evaluate(`new Promise(resolve => {
+    const samples = [];
+    const sample = () => {
+      const bar = document.querySelector('${navigation}');
+      const selected = document.querySelector('${groupSelector}');
+      samples.push({ top: bar.getBoundingClientRect().top, focused: document.activeElement === selected, current: document.querySelector('.app-sidebar a[aria-current="location"]')?.getAttribute('href') });
+      if (samples.length === 5) resolve(samples); else setTimeout(sample, 50);
+    };
+    sample();
+  })`)
+  assert.ok(samples.every(sample => sample.focused), `${key ?? 'pointer click'} retains focus on the selected ${group} tab after its hash change`)
+  assert.ok(samples.every(sample => sample.current === '#/docs'), 'internal navigation keeps Docs selected in the sidebar')
+  assert.ok(samples.every(sample => Math.abs(sample.top - beforeTop) <= 2), `${key ?? 'pointer click'} preserves the capability bar offset over 200ms: before=${beforeTop}, samples=${JSON.stringify(samples)}`)
+}
+
 async function wheelTo(key, hash = href(key)) {
   // Native wheel input does not run an anchor's navigation handler. The target
   // offset comes from the real rendered document, so lazy section heights can vary.
@@ -266,14 +295,25 @@ try {
   await button('agent-docs', 'Run agent')
   await until(agentState('agent-docs', 'awaiting-approval'), 'real DOCX preview ready', 90_000)
   const plan = await evaluate(`document.querySelector('${section('agent-docs')} .agent-diff').textContent`)
+  await anchor('sheets')
+  await until(`!!document.querySelector('${toolSection('sheets')} [data-workspace-panel="editor"] canvas')`, 'main workbook rendered before retention check', 90_000)
   await anchor('charts')
   await until(`document.querySelector('${section('charts')} input[aria-label="Jan revenue"]')`, 'editable chart mounted')
+  assert.equal(await evaluate(`(() => {
+    const panel = document.querySelector('${toolSection('sheets')} [data-workspace-panel="editor"]');
+    const rect = panel.getBoundingClientRect();
+    return panel.hidden && panel.inert && panel.getAttribute('aria-hidden') === 'true' && getComputedStyle(panel).visibility === 'hidden' && rect.width > 0 && rect.height > 0;
+  })()`), true, 'retained workbook stays measurable for its canvas but inert and hidden from assistive technology')
   await evaluate(`(() => {
     const input = document.querySelector('${section('charts')} input[aria-label="Jan revenue"]');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '999');
     input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
     window.__persistedChartInput = input;
   })()`)
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 })
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 })
+  assert.equal(await evaluate(`!!document.activeElement && !document.querySelector('${toolSection('sheets')} [data-workspace-panel="editor"]').contains(document.activeElement) && !document.activeElement.closest('[hidden], [inert]')`), true, 'keyboard Tab never enters a retained hidden workbook')
   await until(`document.querySelector('${section('charts')} .tool-metrics').textContent.includes('999')`, 'chart analysis reflects the real source edit')
   await anchor('agent-docs')
   assert.equal(await evaluate(agentState('agent-docs', 'awaiting-approval')), true, 'returning to a section preserves its pending approval')
@@ -288,6 +328,13 @@ try {
   assert.equal(await evaluate(agentState('agent-docs', 'awaiting-approval')), true, 'feature changes preserve the pending proposal')
   assert.equal(await evaluate(`document.querySelector('${section('agent-docs')} .agent-diff').textContent`), plan, 'returning from the native editor preserves the exact agent diff')
   assert.equal(await evaluate(`document.querySelector('${section('agent-docs')} .agent-approval input').checked`), false, 'feature changes never grant approval')
+  await anchor('docs')
+  await assertInternalGroupNavigation('Edit', 'editor')
+  await assertInternalGroupNavigation('AI', 'agent')
+  await assertInternalGroupNavigation('Edit', 'editor', 'ArrowLeft')
+  await assertInternalGroupNavigation('AI', 'agent', 'ArrowRight')
+  assert.equal(await evaluate(`document.querySelector('${section('agent-docs')} .agent-diff').textContent`), plan, 'pointer and keyboard group changes retain the exact reviewed proposal')
+  assert.equal(await evaluate(`Number(document.querySelector('${section('agent-docs')} [data-agent-native-writes]').textContent)`), 0, 'internal group navigation never authorizes a document write')
 
   // Re-selecting the current hash still returns to the section heading.
   await evaluate(`window.scrollBy({ top: 320, behavior: 'instant' })`)
@@ -456,7 +503,7 @@ try {
   await until(ready('charts'), 'same sidebar destination reopens a closed demo')
   assert.deepEqual(liveProposals, [], 'scroll demo never calls a real model endpoint')
   assert.deepEqual(errors, [], 'no uncaught errors or console errors')
-  console.log(JSON.stringify({ status: 'passed', mode: process.argv.includes('--dev') ? 'development' : process.argv.includes('--built') ? 'built' : 'existing-server', screenshots: output, checks: ['four tools plus landing in one document', 'four sidebar links', 'lazy feature initialization', 'sidebar scroll spy', 'passive scroll replaces history', 'passive scroll preserves focus', 'feature changes retain native edits and exact pending approval', 'same tool anchor returns to heading', 'Back and Forward across features', 'legacy format-specific deep links', 'independent mounted agent formats', 'untouched workspace release and guarded resets', 'sticky mobile navigator', 'mobile overflow', 'no real model calls'], errors }, null, 2))
+  console.log(JSON.stringify({ status: 'passed', mode: process.argv.includes('--dev') ? 'development' : process.argv.includes('--built') ? 'built' : 'existing-server', screenshots: output, checks: ['four tools plus landing in one document', 'four sidebar links', 'lazy feature initialization', 'sidebar scroll spy', 'passive scroll replaces history', 'passive scroll preserves focus', 'pointer and arrow-key groups retain focus and toolbar position', 'retained hidden workbook remains inert and keyboard-inaccessible', 'feature changes retain native edits and exact pending approval', 'same tool anchor returns to heading', 'Back and Forward across features', 'legacy format-specific deep links', 'independent mounted agent formats', 'untouched workspace release and guarded resets', 'sticky mobile navigator', 'mobile overflow', 'no real model calls'], errors }, null, 2))
 } catch (error) {
   if (socket?.readyState === WebSocket.OPEN) {
     try {
