@@ -20,6 +20,8 @@ The demo is labelled **Simulated agent · real document operations**. Guided con
 
 In development, the browser calls the bundled `POST /api/agent/mock-propose` route on the same local server. Static builds simulate the response in the browser using the same generator, with no API call. Neither path contacts a provider, forwards an API token, or grants approval—even if live-provider environment variables are set. The demo has no live-provider or local-rule mode switch. The [standalone proposal host](../../docs/AGENT-PROPOSAL-HOST.md) is a separate integrator example, not a way to enable a model in this UI.
 
+Task fields are the default input. In **Technical details**, the generated request is read-only until **Use an advanced request instead of task fields** is enabled. Advanced mode replaces the task fields with the exact active request; switching back restores the sample's guided defaults. Editing either input mode clears the previous preview and approval.
+
 Only the proposal is mocked. All four agent demos edit and verify real files:
 
 | Format | Demonstrated edit | Output verification |
