@@ -1,0 +1,15 @@
+.agent-request-help, .agent-approval-note { margin: 8px 0 0; color: var(--ds-mute); font-size: 12px; line-height: 1.5; }
+.agent-safety { display: grid; gap: 12px; }
+.agent-safety > p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--ds-mute); }
+.agent-safety button { white-space: normal; text-align: left; }
+.agent-dispatch-trace { margin: 16px; padding: 16px; border: 1px solid var(--ds-line); border-radius: 8px; min-width: 0; }
+.agent-dispatch-trace summary { cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.agent-dispatch-trace p { font-size: 13px; line-height: 1.5; max-width: 75ch; }
+.agent-dispatch-trace > details { padding: 10px 0; border-top: 1px solid var(--ds-line); }
+.agent-dispatch-trace pre { max-height: 400px; overflow: auto; font-size: 11px; }
+.agent-dispatch-trace summary:focus-visible { outline: 2px solid var(--ds-blue); outline-offset: 4px; }
+.agent-proposal-source { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; font-size: 12px; }
+.agent-proposal-source select { max-width: 100%; padding: 6px; color: var(--ds-ink); background: var(--ds-paper); border: 1px solid var(--ds-line); border-radius: 6px; }
+.agent-live-proposal { margin-top: 12px; padding: 12px; border: 1px solid var(--ds-line); border-radius: 8px; }
+.agent-live-proposal p { font-size: 12px; line-height: 1.5; }
+.agent-live-proposal pre { max-height: 280px; overflow: auto; font-size: 11px; }

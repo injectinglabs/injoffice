@@ -44,7 +44,9 @@ its output to this provider-neutral response:
 
 Operation inputs must follow the advertised Office capabilities; use the actual
 sheet ID from inspection and zero-based cell coordinates. The response
-must be JSON, contain one to eight operations, and fit within 32 KiB. The relay
+must be JSON, contain one to eight operations, and fit within 32 KiB. The Sheets
+demo applies a tighter limit: exactly one status-cell edit to a disclosed target,
+using one of the disclosed allowed values. The relay
 validates the envelope, **not the operation's authority or semantic correctness**.
 It strips extra top-level and operation metadata. Local planning/validation still
 has to reject unsupported or unsafe edits.
