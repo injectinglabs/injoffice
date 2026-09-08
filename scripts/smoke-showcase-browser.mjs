@@ -45,7 +45,7 @@ async function evaluate(expression) {
 async function until(expression, label, timeout = 30_000) {
   const start = Date.now()
   do {
-    if (await evaluate(expression)) return
+    if (await evaluate(`Boolean(${expression})`)) return
     await new Promise((resolve) => setTimeout(resolve, 100))
   } while (Date.now() - start < timeout)
   throw new Error(`Timed out: ${label}`)
