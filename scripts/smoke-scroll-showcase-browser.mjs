@@ -315,6 +315,49 @@ try {
     return prompts.length >= 2 && new Set(prompts.map(input => input.id)).size === prompts.length && prompts.every(input => Array.from(input.labels ?? []).some(label => label.closest('[data-scroll-section]') === input.closest('[data-scroll-section]')));
   })()`), true, 'mounted agents have unique prompt ids with labels belonging to their own section')
 
+  // Reproduce a preceding lazy editor growing after an explicit destination has
+  // already been reached. Disable native scroll anchoring just for this fixture
+  // so Chromium cannot mask the application's anchor-preservation behavior.
+  await anchor('agent-sheets')
+  await until(agentState('agent-sheets', 'ready'), 'preceding agent initialized for layout regression', 90_000)
+  const layoutFixture = await evaluate(`({
+    documentStyle: document.documentElement.getAttribute('style'),
+    precedingStyle: document.querySelector('${section('agent-sheets')}').getAttribute('style'),
+    precedingPadding: parseFloat(getComputedStyle(document.querySelector('${section('agent-sheets')}')).paddingBottom) || 0,
+  })`)
+  try {
+    await evaluate(`document.documentElement.style.overflowAnchor = 'none'`)
+    await anchor('agent-docs')
+    const docsAligned = `(() => {
+      const element = document.querySelector('${section('agent-docs')}');
+      return Math.abs(element.getBoundingClientRect().top - parseFloat(getComputedStyle(element).scrollMarginTop)) < 4;
+    })()`
+    await until(docsAligned, 'warm DOCX anchor reaches its heading before delayed growth')
+    await evaluate(`new Promise(resolve => setTimeout(() => {
+      document.querySelector('${section('agent-sheets')}').style.paddingBottom = '${layoutFixture.precedingPadding + 400}px';
+      resolve();
+    }, 50))`)
+    await until(`${docsAligned} && ${active('agent-docs')}`, 'delayed preceding growth preserves the explicit DOCX destination')
+
+    await wheelTo('agent-slides')
+    await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`)
+    const positionAfterWheel = await evaluate('scrollY')
+    await evaluate(`document.querySelector('${section('agent-sheets')}').style.paddingBottom = '${layoutFixture.precedingPadding + 800}px'`)
+    await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve))))`)
+    assert.ok(Math.abs(await evaluate('scrollY') - positionAfterWheel) < 4, 'native wheel releases the destination pin before another layout change')
+    assert.equal(await evaluate(docsAligned), false, 'later growth does not snap the user back to the previous DOCX destination')
+  } finally {
+    await evaluate(`(() => {
+      for (const [element, style] of [
+        [document.documentElement, ${JSON.stringify(layoutFixture.documentStyle)}],
+        [document.querySelector('${section('agent-sheets')}'), ${JSON.stringify(layoutFixture.precedingStyle)}],
+      ]) {
+        if (style === null) element.removeAttribute('style');
+        else element.setAttribute('style', style);
+      }
+    })()`)
+  }
+
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
   await anchor('agent-pdf')
   assert.equal(await evaluate(`document.documentElement.scrollWidth <= 390`), true, 'mobile document has no horizontal overflow')
