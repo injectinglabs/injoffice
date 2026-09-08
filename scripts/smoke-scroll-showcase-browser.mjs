@@ -19,6 +19,8 @@ const liveProposals = []
 let sequence = 0
 let chrome, socket, server
 let chunkFailures = 0
+const reloadDialogs = []
+let allowReloadDialog = false
 
 function onMessage({ data }) {
   const message = JSON.parse(data)
@@ -42,6 +44,9 @@ function onMessage({ data }) {
     } else {
       void send('Fetch.continueRequest', { requestId: message.params.requestId })
     }
+  } else if (message.method === 'Page.javascriptDialogOpening') {
+    reloadDialogs.push(message.params)
+    void send('Page.handleJavaScriptDialog', { accept: allowReloadDialog && message.params.type === 'confirm' && /unsaved.*lost/i.test(message.params.message) })
   }
 }
 
@@ -141,7 +146,17 @@ try {
     assert.equal(chunkFailures, 1, 'the test deliberately failed exactly one lazy chunk')
     assert.equal(await evaluate(`document.querySelectorAll('[data-scroll-section]').length === 20 && !!document.querySelector('${section('pptx-render')} [role=alert]')`), true, 'one failed editor leaves the document and navigation intact')
     await button('pptx-render', 'Retry')
-    await until(ready('pptx-render'), 'retry recovers the transient failed chunk', 30_000)
+    await until(`['ready', 'error'].includes(document.querySelector('${section('pptx-render')}')?.dataset.scrollState)`, 'retry settles without breaking other sections', 30_000)
+    if (!await evaluate(ready('pptx-render'))) {
+      // Chromium can cache a rejected module URL for the document lifetime.
+      // The explicit fallback must warn before losing other edited sections.
+      allowReloadDialog = true
+      await evaluate(`void setTimeout(() => Array.from(document.querySelector('${section('pptx-render')}').querySelectorAll('button')).find(button => button.textContent.trim() === 'Reload page').click(), 0)`)
+      await until(`${ready('pptx-render')} && ${active('pptx-render')}`, 'confirmed reload recovers the cached chunk failure at the same deep link', 90_000)
+      allowReloadDialog = false
+      assert.equal(reloadDialogs.length, 1, 'fallback requires one explicit confirmation')
+      assert.match(reloadDialogs[0].message, /unsaved.*lost/i, 'reload warns about losing uncommitted demo edits')
+    }
     await send('Fetch.disable')
     await anchor('overview')
   }
