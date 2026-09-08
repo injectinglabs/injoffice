@@ -209,7 +209,7 @@ try {
 
       await prepareAgentRequest('Mark Security as Ready', 'C5')
       await click('[data-agent-concurrent-edit]')
-      await until(`!document.querySelector('[data-agent-concurrent-edit]').disabled`, 'concurrent source edit completes', 90_000)
+      await until(`document.querySelector('.agent-safety')?.textContent.includes('The source has changed.')`, 'concurrent source edit completes', 90_000)
       const writesBeforeStaleCommit = await agentWrites()
       await approveAgentCommit()
       await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'error'`, 'stale approval fails closed', 90_000)
@@ -235,7 +235,7 @@ try {
     assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, 'refusal does not expose a previous output')
     await click('.demo-reset-trigger')
     await until(`document.querySelector('[data-agent-tool=${tool}]') && document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Run agent' && !button.disabled)`, `${tool} reset reloads the source`, 90_000)
-    assert.equal(await evaluate(`!document.querySelector('[data-agent-download]') && !document.querySelector('.agent-diff') && document.querySelectorAll('.agent-tool-log li[data-state=done]').length === 0 && document.querySelector('.agent-approval input').checked === false`), true, 'reset clears outputs, proof, and approval')
+    assert.equal(await evaluate(`!document.querySelector('[data-agent-download]') && !document.querySelector('.agent-diff') && !Array.from(document.querySelectorAll('.agent-tool-log li[data-state=done]')).some(item => /office\\.(plan|commit)/.test(item.textContent)) && document.querySelector('.agent-approval input').checked === false`), true, 'reset clears outputs, plans, commits, and approval; initial capability discovery is allowed')
   }
   await click('.source-proof-trigger')
   await click('.guided-recipe__complete')
