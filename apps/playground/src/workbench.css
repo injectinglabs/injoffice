@@ -2397,6 +2397,38 @@ body {
   overflow: visible;
 }
 
+/* Agent proposals are a reading-and-approval workflow, not an editor canvas.
+ * Let their content extend the document instead of nesting vertical scroll
+ * regions. Unloaded previews keep the standard reserved workspace height. */
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"][data-section-loaded="true"] .demo-preview {
+  height: auto;
+  overflow: visible;
+}
+
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .demo-stage,
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .demo-stage > .ds,
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] [data-demo-surface="agent"] {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  flex: 1 0 auto;
+  overflow: visible;
+}
+
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .agent-demo__workspace {
+  height: auto;
+  min-height: auto;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .agent-demo__inspector,
+.app-shell[data-navigation="scroll"] [data-scroll-section^="agent-"] .agent-artifact {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
 .app-shell[data-navigation="scroll"] .demo-title-line h2 {
   min-width: 0;
   margin: 0;
