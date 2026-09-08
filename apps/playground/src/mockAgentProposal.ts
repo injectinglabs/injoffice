@@ -1,19 +1,12 @@
 /** Deterministic demo proposer shared by the local HTTP route and static preview.
  * It does not run an LLM, access the network, approve changes, or edit a workbook.
  */
+import { MockAgentProposalError, type MockAgentProposal } from './mockAgentContract.ts'
+export { MockAgentProposalError, type MockAgentProposal } from './mockAgentContract.ts'
+
 const PAYLOAD_LIMIT = 48 * 1024
 const STATUS_VALUES = ['Ready', 'On track', 'At risk', 'Review', 'Blocked']
 type JsonObject = Record<string, unknown>
-export type MockAgentProposal = { operations: Array<{
-  name: 'xlsx.cell.set_value'
-  operationId: string
-  input: { sheetId: string; cell: { row: number; column: number }; value: string }
-}> }
-
-export class MockAgentProposalError extends Error {
-  readonly status: 400 | 422
-  constructor(status: 400 | 422, message: string) { super(message); this.status = status; this.name = 'MockAgentProposalError' }
-}
 
 function object(value: unknown): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
