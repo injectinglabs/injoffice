@@ -62,10 +62,12 @@ function SheetArtifact({ content, highlighted }: { content: Record<string, unkno
   const rows = content.rows as Array<Array<string | number>>
   const changed = content.changedCell as { row: number; column: number } | undefined
   return (
+    <div className="agent-artifact__sheet-scroll" role="region" aria-label="Workbook preview; scroll horizontally to see all columns" tabIndex={0}>
     <table className="agent-artifact__sheet ds-table">
       <thead><tr><th aria-label="Row number" />{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
       <tbody>{rows.map((row, rowIndex) => <tr key={String(row[0])}><th>{rowIndex + 2}</th>{row.map((cell, cellIndex) => <td className={highlighted && rowIndex === (changed?.row ?? 3) && cellIndex === (changed?.column ?? 3) ? 'agent-artifact__changed' : undefined} key={`${rowIndex}-${cellIndex}`}>{cell}</td>)}</tr>)}</tbody>
     </table>
+    </div>
   )
 }
 

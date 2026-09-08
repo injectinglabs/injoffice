@@ -307,6 +307,29 @@ try {
   await until(`document.documentElement.scrollWidth <= 390`, 'mobile catalogue has no horizontal overflow')
   assert.ok(await evaluate(`document.querySelector('.app-sidebar').getBoundingClientRect().height < 160`), 'mobile navigation does not retain a desktop-height blank area')
   await screenshot('catalogue-mobile')
+  await route('agent?format=sheets')
+  await until(agentReady, 'mobile AI sample ready', 90_000)
+  await clickButton('Run agent')
+  await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'awaiting-approval'`, 'mobile AI preview prepared', 90_000)
+  await evaluate(`document.querySelector('[data-agent-trace]').open = true`)
+  assert.equal(await evaluate(`(() => {
+    const workspace = document.querySelector('.agent-demo__workspace').getBoundingClientRect();
+    const inspector = document.querySelector('.agent-demo__inspector').getBoundingClientRect();
+    const trace = document.querySelector('[data-agent-trace]').getBoundingClientRect();
+    const section = document.querySelector('[data-agent-tool]');
+    return workspace.bottom <= trace.top + 1 && inspector.bottom <= workspace.bottom + 1 && section.scrollWidth <= section.clientWidth && document.documentElement.scrollWidth <= 390;
+  })()`), true, 'mobile AI workbook and inspector fit their section and never overlap the expanded trace')
+  assert.equal(await evaluate(`(() => {
+    const frame = document.querySelector('.agent-artifact__sheet-scroll');
+    const table = frame.querySelector('table');
+    frame.scrollLeft = 80;
+    return frame.scrollWidth > frame.clientWidth && frame.scrollLeft > 0 && table.getBoundingClientRect().width >= 720;
+  })()`), true, 'mobile workbook retains readable columns with keyboard-focusable internal horizontal scrolling')
+  assert.equal(await evaluate(`Array.from(document.querySelectorAll('.agent-flight-recorder li')).every(item => item.getBoundingClientRect().width >= 96)`), true, 'mobile workflow labels keep readable internal scroll columns')
+  await evaluate(`document.querySelector('.agent-artifact__sheet-scroll').scrollLeft = 0; document.querySelector('.agent-artifact__sheet-scroll').scrollIntoView({ block: 'start' })`)
+  await screenshot('agent-mobile-workbook')
+  await evaluate(`document.querySelector('[data-agent-trace]').scrollIntoView({ block: 'start' })`)
+  await screenshot('agent-mobile-expanded-trace')
   await route('charts')
   await screenshot('focused-chart-mobile')
   await click('.source-proof-trigger')
