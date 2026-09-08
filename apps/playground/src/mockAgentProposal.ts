@@ -11,7 +11,8 @@ export type MockAgentProposal = { operations: Array<{
 }> }
 
 export class MockAgentProposalError extends Error {
-  constructor(readonly status: 400 | 422, message: string) { super(message); this.name = 'MockAgentProposalError' }
+  readonly status: 400 | 422
+  constructor(status: 400 | 422, message: string) { super(message); this.status = status; this.name = 'MockAgentProposalError' }
 }
 
 function object(value: unknown): value is JsonObject {
