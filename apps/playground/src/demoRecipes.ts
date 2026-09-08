@@ -204,7 +204,7 @@ export const DEMO_RECIPES = {
     outcome: 'Make an edit on one surface, observe it on another, and inspect the ordered operation ledger.',
     minutes: 3,
     steps: [
-      { id: 'choose-collab-format', title: 'Choose an artifact', instruction: 'Keep “Two-editor simulation” selected, then choose Sheets, Docs, Slides, or PDF.', evidence: 'Two independent editors join one browser-local room.' },
+      { id: 'choose-collab-format', title: 'Open the shared sample', instruction: 'Keep “Two-editor simulation” selected. The format is already fixed to this workspace’s tool.', evidence: 'Two independent editors join one browser-local room.' },
       { id: 'make-collab-edit', title: 'Edit on one side', instruction: 'Change content or presence in the left editor.', evidence: 'The right editor receives the operation while retaining its own local identity.' },
       { id: 'inspect-ledger', title: 'Inspect ordering', instruction: 'Read the Shared operation ledger and compare ordered content operations with presence events.', evidence: 'Ordered edits have sequence numbers while ephemeral presence is labeled separately.' },
     ],
@@ -220,7 +220,7 @@ export const DEMO_RECIPES = {
     outcome: 'Turn two snapshots into a readable diff, capture attribution, and restore without rewriting history.',
     minutes: 3,
     steps: [
-      { id: 'edit-snapshots', title: 'Create a meaningful change', instruction: 'Choose Spreadsheet or Document and edit the Before and After content.', evidence: 'The Changes panel reports structured cells or text spans rather than opaque bytes.' },
+      { id: 'edit-snapshots', title: 'Create a meaningful change', instruction: 'Edit the Before and After content. The sample format is already fixed to this workspace’s tool.', evidence: 'The Changes panel reports structured cells or text spans rather than opaque bytes.' },
       { id: 'capture-version', title: 'Capture with attribution', instruction: 'Select Capture after or Capture as agent.', evidence: 'A new timeline entry records the author and capture reason.' },
       { id: 'restore-version', title: 'Restore non-destructively', instruction: 'Select a version and choose Restore selected.', evidence: 'The restored snapshot becomes a new version while earlier history stays intact.' },
     ],

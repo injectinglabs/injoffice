@@ -83,9 +83,11 @@ function ToolWorkspace({ tool, initialHash }: { tool: AgentTool; initialHash?: s
   }, [tool])
   const choose = (feature: string) => {
     const href = workspaceHref(tool, feature)
-    window.dispatchEvent(new CustomEvent('injoffice:workspace-view', { detail: { tool } }))
     activate(feature, href)
-    if (window.location.hash !== href) window.location.hash = href
+    if (window.location.hash !== href) {
+      window.dispatchEvent(new CustomEvent('injoffice:workspace-view', { detail: { tool } }))
+      window.location.hash = href
+    }
   }
 
   useEffect(() => {

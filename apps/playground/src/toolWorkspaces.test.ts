@@ -74,4 +74,9 @@ describe('four tool workspace catalogue', () => {
     expect(source).toContain('const instanceId = useId()')
     for (const marker of ['role="tablist"', 'role="tab"', 'role="tabpanel"', 'aria-selected={selected}', 'aria-controls=', 'aria-labelledby=', 'data-workspace-group=', 'data-workspace-feature=', 'data-workspace-view', "'ArrowLeft', 'ArrowRight', 'Home', 'End'"]) expect(source).toContain(marker)
   })
+
+  it('emits internal navigation intent only when a hash change will consume it', () => {
+    const source = readFileSync(new URL('./components/ToolWorkspace.tsx', import.meta.url), 'utf8')
+    expect(source).toMatch(/if \(window\.location\.hash !== href\) \{\s+window\.dispatchEvent\(new CustomEvent\('injoffice:workspace-view'/)
+  })
 })
