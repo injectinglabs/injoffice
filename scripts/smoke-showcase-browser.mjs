@@ -195,7 +195,7 @@ try {
     await until(`document.querySelector('[data-agent-tool=${tool}]') && document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Run agent' && !button.disabled)`, `${tool} AI deep link`, 90_000)
     const boundary = await evaluate(`document.querySelector('[data-agent-boundary]')?.textContent`)
     if (tool === 'sheets') {
-      assert.match(boundary, /Real XLSX file.*native browser write and exact-byte reopen/, 'native workflow describes real byte proof')
+      assert.match(boundary, /Simulated AI proposal.*real XLSX.*native write.*verification.*no language model/i, 'mock boundary distinguishes simulated AI from real workbook operations')
       assert.equal(await evaluate(`document.querySelector('[data-agent-proposal-source]').value`), 'mock', 'bundled mock is the zero-configuration default')
       const mockNotice = await evaluate(`document.querySelector('[data-agent-mock]')?.textContent`)
       assert.match(mockNotice, /mock/i, 'mock proposer is explicitly labelled')
@@ -210,6 +210,8 @@ try {
     assert.equal(await evaluate(`document.querySelector('.agent-approval input').checked`), false, 'proposal does not preapprove itself')
     if (tool === 'sheets') {
       assert.equal(await agentWrites(), 0, 'mock proposal and native preview leave the source untouched')
+      assert.match(await evaluate(`document.querySelector('[data-agent-proposal-trace]')?.textContent`), /request/i, 'mock proposal exposes its request trace separately from actual Office tools')
+      assert.match(await evaluate(`document.querySelector('[data-agent-proposal-trace]')?.textContent`), /response/i, 'mock proposal exposes its response for inspection')
       assert.equal(proposalRequests.filter((request) => new URL(request.url).pathname.endsWith('/propose')).length, 0, 'default mock never invokes the live proposal relay')
       if (process.argv.includes('--dev')) {
         assert.equal(proposalRequests.length, 1, 'development mock executes through one same-origin endpoint request')
