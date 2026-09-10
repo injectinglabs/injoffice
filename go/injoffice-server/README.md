@@ -88,3 +88,20 @@ These are not OS-level total-memory isolation: WebAssembly and Go allocations
 are separate. The browser streams at most 16 MiB and bounds displayed geometry.
 Keep the default loopback listener. This helper has no authentication and is
 not a public multi-tenant rendering service.
+
+## Opt-in native PPTX slides
+
+The separate `POST /v1/pptx/slide-preview?slide=0` route is also disabled by
+default. Enable it with both `-pptx-preview-worker /absolute/worker.js` and
+`-pptx-font-manifest /absolute/fonts.json`. Paths are operator configuration;
+requests cannot select executables, fonts, or manifest files. The worker uses
+only exact, content-addressed font faces supplied by the operator. Operators
+must have permission to use those fonts; this feature does not redistribute them.
+
+The route accepts at most 8 MiB of source bytes, never stores them, binds its
+response to the original package digest and slide index/count, and shares the
+DOCX worker concurrency gate. Input/output frames are limited to 16 MiB,
+the subprocess to 30 seconds, and the request context to 45 seconds. Missing
+fonts and unsupported paint stay explicit; a deterministic native layout policy
+is not evidence of PowerPoint pixel equivalence. Keep this unauthenticated
+helper on loopback behind the same deployment restrictions as DOCX preview.
