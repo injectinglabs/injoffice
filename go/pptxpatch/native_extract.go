@@ -1892,6 +1892,11 @@ func (extractor *nativeExtractor) extractNativeParagraphs(txBody *nativeXMLNode,
 	if txBody == nil {
 		return []NativeParagraph{}, nil
 	}
+	resolvedBody, styleErr := resolveNativeLocalTextStyles(txBody, dialect)
+	if styleErr != nil {
+		return nil, styleErr
+	}
+	txBody = resolvedBody
 	if err := requireOnlyNativeAttrs(txBody); err != nil {
 		return nil, err
 	}
@@ -1947,7 +1952,7 @@ func (extractor *nativeExtractor) extractNativeParagraphs(txBody *nativeXMLNode,
 		for _, child := range paragraphNode.Children {
 			switch child.Name {
 			case xml.Name{Space: dialect.drawing, Local: "pPr"}:
-				if err := requireOnlyNativeAttrs(child, xml.Name{Local: "algn"}, xml.Name{Local: "lvl"}); err != nil {
+				if err := requireOnlyNativeAttrs(child, xml.Name{Local: "algn"}, xml.Name{Local: "lvl"}, xml.Name{Local: "marL"}, xml.Name{Local: "indent"}); err != nil {
 					return nil, fmt.Errorf("pptxpatch: native extract: unmodeled paragraph metadata: %w", err)
 				}
 				if err := requireOnlyNativeChildren(child,
@@ -1966,7 +1971,28 @@ func (extractor *nativeExtractor) extractNativeParagraphs(txBody *nativeXMLNode,
 					}
 				}
 				if buChar != nil {
-					return nil, fmt.Errorf("pptxpatch: native extract: bullet character semantics are not representable in v1")
+					if requireOnlyNativeAttrs(buChar, xml.Name{Local: "char"}) != nil || requireOnlyNativeChildren(buChar) != nil {
+						return nil, unsupportedNativeTextContent("unmodeled bullet character metadata")
+					}
+					marker, ok := exactNativeAttr(buChar, "", "char")
+					if !ok || utf8.RuneCountInString(marker) != 1 || strings.IndexFunc(marker, unicode.IsControl) >= 0 {
+						return nil, unsupportedNativeTextContent("bullet requires one non-control authored character")
+					}
+					paragraph.Bullet = boolPointer(true)
+					paragraph.BulletCharacter = &marker
+				}
+				for _, field := range []struct {
+					name   string
+					target **int64
+					min    int64
+				}{{"marL", &paragraph.MarginLeftEmu, 0}, {"indent", &paragraph.IndentEmu, -51206400}} {
+					if value, ok := exactNativeAttr(child, "", field.name); ok {
+						parsed, err := parseCanonicalNativeInt(value, field.min, 51206400)
+						if err != nil {
+							return nil, err
+						}
+						*field.target = &parsed
+					}
 				}
 				if value, ok := exactNativeAttr(child, "", "algn"); ok {
 					align, alignErr := nativeTextAlign(value)

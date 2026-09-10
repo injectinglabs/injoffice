@@ -1,6 +1,6 @@
 // Pixel oracle for the actual real-file preview component; no Office fidelity claim.
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, sep } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -32,7 +32,7 @@ const built = await build({
   plugins: [{
     name: 'pptx-crop-smoke-entry',
     resolveId(id) { if (id === entry) return entry },
-    load(id) { if (id === entry) return "import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Preview from './apps/playground/src/components/PptxFilePreview.tsx'; createRoot(document.body).render(createElement(Preview, {deck: globalThis.__injofficeCropFixture}));" },
+    load(id) { if (id === entry) return "import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Preview from './apps/playground/src/components/PptxFilePreview.tsx'; const root = createRoot(document.body); globalThis.__injofficeRenderFixture = deck => root.render(createElement(Preview, {deck})); globalThis.__injofficeRenderFixture(globalThis.__injofficeCropFixture);" },
   }],
   define: { 'process.env.NODE_ENV': '"production"' },
   build: {
@@ -74,6 +74,18 @@ try {
     }
   }
   console.log(`PPTX crop Chrome pixel oracle: PASS (${artifacts})`)
+  if (process.argv.includes('--styles')) {
+    const generated = spawnSync('go', ['test', '-count=1', '-run', '^TestNativeTextStyleBrowserFixture$', '.'], { cwd: resolve(root, 'go/pptxpatch'), env: { ...process.env, INJOFFICE_PPTX_STYLE_FIXTURE_DIR: artifacts }, encoding: 'utf8', timeout: 60000 })
+    if (generated.status !== 0) throw new Error(`Could not generate/extract the real style fixture: ${generated.stderr}\n${generated.stdout}`)
+    const native = JSON.parse(readFileSync(resolve(artifacts, 'styled-native.json'), 'utf8'))
+    const rendered = await cdp.send('Runtime.callFunctionOn', { objectId: global.result.objectId, functionDeclaration: 'function (deck) { this.__injofficeRenderFixture(deck); }', arguments: [{ value: native }] })
+    if (rendered.exceptionDetails) throw new Error('Could not render real extracted style fixture')
+    const check = await evaluate(`new Promise((resolve, reject) => { const end = Date.now() + 10000; function check() { const p = document.querySelector('foreignObject p'); if (p?.textContent === '▪ Hello world') { const span = p.querySelector('span'); const style = getComputedStyle(span); const paragraph = getComputedStyle(p); resolve({size:style.fontSize,weight:style.fontWeight,italic:style.fontStyle,color:style.color,marker:p.textContent[0],margin:parseFloat(paragraph.paddingLeft),indent:parseFloat(paragraph.textIndent),label:document.body.textContent.includes('Approximate file preview')}); } else if (Date.now() > end) reject(new Error('inherited style content not rendered')); else setTimeout(check,20); } check(); })`)
+    if (check.size !== '24px' || check.weight !== '700' || check.italic !== 'italic' || check.color !== 'rgb(47, 111, 237)' || check.marker !== '▪' || Math.abs(check.margin - 23.622) > .01 || Math.abs(check.indent + 7.874) > .01 || !check.label) throw new Error(`Real-file inherited style preview differs: ${JSON.stringify(check)}`)
+    const styled = await cdp.send('Page.captureScreenshot', { format: 'png' })
+    writeFileSync(resolve(artifacts, 'pptx-native-styles.png'), Buffer.from(styled.data, 'base64'))
+    console.log(`PPTX real-file local style cascade and authored bullet: PASS (${artifacts})`)
+  }
 } finally {
   cdp?.close()
   try { if (chrome) await terminateProcess(chrome.child) }
