@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, sep } from 'node:path'
+import { PDFDocument, PDFName, PDFNumber, StandardFonts } from 'pdf-lib'
 import { launchChromeForCDP, terminateProcess } from './chrome-cdp-startup.mjs'
 import { startShowcaseServer } from './showcase-smoke-server.mjs'
 import { startShowcaseDevServer } from './showcase-smoke-dev-server.mjs'
@@ -135,8 +136,20 @@ try {
   await evaluate(`(() => { const transfer = new DataTransfer(); transfer.items.add(new File(['not a PDF'], 'broken.pdf', { type: 'application/pdf' })); const input = ${pdf}.querySelector('[aria-label="Open a PDF file"]'); input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); })()`)
   await poll(() => evaluate(`${pdf}.innerText.includes('Could not read the selected PDF')`), 'invalid upload error')
   await assert(`Number(${pdf}.querySelector('[aria-label="Page number"]').max) === ${pageCount} && ${pdf}.dataset.demoDirty === 'true' && [...${pdf}.querySelectorAll('button')].some(b => b.textContent.trim() === 'Undo' && !b.disabled)`, 'invalid upload preserves working document and undo')
+  // /UserUnit changes physical page geometry independently of viewer zoom.
+  const unitDoc = await PDFDocument.create()
+  const unitPage = unitDoc.addPage([200, 300])
+  unitPage.node.set(PDFName.of('UserUnit'), PDFNumber.of(2))
+  unitPage.drawText('Scaled PDF coordinates', { x: 20, y: 240, size: 12, font: await unitDoc.embedFont(StandardFonts.Helvetica) })
+  const unitBytes = [...await unitDoc.save()]
+  await evaluate(`(() => { const transfer = new DataTransfer(); transfer.items.add(new File([new Uint8Array(${JSON.stringify(unitBytes)})], 'user-unit.pdf', { type: 'application/pdf' })); const input = ${pdf}.querySelector('[aria-label="Open a PDF file"]'); input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+  await poll(() => evaluate(`${pdf}.querySelector('.native-status').textContent.includes('user-unit.pdf')`), 'UserUnit PDF opened')
+  await ready()
+  await textLayerReady()
+  await assert(`${pdf}.querySelector('.pdf-selectable-text').style.getPropertyValue('--total-scale-factor') === '2'`, 'text layer includes PDF user unit')
+  await screenshot('pdf-user-unit.png')
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('\n')}`)
-  console.log(JSON.stringify({ result: 'PASS', checks: ['native text selection', 'text geometry at rotation and zoom', 'tab keyboard navigation', 'passage markup', 'undo/redo', 'pointer drawing', 'keyboard drawing', 'search highlighting', 'page deletion recovery', 'invalid upload preserves edits'], screenshots: artifacts }, null, 2))
+  console.log(JSON.stringify({ result: 'PASS', checks: ['native text selection', 'text geometry at rotation and zoom', 'PDF user unit geometry', 'tab keyboard navigation', 'passage markup', 'undo/redo', 'pointer drawing', 'keyboard drawing', 'search highlighting', 'page deletion recovery', 'invalid upload preserves edits'], screenshots: artifacts }, null, 2))
 } catch (error) {
   console.error(`Screenshots: ${artifacts}`)
   if (cdp) {

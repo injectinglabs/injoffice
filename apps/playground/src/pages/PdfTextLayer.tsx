@@ -22,7 +22,7 @@ export function PdfTextLayer({ viewer, page, zoom, disabled }: {
       const proxy = await viewer.getPage(page)
       if (cancelled) return
       const viewport = proxy.getViewport({ scale: zoom })
-      container.style.setProperty('--total-scale-factor', String(viewport.scale))
+      container.style.setProperty('--total-scale-factor', String(viewport.scale * viewport.userUnit))
       layer = new TextLayer({
         textContentSource: proxy.streamTextContent(),
         container,
