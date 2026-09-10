@@ -56,7 +56,8 @@ with `POST /v1/collab/session`, stream `collab.*` frames from
 
 Two browsers can share one artifact from the playground: start this server,
 then `npm run dev` from the repository root and open `#/collab` twice.
-# Opt-in native DOCX pages
+
+## Opt-in native DOCX pages
 
 Native DOCX page preview is disabled by default. To enable it locally, build
 the workspace packages and `@injoffice/docx-page-paint-worker` using Node 22,
