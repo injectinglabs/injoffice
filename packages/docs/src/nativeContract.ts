@@ -79,6 +79,7 @@ export interface NativeDocxRunPropertiesV1 {
   bold?: boolean
   italic?: boolean
   underline?: 'none' | 'single' | 'double' | 'words'
+  vertical_alignment?: 'baseline' | 'subscript' | 'superscript'
   color?: string
   highlight?: string
   language?: string
@@ -365,7 +366,7 @@ export const DOCX_NATIVE_V1_BINDING_FIELDS = {
   EditPolicyV1: ['mode', 'allowed_operations', 'refusal'],
   CapabilityV1: ['name', 'level', 'detail'],
   PassthroughPartV1: ['part_name', 'content_type', 'byte_length', 'sha256', 'policy'],
-  RunPropertiesV1: ['character_style_id', 'font_family', 'font_size_half_points', 'bold', 'italic', 'underline', 'color', 'highlight', 'language', 'rtl', 'hidden'],
+  RunPropertiesV1: ['character_style_id', 'font_family', 'font_size_half_points', 'bold', 'italic', 'underline', 'vertical_alignment', 'color', 'highlight', 'language', 'rtl', 'hidden'],
   DrawingV1: ['id', 'anchor', 'relationship_id', 'media_part', 'content_type', 'name', 'alt_text', 'placement', 'width_emu', 'height_emu', 'x_emu', 'y_emu', 'horizontal_relative_from', 'vertical_relative_from', 'wrap', 'edit_policy', 'rotation_degrees', 'flip_horizontal', 'flip_vertical', 'source_crop'],
   DrawingCropV1: ['left', 'top', 'right', 'bottom'],
   ReferenceV1: ['kind', 'target_id', 'role'],
@@ -591,6 +592,7 @@ function validateRunProperties(value: unknown, path: string, issues: NativeDocxV
   booleanValue(entry.bold, `${path}/bold`, issues, false)
   booleanValue(entry.italic, `${path}/italic`, issues, false)
   if (entry.underline !== undefined) enumValue(entry.underline, `${path}/underline`, ['none', 'single', 'double', 'words'], issues)
+  if (entry.vertical_alignment !== undefined) enumValue(entry.vertical_alignment, `${path}/vertical_alignment`, ['baseline', 'subscript', 'superscript'], issues)
   optionalString(entry.color, `${path}/color`, issues, COLOR)
   optionalString(entry.highlight, `${path}/highlight`, issues)
   optionalString(entry.language, `${path}/language`, issues)

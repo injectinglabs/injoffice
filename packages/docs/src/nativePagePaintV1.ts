@@ -63,6 +63,7 @@ import {
 import type { NativeDocxResolvedNumberingSourceV1, NativeDocxResolvedRunPropertiesV1 } from './nativeResolvedLayout.js'
 import { nativeTextHighlightCommandV1 } from './nativeTextHighlightV1.js'
 import { nativeTextUnderlineCommandsV1 } from './nativeTextUnderlineV1.js'
+import { nativeDocxScriptScaleV1, validateNativeDocxScriptTransformV1 } from './nativeScriptLayoutV1.js'
 import { validateNativeDocxPageFieldVariantsV1, type NativeDocxPageFieldVariantV1 } from './nativePageFieldsV1.js'
 
 export interface NativeDocxPagePaintRequestV1 {
@@ -483,6 +484,9 @@ export function decodeNativeDocxPagePaintRequestV1(value: unknown): DecodeNative
     try { pageFieldVariants = validateNativeDocxPageFieldVariantsV1(pagination.value, paginated.value, root.page_field_variants) }
     catch (error) { add(issues, 'BROKEN_REFERENCE', '/page_field_variants', error instanceof Error ? error.message : 'Invalid page-field variants') }
   }
+  if (pagination.ok && manifest.ok) for (const shaped of [pagination.value.shaped_lines, ...(pageFieldVariants ?? []).map((variant) => variant.shaped_lines)]) for (const paragraph of shaped.paragraphs) for (const line of paragraph.lines) for (const fragment of line.fragments) {
+    if (fragment.script_transform && fragment.script_transform.font_sha256 !== manifest.value.faces.find((face) => face.faceId === fragment.face_id)?.source.contentDigest) add(issues, 'BROKEN_REFERENCE', '/pagination_request/shaped_lines', 'Script metrics must bind the exact content-addressed shaped font face')
+  }
   issues.sort(compareNativeValidationIssues)
   if (issues.length > 0 || !pagination.ok || !paginated.ok || !manifest.ok || !mediaAssets) return { ok: false, issues: issues.slice(0, DOCX_NATIVE_LIMITS.maxIssues) }
   return {
@@ -621,24 +625,24 @@ function coordinate(origin: number, design: number, fontSize: number, unitsPerEm
   return Number.isSafeInteger(result) && Math.abs(result) <= DOCX_PAGE_PAINT_LIMITS.maxPaintCoordinateMilliPoints ? result : undefined
 }
 
-function placePath(path: NativeDocxGlyphDesignPathCommandV1[], originX: number, originY: number, fontSize: number, unitsPerEm: number): NativeDocxPaintPathCommandV1[] | undefined {
+function placePath(path: NativeDocxGlyphDesignPathCommandV1[], originX: number, originY: number, fontSize: number, unitsPerEm: number, fontSizeY = fontSize): NativeDocxPaintPathCommandV1[] | undefined {
   const output: NativeDocxPaintPathCommandV1[] = []
   for (const command of path) {
     if (command.kind === 'close_path') { output.push(command); continue }
     const x = coordinate(originX, command.x, fontSize, unitsPerEm)
-    const y = coordinate(originY, command.y, fontSize, unitsPerEm, true)
+    const y = coordinate(originY, command.y, fontSizeY, unitsPerEm, true)
     if (x === undefined || y === undefined) return undefined
     if (command.kind === 'move_to' || command.kind === 'line_to') output.push({ kind: command.kind, x_millipoints: x, y_millipoints: y })
     else if (command.kind === 'quadratic_to') {
       const controlX = coordinate(originX, command.control_x, fontSize, unitsPerEm)
-      const controlY = coordinate(originY, command.control_y, fontSize, unitsPerEm, true)
+      const controlY = coordinate(originY, command.control_y, fontSizeY, unitsPerEm, true)
       if (controlX === undefined || controlY === undefined) return undefined
       output.push({ kind: 'quadratic_to', control_x_millipoints: controlX, control_y_millipoints: controlY, x_millipoints: x, y_millipoints: y })
     } else {
       const control1X = coordinate(originX, command.control_1_x, fontSize, unitsPerEm)
-      const control1Y = coordinate(originY, command.control_1_y, fontSize, unitsPerEm, true)
+      const control1Y = coordinate(originY, command.control_1_y, fontSizeY, unitsPerEm, true)
       const control2X = coordinate(originX, command.control_2_x, fontSize, unitsPerEm)
-      const control2Y = coordinate(originY, command.control_2_y, fontSize, unitsPerEm, true)
+      const control2Y = coordinate(originY, command.control_2_y, fontSizeY, unitsPerEm, true)
       if (control1X === undefined || control1Y === undefined || control2X === undefined || control2Y === undefined) return undefined
       output.push({ kind: 'cubic_to', control_1_x_millipoints: control1X, control_1_y_millipoints: control1Y, control_2_x_millipoints: control2X, control_2_y_millipoints: control2Y, x_millipoints: x, y_millipoints: y })
     }
@@ -943,6 +947,9 @@ export async function compileNativeDocxPagePaintV1(value: unknown, outlineProvid
           }
         }
         coveredFragmentIDs.add(coveragePrefix + fragment.id)
+        const scriptTransform = fragment.script_transform
+        if (scriptTransform && (!validateNativeDocxScriptTransformV1(scriptTransform) || scriptTransform.kind !== properties.vertical_alignment || scriptTransform.font_sha256 !== (fragment.face_id ? faces.get(fragment.face_id)?.source.contentDigest : undefined))) return { ok: true, value: refusal(provenance, 'identity-mismatch', fragment.source_id, 'Script transform must exact-join source alignment and content-addressed font') }
+        if (scriptTransform && (properties.underline && properties.underline !== 'none' || properties.highlight && properties.highlight !== 'none')) return { ok: true, value: refusal(provenance, 'unsupported-source', fragment.source_id, 'Combined script transforms and underline/highlight are not qualified') }
         const underline = nativeTextUnderlineCommandsV1(properties.underline, properties.color, fragment, placed.id, line.id, fragmentX, baselineY)
         if (!underline.ok) return { ok: true, value: refusal(provenance, 'unsupported-source', fragment.source_id, underline.message) }
         for (const command of underline.commands) underlines.push(command)
@@ -1005,7 +1012,7 @@ export async function compileNativeDocxPagePaintV1(value: unknown, outlineProvid
           const originX = glyphX + glyph.offset_x_millipoints
           const originY = baselineY - glyph.offset_y_millipoints
           if (!Number.isSafeInteger(originX) || !Number.isSafeInteger(originY)) return { ok: true, value: refusal(provenance, 'resource-limit', fragment.id, 'Glyph origin exceeds safe integer coordinates') }
-          const path = outline.status === 'empty' ? [] : placePath(outline.path, originX, originY, fontSize, outline.units_per_em)
+          const path = outline.status === 'empty' ? [] : placePath(outline.path, originX, originY, scriptTransform ? nativeDocxScriptScaleV1(fontSize,scriptTransform,'x') : fontSize, outline.units_per_em, scriptTransform ? nativeDocxScriptScaleV1(fontSize,scriptTransform,'y') : fontSize)
           if (!path) return { ok: true, value: refusal(provenance, 'invalid-path', fragment.id, 'Scaled glyph path exceeds bounded integer page coordinates') }
           pathCommandCount += path.length
           if (pathCommandCount > DOCX_PAGE_PAINT_LIMITS.maxPathCommands) return { ok: true, value: refusal(provenance, 'resource-limit', fragment.id, `Paint path commands exceed ${DOCX_PAGE_PAINT_LIMITS.maxPathCommands}`) }

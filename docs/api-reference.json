@@ -4166,6 +4166,11 @@
               "signature": "export interface NativeDocxRunV1"
             },
             {
+              "name": "NativeDocxScriptTransformV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxScriptTransformV1"
+            },
+            {
               "name": "nativeDocxSectionsShareExactPageV1",
               "kind": "function",
               "signature": "export declare function nativeDocxSectionsShareExactPageV1(previous: NativeDocxSectionV1, next: NativeDocxSectionV1): boolean"

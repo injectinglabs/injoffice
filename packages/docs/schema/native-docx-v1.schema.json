@@ -96,6 +96,7 @@
         "bold": { "type": "boolean" },
         "italic": { "type": "boolean" },
         "underline": { "enum": ["none", "single", "double", "words"] },
+        "vertical_alignment": { "enum": ["baseline", "subscript", "superscript"] },
         "color": { "type": "string", "pattern": "^(?:auto|[0-9A-F]{6})$" },
         "highlight": { "type": "string", "minLength": 1, "maxLength": 4096 },
         "language": { "type": "string", "minLength": 1, "maxLength": 4096 },

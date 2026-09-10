@@ -2787,9 +2787,24 @@ func nativeDrawingWrap(container *nativeXMLNode, wpNS string) (string, bool) {
 	return value, value != ""
 }
 
+func nativeVerticalAlignmentValue(node *nativeXMLNode, wordNS string) (string, bool) {
+	if !nativeExactLeaf(node, xml.Name{Space: wordNS, Local: "val"}) {
+		return "", false
+	}
+	count, value := 0, ""
+	for _, attr := range node.Attrs {
+		if attr.Name == (xml.Name{Space: wordNS, Local: "val"}) {
+			count++
+			value = attr.Value
+		}
+	}
+	return value, count == 1 && (value == "baseline" || value == "subscript" || value == "superscript")
+}
+
 func (extractor *nativeExtractor) extractRunProperties(partName, paragraphID string, node *nativeXMLNode) (*NativeRunPropertiesV1, bool) {
 	properties := &NativeRunPropertiesV1{}
 	unsafe := false
+	preserveOnly := false
 	for _, child := range node.Children {
 		if child.Name.Space != extractor.wordNS {
 			unsafe = true
@@ -2869,8 +2884,14 @@ func (extractor *nativeExtractor) extractRunProperties(partName, paragraphID str
 				unsafe = true
 			}
 		case "vertAlign":
-			unsafe = true
-			extractor.addUnsupported("VERTICAL_ALIGNMENT_UNSUPPORTED", "run-properties", paragraphID, partName, child, "Vertical alignment is preserved for Word but native shaping has no qualified scale, baseline, or advance metric")
+			preserveOnly = true
+			value, ok := nativeVerticalAlignmentValue(child, extractor.wordNS)
+			if ok {
+				properties.VerticalAlignment = nativeString(value)
+			} else {
+				unsafe = true
+				extractor.addUnsupported("VERTICAL_ALIGNMENT_UNSUPPORTED", "run-properties", paragraphID, partName, child, "Vertical alignment requires an exact baseline, subscript or superscript value")
+			}
 		default:
 			unsafe = true
 			extractor.addUnsupported("UNMODELED_RUN_PROPERTY", "run-properties", paragraphID, partName, child, "This run property is preserved verbatim")
@@ -2879,7 +2900,7 @@ func (extractor *nativeExtractor) extractRunProperties(partName, paragraphID str
 	if unsafe {
 		extractor.addUnsupported("PARTIAL_RUN_PROPERTIES", "run-properties", paragraphID, partName, node, "Only the conservative v1 run-property subset is exposed")
 	}
-	return properties, unsafe
+	return properties, unsafe || preserveOnly
 }
 
 func nativeOnOff(node *nativeXMLNode, namespace string) (bool, bool) {

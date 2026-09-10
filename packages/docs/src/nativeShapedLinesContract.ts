@@ -14,6 +14,7 @@ import {
   type NativeDocxShapedParagraphV1,
 } from './nativeShapingLines.js'
 import { compareNativeValidationIssues } from './nativeDeterminism.js'
+import { validateNativeDocxScriptTransformV1 } from './nativeScriptLayoutV1.js'
 
 export type DecodeNativeDocxShapedLinesResult =
   | { ok: true; value: NativeDocxShapedLinesV1 }
@@ -23,7 +24,7 @@ export const DOCX_SHAPED_LINES_V1_BINDING_FIELDS = {
   FontManifestV1: ['manifest_id', 'revision'],
   ProvidersV1: ['resolver_id', 'resolver_revision', 'shaper_id', 'shaper_revision', 'bidi_id', 'bidi_revision', 'bidi_unicode_version', 'unicode13_revision'],
   GlyphV1: ['glyph_id', 'advance_x_millipoints', 'advance_y_millipoints', 'offset_x_millipoints', 'offset_y_millipoints'],
-  FragmentV1: ['id', 'source_kind', 'source_id', 'start_utf16', 'end_utf16', 'text', 'direction', 'bidi_level', 'logical_order', 'script', 'language', 'face_id', 'whitespace', 'advance_inline_millipoints', 'justification_expansion_millipoints', 'ascent_millipoints', 'descent_millipoints', 'line_gap_millipoints', 'underline_position_millipoints', 'underline_thickness_millipoints', 'glyphs'],
+  FragmentV1: ['id', 'source_kind', 'source_id', 'start_utf16', 'end_utf16', 'text', 'direction', 'bidi_level', 'logical_order', 'script', 'language', 'face_id', 'whitespace', 'advance_inline_millipoints', 'justification_expansion_millipoints', 'ascent_millipoints', 'descent_millipoints', 'line_gap_millipoints', 'underline_position_millipoints', 'underline_thickness_millipoints', 'glyphs', 'script_transform'],
   HardBreakV1: ['source_run_id', 'control'],
   LineV1: ['id', 'ordinal', 'available_width_millipoints', 'inline_offset_millipoints', 'advance_inline_millipoints', 'ascent_millipoints', 'descent_millipoints', 'line_gap_millipoints', 'line_height_millipoints', 'justified', 'logical_to_visual', 'fragments', 'hard_break_after'],
   NumberingSourceV1: ['relationships_part', 'relationships_sha256', 'relationship_id', 'relationship_type', 'relationship_target', 'part_name', 'content_type', 'part_sha256', 'model_sha256'],
@@ -220,6 +221,7 @@ function validateFragment(value: unknown, path: string, issues: NativeDocxValida
   if (id && state.fragmentIDs.has(id)) add(issues, 'DUPLICATE_ID', `${path}/id`, 'fragment id is duplicated')
   if (id) state.fragmentIDs.add(id)
   const sourceKind = enumValue(entry.source_kind, `${path}/source_kind`, ['run', 'list-marker', 'tab', 'image'], issues)
+  if (entry.script_transform !== undefined && (sourceKind !== 'run' || !validateNativeDocxScriptTransformV1(entry.script_transform))) add(issues, 'INVALID_VALUE', `${path}/script_transform`, 'requires bounded font-authored subscript/superscript metrics on a text run')
   stringValue(entry.source_id, `${path}/source_id`, issues, { pattern: SHORT_ID, max: 256 })
   const start = integer(entry.start_utf16, `${path}/start_utf16`, issues, 0, MAX_FRAGMENT_TEXT_UTF16)
   const end = integer(entry.end_utf16, `${path}/end_utf16`, issues, 0, MAX_FRAGMENT_TEXT_UTF16)

@@ -517,6 +517,8 @@ function validateAuthoritativeParagraphBidi(
         continue
       }
       let paragraphStart: number = runStart
+      const scriptKind = resolved.properties.vertical_alignment
+      if ((scriptKind && scriptKind !== 'baseline' ? scriptKind : undefined) !== fragment.script_transform?.kind || fragment.script_transform && nativeRun.kind !== 'text') issues.push(issue('BROKEN_REFERENCE', `${basePath}/lines/${lineIndex}/fragments/${visualIndex}/script_transform`, 'script transform must exactly match authored vertical alignment on a text run'))
       let coveredLength = 0
       let exact = false
       if (nativeRun.kind === 'drawing') {

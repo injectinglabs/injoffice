@@ -40,6 +40,14 @@ func buildWithFields(font []byte, withJPEG, withFields bool) ([]byte, error) {
 }
 
 func buildWithDecorations(font []byte, withJPEG, withFields bool, underline string) ([]byte, error) {
+	return buildWithAllDecorations(font, withJPEG, withFields, false, underline)
+}
+
+func buildWithScripts(font []byte, withJPEG, withFields, withScripts bool) ([]byte, error) {
+	return buildWithAllDecorations(font, withJPEG, withFields, withScripts, "")
+}
+
+func buildWithAllDecorations(font []byte, withJPEG, withFields, withScripts bool, underline string) ([]byte, error) {
 	if underline != "" && underline != "single" && underline != "double" && underline != "words" {
 		return nil, fmt.Errorf("unsupported underline style")
 	}
@@ -105,6 +113,17 @@ func buildWithDecorations(font []byte, withJPEG, withFields bool, underline stri
 		document = strings.Replace(document, `<w:document `, `<w:document xmlns:r="`+rns+`" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" `, 1)
 		parts["word/document.xml"] = []byte(document)
 	}
+	if withScripts {
+		run := func(text, alignment string) string {
+			extra := ""
+			if alignment != "" {
+				extra = `<w:vertAlign w:val="` + alignment + `"/>`
+			}
+			return `<w:r><w:rPr>` + runProps + extra + `</w:rPr><w:t xml:space="preserve">` + text + `</w:t></w:r>`
+		}
+		formula := `<w:p><w:pPr><w:spacing w:before="0" w:after="120"/></w:pPr>` + run("H", "") + run("2", "subscript") + run("O + x", "") + run("2", "superscript") + `</w:p>`
+		parts["word/document.xml"] = []byte(strings.Replace(string(parts["word/document.xml"]), paragraph("Second page", true), formula+paragraph("Second page", true), 1))
+	}
 	if withFields {
 		field := func(instruction string) string {
 			return `<w:fldSimple w:instr=" ` + instruction + ` "><w:r><w:rPr>` + runProps + `</w:rPr><w:t>999</w:t></w:r></w:fldSimple>`
@@ -165,6 +184,7 @@ func main() {
 	withJPEG := flag.Bool("jpeg", false, "include generated baseline JFIF JPEG bands")
 	underline := flag.String("underline", "", "title underline: single, double, or words")
 	withFields := flag.Bool("page-fields", false, "include source-bound PAGE/NUMPAGES with stale caches in header and footer")
+	withScripts := flag.Bool("scripts", false, "include H2O + x2 using font-metric subscript and superscript")
 	flag.Parse()
 	if *fontPath == "" || *out == "" {
 		fmt.Fprintln(os.Stderr, "-font and -out are required")
@@ -173,7 +193,7 @@ func main() {
 	font, err := os.ReadFile(*fontPath)
 	if err == nil {
 		var data []byte
-		data, err = buildWithDecorations(font, *withJPEG, *withFields, *underline)
+		data, err = buildWithAllDecorations(font, *withJPEG, *withFields, *withScripts, *underline)
 		if err == nil {
 			err = os.WriteFile(*out, data, 0600)
 		}

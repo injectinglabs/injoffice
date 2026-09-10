@@ -392,6 +392,39 @@ describe('native DOCX page-paint compiler v1', () => {
     missing.pages[0]!.commands.pop(); missing.pages[0]!.lines[0]!.command_ids.pop()
     expect(decodeNativeDocxPagePaintForRequestV1(missing, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(false)
   })
+  it('scales real-font subscript/superscript advances and outlines with source-bound OS/2 metrics', async () => {
+    const plain = fixture(); (plain.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs[0]!.text = '2'
+    const base = await prepareNativeDocxPagePaintV1(plain)
+    const original = base.page_paint_request.pagination_request.shaped_lines.paragraphs[0]!.lines[0]!.fragments[0]!
+    const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+    for (const alignment of ['subscript','superscript'] as const) {
+      const input = structuredClone(plain)
+      ;(input.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs[0]!.properties = { vertical_alignment: alignment }
+      ;(input.resolved_layout as NativeDocxResolvedLayoutInputV1).runs[0]!.properties.vertical_alignment = alignment
+      const prepared = await prepareNativeDocxPagePaintV1(input)
+      const fragment = prepared.page_paint_request.pagination_request.shaped_lines.paragraphs[0]!.lines[0]!.fragments[0]!
+      expect(fragment.script_transform).toMatchObject({ kind: alignment, font_sha256: FONT_DIGEST, units_per_em: 2048 })
+      expect(fragment.script_transform!.x_size).not.toBe(fragment.script_transform!.y_size)
+      expect(fragment.advance_inline_millipoints).toBeLessThan(original.advance_inline_millipoints)
+      expect(Math.sign(fragment.glyphs[0]!.offset_y_millipoints)).toBe(alignment === 'superscript' ? 1 : -1)
+      const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map((request) => ({ status: 'outlined' as const, ...request, ...provider.outline(request.glyph_id) })) })
+      expect(completed.page_paint_output.status).toBe('painted')
+      expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(true)
+      for (const patch of [undefined, { ...fragment.script_transform!, kind: alignment === 'subscript' ? 'superscript' : 'subscript' }, { ...fragment.script_transform!, font_sha256: `sha256:${'f'.repeat(64)}` }]) {
+        const invalid = structuredClone(prepared.page_paint_request)
+        const changed = invalid.pagination_request.shaped_lines.paragraphs[0]!.lines[0]!.fragments[0]!
+        if (patch === undefined) delete changed.script_transform; else changed.script_transform = patch as typeof changed.script_transform
+        invalid.integrity.shaped_lines_sha256 = nativeDocxPagePaintShapedLinesSha256V1(invalid.pagination_request.shaped_lines)
+        expect(decodeNativeDocxPagePaintRequestV1(invalid).ok).toBe(false)
+      }
+      for (const decoration of [{ highlight:'yellow' },{ underline:'single' as const }]) {
+        const decorated = structuredClone(input)
+        Object.assign((decorated.resolved_layout as NativeDocxResolvedLayoutInputV1).runs[0]!.properties, decoration)
+        const refused = await prepareNativeDocxPagePaintV1(decorated)
+        expect(refused.page_paint_request.paginated_layout.status).toBe('refused')
+      }
+    }
+  })
   it('derives PAGE/NUMPAGES from final pagination in both repeated header and footer, never cached values', async () => {
     const input = fixture()
     const document = input.document as NativeDocxDocumentV1

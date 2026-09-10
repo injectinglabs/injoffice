@@ -419,6 +419,24 @@ other field instructions remain refused. Field-dependent body pagination needs
 a separate convergence contract; this implementation makes no Word-pixel parity
 claim. See the [OOXML simple-field definition](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.simplefield?view=openxml-3.0.1).
 
+Text-run `w:vertAlign` values `subscript` and `superscript` use an explicit
+font-metric simulation profile. Native shaping reads the embedded font's
+[OS/2 script size and offset metrics](https://learn.microsoft.com/en-us/typography/opentype/spec/os2),
+scales horizontal advances and vertical metrics independently, and carries a
+digest-bound `script_transform` on each affected fragment. Page paint applies
+the same horizontal/vertical outline scale and baseline offsets; no CSS text
+measurement or fixed percentage is used. The output's `font_size_millipoints`
+continues to identify the authored run size; the compiled glyph paths are the
+rendering authority, not an instruction to re-shape at that size.
+
+This is a deterministic use of the font's recommended simulation metrics, not
+a claim that Microsoft Word uses the same policy. Missing/truncated/invalid
+OS/2 metrics, non-reducing scales, script paragraph marks, list/note markers,
+controls, and combinations with underline or highlighting remain refused.
+Direct script paragraphs remain read-only; `baseline` explicitly resets an
+inherited vertical alignment. OpenType `sups`/`subs` glyph substitutions, custom
+`w:position` offsets, and mathematical equation layout are separate capabilities.
+
 Stored output should first pass `decodeNativeDocxPagePaintV1`, then
 `decodeNativeDocxPagePaintForRequestV1` for exact request/page/line/glyph/style
 identity joins. When provider-authenticated path geometry and the legitimacy of

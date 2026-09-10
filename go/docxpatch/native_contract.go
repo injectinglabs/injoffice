@@ -70,6 +70,7 @@ type NativeRunPropertiesV1 struct {
 	Bold              *bool   `json:"bold,omitempty"`
 	Italic            *bool   `json:"italic,omitempty"`
 	Underline         *string `json:"underline,omitempty"`
+	VerticalAlignment *string `json:"vertical_alignment,omitempty"`
 	Color             *string `json:"color,omitempty"`
 	Highlight         *string `json:"highlight,omitempty"`
 	Language          *string `json:"language,omitempty"`
@@ -1007,6 +1008,9 @@ func (v *nativeValidator) run(run *NativeRunV1, path, ownerPart string, parentAn
 		}
 		if properties.Underline != nil {
 			v.oneOf(*properties.Underline, path+"/properties/underline", "none", "single", "double", "words")
+		}
+		if properties.VerticalAlignment != nil {
+			v.oneOf(*properties.VerticalAlignment, path+"/properties/vertical_alignment", "baseline", "subscript", "superscript")
 		}
 		if properties.Color != nil && !nativeColor.MatchString(*properties.Color) {
 			v.add("INVALID_VALUE", path+"/properties/color", "must be auto or uppercase RRGGBB")
