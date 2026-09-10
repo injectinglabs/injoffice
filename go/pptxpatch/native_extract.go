@@ -202,6 +202,7 @@ type nativeExtractor struct {
 	tokenStager             *nativePassthroughTokenStager
 	groupProjectionSeen     bool
 	theme                   nativeResolvedTheme
+	slideDependencies       nativeSlideDependencyGraph
 }
 
 type nativeStagedPassthroughToken struct {
@@ -1443,6 +1444,7 @@ func (extractor *nativeExtractor) extractSlide(part, objectID, relationshipID st
 		return NativeSlide{}, err
 	}
 	extractor.theme = theme
+	extractor.slideDependencies = graph
 	for _, unsupported := range graph.unsupported {
 		if err := extractor.markSlideUnsupported(&slide, unsupported.part, unsupported.objectID, unsupported.fingerprint, unsupported.payload, unsupported.code, unsupported.message); err != nil {
 			return NativeSlide{}, err
@@ -1671,6 +1673,11 @@ func (extractor *nativeExtractor) extractSlide(part, objectID, relationshipID st
 }
 
 func (extractor *nativeExtractor) extractTextShape(node *nativeXMLNode, part, slideID, fingerprint string, zIndex int, dialect nativeExtractDialect) (NativeElement, error) {
+	resolved, inheritedPlaceholder, inheritanceErr := extractor.resolveNativePlaceholder(node, dialect)
+	if inheritanceErr != nil {
+		return NativeElement{}, inheritanceErr
+	}
+	node = resolved
 	if err := requireOnlyNativeAttrs(node); err != nil {
 		return NativeElement{}, err
 	}
@@ -1835,10 +1842,15 @@ func (extractor *nativeExtractor) extractTextShape(node *nativeXMLNode, part, sl
 	}
 	element := NativeElement{
 		Kind: NativeElementKindText, ID: elementID, Provenance: NativeProvenanceParsed,
-		Transform: transform, Paragraphs: paragraphPointer, TextBody: textBody,
+		Placeholder: inheritedPlaceholder,
+		Transform:   transform, Paragraphs: paragraphPointer, TextBody: textBody,
 		Passthrough: []NativePassthroughRef{}, Children: nil,
 		Source:        &NativeSourceAnchor{PartName: part, ObjectID: objectID, FingerprintSHA256: elementFingerprint},
 		Compatibility: NativeCompatibility{Status: NativeCompatibilityStatusEditable, Diagnostics: []NativeDiagnostic{}},
+	}
+	if inheritedPlaceholder != nil {
+		element.Compatibility.Status = NativeCompatibilityStatusPreserveOnly
+		element.Compatibility.Diagnostics = append(element.Compatibility.Diagnostics, NativeDiagnostic{Severity: NativeDiagnosticSeverityWarning, Code: "pptx.inherited-placeholder-preview", Message: "title/body placeholder geometry and styles resolve through the exact layout/master relationship chain; inherited targets remain preserve-only", Scope: &NativeDiagnosticScope{SlideID: &slideID, ElementID: &elementID, PartName: &part}})
 	}
 	if name != "" {
 		element.Name = stringPointer(name)
