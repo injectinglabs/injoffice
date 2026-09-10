@@ -299,7 +299,7 @@ selected static header/footer paragraphs with natural shaped line height, plus
 qualified footnote/endnote paragraphs with natural shaped line height, plus a
 bounded body-table subset:
 explicit fixed dxa or percentage width and grid, left alignment/indent, four cell margins,
-indivisible rows, direct cell paragraphs, table-level single/RGB
+indivisible or line-safe natural-height rows, direct cell paragraphs, table-level single/RGB
 borders, and clear RGB cell shading. Horizontal `grid_span`, vertical restart/continue
 merges, `atLeast`/`exact` row heights, and simple whole-table styles that project
 onto those same border/fill commands are included. Merged rows paginate as one
@@ -314,6 +314,16 @@ parallel text flows of adjacent cells; repeated line placements have unique
 page-derived IDs and are validated by exact pagination replay, not accepted as
 arbitrary duplicate body content. Generated two-column DOCX browser fixtures
 verify this bounded behavior, not Word pixel equivalence.
+Natural-height rows without `cant_split: true` use a line-safe fragmentation
+policy: cuts cannot bisect any adjacent cell's shaped line, `keep_lines` group,
+or initial/final two-line widow group. Header prefixes repeat before fragments;
+cell fills and side borders continue even when that cell has no remaining text.
+Horizontal source borders appear only at the source row boundaries, not invented
+at page cuts. Fragment source ranges are contiguous, identity-bound, and checked
+by exact pagination replay. Split rows currently refuse explicit/minimum heights,
+vertical merges, keep-next chains, forced paragraph page breaks, and documents
+containing notes. This is deterministic bounded pagination, not a claim of Word
+row-break parity or content-based table autofit.
 Percentage width uses the named `fixed-grid-percent-exact-twips-v1` policy:
 resolve the authored 1..5000 fiftieths-of-a-percent against the owning single
 section column, then scale the authored grid proportionally. Every preferred

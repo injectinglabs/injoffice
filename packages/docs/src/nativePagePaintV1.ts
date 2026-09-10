@@ -718,8 +718,15 @@ function tableCommandsByPage(
   const pageByID = new Map(pages.map((page) => [page.id, page]))
   const commands = new Map<string, NativeDocxTableCommandsV1>(pages.map((page) => [page.id, { fills: [], borders: [] }]))
   const placementsByParagraph = new Map<string, Array<{ pageID: string; line: NativeDocxPlacedLineV1 }>>()
+  type Fragment = NonNullable<NativeDocxPaginatedPageV1['table_rows']>[number]
+  const fragmentsByRow = new Map<string, Array<{ pageID: string; fragment: Fragment }>>()
   let work = 0
   for (const page of pages) {
+    for (const fragment of page.table_rows ?? []) {
+      const key = JSON.stringify([fragment.table_id, fragment.row_id]), entries = fragmentsByRow.get(key) ?? []
+      entries.push({ pageID: page.id, fragment }); fragmentsByRow.set(key, entries)
+      if (++work > DOCX_PAGE_PAINT_LIMITS.maxOutputNodes) return undefined
+    }
     const seen = new Set<string>()
     for (const line of page.lines) {
       if (seen.has(line.paragraph_id)) continue
@@ -739,30 +746,36 @@ function tableCommandsByPage(
       const anchorCell = table.rows[rowIndex]!.cells.find((cell) => cell.vertical_merge !== 'continue') ?? table.rows[rowIndex]!.cells[0]
       const firstParagraph = anchorCell?.cell.paragraphs[0]
       const firstShaped = firstParagraph ? shaped.get(firstParagraph.id) : undefined
-      const placements = firstParagraph ? placementsByParagraph.get(firstParagraph.id) : undefined
+      // Split-row geometry is source-replayed explicitly: a short/empty cell
+      // has no line anchor on later pages but still needs its background/edges.
+      const placements: Array<{ pageID: string; line?: NativeDocxPlacedLineV1; fragment?: Fragment }> | undefined = table.table.rows[rowIndex]!.cant_split !== true
+        ? fragmentsByRow.get(JSON.stringify([table.table.id, row.row_id]))
+        : firstParagraph ? placementsByParagraph.get(firstParagraph.id) : undefined
       if (!placements || !firstShaped) continue
       const topMargin = table.table.cell_margins!.top_twips * 50
       for (const placement of placements) {
         const page = pageByID.get(placement.pageID)
         const target = commands.get(placement.pageID)
         if (!page || !target) return undefined
-        const rowY = placement.line.y_millipoints - topMargin - firstShaped.spacing_before_millipoints
+        const rowY = placement.fragment?.y_millipoints ?? (placement.line!.y_millipoints - topMargin - firstShaped.spacing_before_millipoints)
         if (!Number.isSafeInteger(rowY)) return undefined
         for (const [cellIndex, cell] of row.cells.entries()) {
           work += 1
           if (work > DOCX_PAGE_PAINT_LIMITS.maxOutputNodes) return undefined
           if (cell.vertical_merge === 'continue') continue
           const x = page.body_box.x_millipoints + cell.x_millipoints
-          const height = cell.height_millipoints
-          const placementSuffix = placement.line.repeated_table_header ? `:repeat:${page.id}` : ''
+          const height = placement.fragment?.height_millipoints ?? cell.height_millipoints
+          const placementSuffix = placement.fragment ? `:fragment:${placement.fragment.fragment_ordinal}` : placement.line?.repeated_table_header ? `:repeat:${page.id}` : ''
+          const firstFragment = !placement.fragment || placement.fragment.source_y_millipoints === 0
+          const lastFragment = !placement.fragment || placement.fragment.source_y_millipoints + height === placement.fragment.source_height_millipoints
           if (cell.shading_rgb) target.fills.push({ kind: 'fill_table_cell', id: `paint:table:${table.table.id}:${rowIndex}:${cellIndex}:fill${placementSuffix}`, table_id: table.table.id, row_id: row.row_id, cell_id: cell.cell_id, x_millipoints: x, y_millipoints: rowY, width_millipoints: cell.width_millipoints, height_millipoints: height, fill_rgb: cell.shading_rgb })
           const source = table.table.borders
           const lastMergeRow = rowIndex + cell.row_span - 1
           const edges: Array<{ edge: NativeDocxStrokeTableBorderCommandV1['edge']; border?: import('./nativeContract.js').NativeDocxTableBorderV1; x1: number; y1: number; x2: number; y2: number }> = [
-            { edge: 'top', border: rowIndex === 0 ? source?.top : undefined, x1: x, y1: rowY, x2: x + cell.width_millipoints, y2: rowY },
+            { edge: 'top', border: firstFragment && rowIndex === 0 ? source?.top : undefined, x1: x, y1: rowY, x2: x + cell.width_millipoints, y2: rowY },
             { edge: 'left', border: cell.column_ordinal === 0 ? source?.left : undefined, x1: x, y1: rowY, x2: x, y2: rowY + height },
             { edge: 'right', border: cell.column_ordinal + cell.grid_span === gridColumns ? source?.right : source?.inside_vertical, x1: x + cell.width_millipoints, y1: rowY, x2: x + cell.width_millipoints, y2: rowY + height },
-            { edge: 'bottom', border: lastMergeRow === rows.length - 1 ? source?.bottom : source?.inside_horizontal, x1: x, y1: rowY + height, x2: x + cell.width_millipoints, y2: rowY + height },
+            { edge: 'bottom', border: lastFragment ? lastMergeRow === rows.length - 1 ? source?.bottom : source?.inside_horizontal : undefined, x1: x, y1: rowY + height, x2: x + cell.width_millipoints, y2: rowY + height },
           ]
           for (const edge of edges) if (edge.border?.style === 'single' && edge.border.color_rgb) target.borders.push({
             kind: 'stroke_table_border', id: `paint:table:${table.table.id}:${rowIndex}:${cellIndex}:${edge.edge}${placementSuffix}`, table_id: table.table.id, row_id: row.row_id, cell_id: cell.cell_id, edge: edge.edge,

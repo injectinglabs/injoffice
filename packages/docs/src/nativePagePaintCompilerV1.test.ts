@@ -945,6 +945,30 @@ describe('native DOCX page-paint compiler v1', () => {
     expect(completed.page_paint_output.pages[0]!.commands.map((command) => command.kind)).toEqual(['fill_table_cell', 'fill_glyph_path', 'stroke_table_border', 'stroke_table_border', 'stroke_table_border', 'stroke_table_border'])
     expect(completed.page_paint_output.provenance.table_projection.sha256).toMatch(/^sha256:[0-9a-f]{64}$/)
   })
+  it('paints source-bound natural row fragments without duplicating glyphs or full-row shading', async () => {
+    const input = tableFixture(), document = input.document as NativeDocxDocumentV1
+    const table = document.body.blocks[0]!.table!
+    table.rows[0]!.cant_split = false
+    table.width_twips = 4_680; table.grid_widths_twips = [4_680]; table.rows[0]!.cells[0]!.width_twips = 4_680
+    table.rows[0]!.cells[0]!.paragraphs[0]!.runs[0]!.text = 'a '.repeat(200)
+    document.sections[0]!.page.height_twips = 4_480
+    document.sections[0]!.page.orientation = 'landscape'
+    const original = JSON.stringify(document), prepared = await prepareNativeDocxPagePaintV1(input)
+    if (prepared.page_paint_request.paginated_layout.status !== 'paginated') throw new Error(JSON.stringify(prepared.page_paint_request.paginated_layout))
+    const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+    const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map(request => { const outline = provider.outline(request.glyph_id); return outline.path.length ? { status: 'outlined' as const, ...request, ...outline } : { status: 'empty' as const, ...request, units_per_em: outline.units_per_em } }) })
+    if (completed.page_paint_output.status !== 'painted') throw new Error(JSON.stringify(completed.page_paint_output))
+    const pages = completed.page_paint_output.pages
+    expect(pages.length).toBeGreaterThan(1)
+    for (const page of pages) {
+      const fill = page.commands.find(command => command.kind === 'fill_table_cell')!
+      expect(fill).toMatchObject({ kind: 'fill_table_cell', y_millipoints: 72_000 })
+      if (fill.kind === 'fill_table_cell') expect(fill.height_millipoints).toBeLessThanOrEqual(80_000)
+    }
+    expect(new Set(pages.flatMap(page => page.lines.map(line => line.line_id))).size).toBe(prepared.page_paint_request.pagination_request.shaped_lines.paragraphs[0]!.lines.length)
+    expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(true)
+    expect(JSON.stringify(document)).toBe(original)
+  })
   it('reflows cell shaping to the exact percentage table width and binds the width policy in provenance', async () => {
     const input = tableFixture(), table = (input.document as NativeDocxDocumentV1).body.blocks[0]!.table!
     delete table.width_twips; table.width_percent_fiftieths = 2500

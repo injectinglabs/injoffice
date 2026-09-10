@@ -281,11 +281,14 @@ export function qualifyNativeDocxTablesV1(document: NativeDocxDocumentV1, resolv
     const openMerge: Array<{ cellID: string; span: number } | undefined> = Array.from({ length: grid.length })
     let bodyStarted = false
     const repeating = table.rows.some((row) => row.repeat_header)
+    const splitting = table.rows.some((row) => row.cant_split !== true)
+    if (splitting && document.notes.length > 0) return fail(table.id, 'Split table rows with footnote/endnote reservation require a separate layout contract')
     for (const [rowOrdinal, row] of table.rows.entries()) {
       if (row.repeat_header && bodyStarted) return fail(row.id, 'Repeated headers must be a contiguous leading row prefix')
       if (!row.repeat_header) bodyStarted = true
-      if (repeating && row.cells.some((cell) => cell.vertical_merge !== 'none')) return fail(row.id, 'Vertical merges in repeating-header tables require a separate pagination contract')
-      if (row.cant_split !== true) return fail(row.id, 'Every qualified row must explicitly prohibit page splitting')
+      if ((repeating || splitting) && row.cells.some((cell) => cell.vertical_merge !== 'none')) return fail(row.id, 'Vertical merges with repeated headers or split rows require a separate pagination contract')
+      if (row.repeat_header && row.cant_split !== true) return fail(row.id, 'Repeated header rows must explicitly prohibit splitting')
+      if (row.cant_split !== true && (row.height_twips !== undefined || row.height_rule !== undefined)) return fail(row.id, 'Split rows currently require natural height without exact or minimum row-height overrides')
       if ((row.height_twips === undefined) !== (row.height_rule === undefined)) return fail(row.id, 'Row height requires both height_twips and height_rule')
       if (row.height_twips !== undefined && (row.height_rule !== 'atLeast' && row.height_rule !== 'exact' || !Number.isSafeInteger(row.height_twips) || row.height_twips < 0 || row.height_twips > MAX_SAFE_TWIPS)) return fail(row.id, 'Row height rule is outside the exact atLeast/exact subset')
       cells += row.cells.length
@@ -329,6 +332,7 @@ export function qualifyNativeDocxTablesV1(document: NativeDocxDocumentV1, resolv
         for (const paragraph of cell.paragraphs) {
           if (!resolvedParagraphs.has(paragraph.id)) return fail(paragraph.id, 'Cell paragraph does not exact-join the resolved layout')
           if (resolvedParagraphs.get(paragraph.id)?.numbering) return fail(paragraph.id, 'Numbering inside tables is refused because list-counter state is not guessed')
+          if (row.cant_split !== true && (resolvedParagraphs.get(paragraph.id)?.properties.keep_next || resolvedParagraphs.get(paragraph.id)?.properties.page_break_before)) return fail(paragraph.id, 'Split rows cannot guess paragraph keep-next chains or forced page breaks')
           paragraphWidths.set(paragraph.id, contentWidth)
         }
         qualifiedCells.push({ cell: paintCell, column_ordinal: column, grid_span: span, vertical_merge: cell.vertical_merge, x_millipoints: x, width_millipoints: width, content_x_millipoints: contentX, content_width_millipoints: contentWidth })
