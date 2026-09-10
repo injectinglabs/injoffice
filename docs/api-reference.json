@@ -5579,6 +5579,11 @@
           "file": "harfbuzz.d.ts",
           "symbols": [
             {
+              "name": "createHarfBuzzOutlineProviderV1",
+              "kind": "function",
+              "signature": "export declare function createHarfBuzzOutlineProviderV1(request: HarfBuzzFontMetricsRequestV1):"
+            },
+            {
               "name": "createHarfBuzzTextShaperV1",
               "kind": "function",
               "signature": "export declare function createHarfBuzzTextShaperV1(options: HarfBuzzShaperOptionsV1): HarfBuzzTextShaperV1"
@@ -5632,6 +5637,11 @@
               "name": "HARFBUZZJS_PACKAGE_VERSION",
               "kind": "const",
               "signature": "export declare const HARFBUZZJS_PACKAGE_VERSION: '1.6.0'"
+            },
+            {
+              "name": "HarfBuzzOutlineCommandV1",
+              "kind": "type",
+              "signature": "export type HarfBuzzOutlineCommandV1 ="
             },
             {
               "name": "HarfBuzzShaperOptionsV1",
