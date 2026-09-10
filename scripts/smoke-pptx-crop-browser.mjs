@@ -85,6 +85,14 @@ try {
     const styled = await cdp.send('Page.captureScreenshot', { format: 'png' })
     writeFileSync(resolve(artifacts, 'pptx-native-styles.png'), Buffer.from(styled.data, 'base64'))
     console.log(`PPTX real-file local style cascade and authored bullet: PASS (${artifacts})`)
+    const placeholder = JSON.parse(readFileSync(resolve(artifacts, 'placeholder-native.json'), 'utf8'))
+    const inherited = await cdp.send('Runtime.callFunctionOn', { objectId: global.result.objectId, functionDeclaration: 'function (deck) { this.__injofficeRenderFixture(deck); }', arguments: [{ value: placeholder }] })
+    if (inherited.exceptionDetails) throw new Error('Could not render extracted placeholder fixture')
+    const inheritance = await evaluate(`new Promise((resolve,reject)=>{const end=Date.now()+10000;function check(){const p=document.querySelector('foreignObject p');const margin=p?parseFloat(getComputedStyle(p).paddingLeft):0;if(Math.abs(margin-31.496)<.01){resolve({text:p.textContent,transform:p.closest('g').getAttribute('transform'),diagnostic:document.body.textContent.includes('inherited targets remain preserve-only')})}else if(Date.now()>end)reject(new Error('placeholder projection not rendered'));else setTimeout(check,20)}check()})`)
+    if (inheritance.text !== '▪ Hello world' || !inheritance.transform.includes('72') || !inheritance.diagnostic) throw new Error(`Real-file placeholder inheritance differs: ${JSON.stringify(inheritance)}`)
+    const inheritedImage = await cdp.send('Page.captureScreenshot', { format: 'png' })
+    writeFileSync(resolve(artifacts, 'pptx-native-placeholder.png'), Buffer.from(inheritedImage.data, 'base64'))
+    console.log(`PPTX real-file relationship-bound master/layout placeholder: PASS (${artifacts})`)
   }
 } finally {
   cdp?.close()

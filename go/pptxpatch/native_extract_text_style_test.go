@@ -110,4 +110,19 @@ func TestNativeTextStyleBrowserFixture(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "styled-native.json"), output, 0600); err != nil {
 		t.Fatal(err)
 	}
+	input = nativePlaceholderFixture(t, false, nil)
+	deck, err = ExtractNativePPTX(input, nativeTestExtractOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err = MarshalNativePPTXJSON(deck)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "placeholder-native.pptx"), input, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "placeholder-native.json"), output, 0600); err != nil {
+		t.Fatal(err)
+	}
 }
