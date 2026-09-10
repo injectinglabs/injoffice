@@ -39,6 +39,7 @@ import {
 } from '../pdfWorkbench'
 import { recordPdfEdit, travelPdfHistory, type PdfHistory } from '../pdfInteraction'
 import { PdfInteractionLayer, type PdfPlacementTool } from './PdfInteractionLayer'
+import { PdfTextLayer } from './PdfTextLayer'
 
 configurePdfWorker(pdfWorkerUrl)
 
@@ -430,6 +431,7 @@ export default function PdfPage() {
             {!ready && !error && <p className="pdf-empty ds-muted">Loading PDF…</p>}
             <div className="pdf-page-stage">
               <canvas ref={canvasRef} className="pdf-canvas" aria-label={ready ? `Rendered page ${page} of ${pageCount}` : 'PDF page'} />
+              {viewer && <PdfTextLayer viewer={viewer} page={page} zoom={zoom} disabled={locked || inspector === 'mark' || tool !== null} />}
               {viewer && <PdfInteractionLayer key={`${page}-${zoom}`} viewer={viewer} page={page} zoom={zoom} locked={locked} selectText={inspector === 'mark'} tool={tool} matches={matches} queryLength={searchTerm.length} onSelection={setSelection} onPlace={(kind, points) => {
                 setTool(null)
                 void runEdit(() => kind === 'note' ? applyPdfNote(bytes!, page, noteText, points[0]) : applyPdfPlacedDrawing(bytes!, page, kind, points), `Added ${kind} on page ${page}.`)

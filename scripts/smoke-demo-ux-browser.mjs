@@ -38,6 +38,25 @@ try {
   await cdp.send('Page.navigate', { url: `${url.replace(/#.*$/, '')}#/pdf` })
   await ready()
   await evaluate(`${pdf}.scrollIntoView({ block: 'start' })`)
+  await textLayerReady()
+  await assert(`(() => {
+    const span = ${pdf}.querySelector('.pdf-selectable-text span');
+    const selection = window.getSelection(); selection.selectAllChildren(span);
+    const copied = selection.toString(); selection.removeAllRanges();
+    return copied.length > 0 && copied === span.textContent;
+  })()`, 'native PDF text selection supports copying')
+  await button('Rotate 90°')
+  await ready()
+  await textLayerReady()
+  await assert(`${pdf}.querySelector('.pdf-selectable-text').dataset.mainRotation === '90'`, 'text layer follows page rotation')
+  await button('Undo')
+  await ready()
+  await evaluate(`(() => { const select = ${pdf}.querySelector('[aria-label="Zoom"]'); select.value = '2'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+  await ready()
+  await textLayerReady()
+  await screenshot('pdf-selectable-text-zoom.png')
+  await evaluate(`(() => { const select = ${pdf}.querySelector('[aria-label="Zoom"]'); select.value = '1'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+  await ready()
 
   // Tabs support a single tab stop, arrow keys, Home/End and linked panels.
   await evaluate(`document.querySelector('#pdf-tab-pages').focus()`)
@@ -117,7 +136,7 @@ try {
   await poll(() => evaluate(`${pdf}.innerText.includes('Could not read the selected PDF')`), 'invalid upload error')
   await assert(`Number(${pdf}.querySelector('[aria-label="Page number"]').max) === ${pageCount} && ${pdf}.dataset.demoDirty === 'true' && [...${pdf}.querySelectorAll('button')].some(b => b.textContent.trim() === 'Undo' && !b.disabled)`, 'invalid upload preserves working document and undo')
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('\n')}`)
-  console.log(JSON.stringify({ result: 'PASS', checks: ['tab keyboard navigation', 'passage markup', 'undo/redo', 'pointer drawing', 'keyboard drawing', 'search highlighting', 'page deletion recovery', 'invalid upload preserves edits'], screenshots: artifacts }, null, 2))
+  console.log(JSON.stringify({ result: 'PASS', checks: ['native text selection', 'text geometry at rotation and zoom', 'tab keyboard navigation', 'passage markup', 'undo/redo', 'pointer drawing', 'keyboard drawing', 'search highlighting', 'page deletion recovery', 'invalid upload preserves edits'], screenshots: artifacts }, null, 2))
 } catch (error) {
   console.error(`Screenshots: ${artifacts}`)
   if (cdp) {
@@ -146,6 +165,23 @@ async function poll(check, label, timeout = 30000) {
   throw new Error(`Timed out: ${label}`)
 }
 async function ready() { await delay(100); await poll(() => evaluate(`${pdf}?.querySelector('.native-status')?.dataset.state === 'ready'`), 'PDF ready') }
+async function textLayerReady() {
+  await poll(() => evaluate(`(() => {
+    const layer = ${pdf}.querySelector('.pdf-selectable-text');
+    return layer && !layer.dataset.disabled && layer.querySelector('span')?.getBoundingClientRect().width > 0;
+  })()`), 'selectable PDF text ready')
+  await assert(`(() => {
+    const layer = ${pdf}.querySelector('.pdf-selectable-text');
+    const canvas = ${pdf}.querySelector('canvas').getBoundingClientRect();
+    const bounds = layer.getBoundingClientRect();
+    return Math.abs(bounds.left - canvas.left) < 2 && Math.abs(bounds.top - canvas.top) < 2 &&
+      Math.abs(bounds.width - canvas.width) < 2 && Math.abs(bounds.height - canvas.height) < 2 &&
+      [...layer.querySelectorAll('span')].filter(span => span.textContent.trim()).every(span => {
+        const r = span.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.left >= canvas.left - 2 && r.right <= canvas.right + 2 && r.top >= canvas.top - 2 && r.bottom <= canvas.bottom + 2;
+      });
+  })()`, 'PDF text geometry stays aligned with canvas at rotation and zoom')
+}
 async function tab(id) { await evaluate(`document.querySelector('#pdf-tab-${id}').click()`); await delay(50) }
 async function button(text) {
   await poll(() => evaluate(`(() => { const b = [...${pdf}.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(text)}); if (!b || b.disabled) return false; b.click(); return true; })()`), `button ${text}`)
