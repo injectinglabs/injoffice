@@ -86,19 +86,34 @@ try {
   await poll(() => evaluate(`${native}?.textContent.includes('Native image could not be displayed') && ${native}?.querySelector('svg') === null`), 'image failure clears native pages visibly')
   await assert(`!${native}.textContent.includes('2 native pages') && ${docs}?.dataset.demoDirty !== 'true'`, 'failed image never leaves a misleading success claim or changes source')
   await screenshot('docx-native-image-failure.png')
+  // A separate source PNG exercises the same native helper/image decoder,
+  // without restarting the helper or falling back to the approximate view.
+  const pngFixture = resolve(scratch, 'native-png.docx')
+  const exported = spawnSync('go', ['test', '-count=1', '-run', '^TestNativePreviewPNGBrowserFixture$', '.'], { cwd: resolve(root, 'go/docxpatch/cmd/nativepreviewfixture'), env: { ...process.env, INJOFFICE_PNG_FIXTURE_OUTPUT: pngFixture, INJOFFICE_PNG_FIXTURE_FONT: resolve(root, 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf') }, encoding: 'utf8', timeout: 60000 })
+  if (exported.status !== 0) throw new Error(`PNG fixture export failed: ${exported.stderr}\n${exported.stdout}`)
+  const pngHash = hash(readFileSync(pngFixture))
+  await upload(pngFixture)
+  await poll(() => evaluate(`${native}?.textContent.includes('Nothing is uploaded') && ${native}?.querySelector('svg') === null`), 'PNG source replacement clears old pages')
+  await assert(`window.__nativeDocxPosts.length === 1`, 'PNG native preview requires new explicit consent')
+  await click('Upload to helper and render native pages')
+  await poll(() => evaluate(`${native}?.textContent.includes('2 native pages') && ${native}?.querySelector('svg image')?.getAttribute('href')?.startsWith('data:image/png;base64,')`), 'native PNG page paints', 45000)
+  await assert(`(async () => { const node=${native}.querySelector('svg image'); const image=new Image(); image.src=node.getAttribute('href'); await image.decode(); const canvas=document.createElement('canvas');canvas.width=16;canvas.height=8;const context=canvas.getContext('2d');context.drawImage(image,0,0);const left=context.getImageData(2,4,1,1).data;const right=context.getImageData(13,4,1,1).data;return image.naturalWidth===16&&image.naturalHeight===8&&left[0]===220&&left[1]===40&&left[2]===40&&right[0]===30&&right[1]===80&&right[2]===220&&node.getAttribute('preserveAspectRatio')==='none' })()`, 'PNG exact source pixels and extents survive native replay')
+  await assert(`window.__nativeDocxPosts.length === 2 && window.__nativeDocxPosts[1].hash === ${JSON.stringify(pngHash)} && ${docs}?.dataset.demoDirty !== 'true'`, 'PNG preview sends only unchanged original bytes')
+  if (hash(readFileSync(pngFixture)) !== pngHash) throw new Error('PNG source fixture changed')
+  await screenshot('docx-native-png.png')
   // This existing real DOCX has no embedded qualified font assets. It must
   // retain its approximate content view rather than invent native glyphs.
   const unsupported = resolve(scratch, 'unsupported-font.docx')
   writeFileSync(unsupported, Buffer.from(readFileSync(resolve(root, 'apps/playground/public/native-docx/northstar-launch-brief.docx.b64'), 'utf8').trim(), 'base64'))
   await upload(unsupported)
   await poll(() => evaluate(`${native}?.textContent.includes('Nothing is uploaded') && ${native}?.querySelector('svg') === null`), 'source replacement clears stale pages')
-  await assert(`window.__nativeDocxPosts.length === 1`, 'replacement document also requires explicit consent')
+  await assert(`window.__nativeDocxPosts.length === 2`, 'replacement document also requires explicit consent')
   await click('Upload to helper and render native pages')
   await poll(() => evaluate(`${native}?.textContent.includes('original file is unchanged')`), 'unsupported document explicitly refused', 45000)
   await assert(`${native}.querySelector('svg') === null && document.querySelectorAll('.docx-editable-run').length > 0 && ${docs}?.dataset.demoDirty !== 'true'`, 'refusal retains approximate editable content and original source')
   await screenshot('docx-native-refusal.png')
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('\n')}`)
-  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native JPEG pixels and source extents', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
+  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
 } catch (error) {
   console.error(`Native DOCX screenshots: ${artifacts}\nHelper diagnostics: ${helperLog}`)
   if (cdp) {
