@@ -58,6 +58,18 @@ function fixture(bodyHeight = 10_000): NativeDocxPaginationRequestV1 {
   }
 }
 
+function appendRow(request: NativeDocxPaginationRequestV1, ordinal: number): void {
+  const table = request.document.body.blocks[0]!.table!
+  const row = structuredClone(table.rows[1]!)
+  row.id = `row:${ordinal}`; row.repeat_header = false; row.cells[0]!.id = `cell:${ordinal}`
+  row.cells[0]!.paragraphs[0]!.id = `paragraph:cell:${ordinal}`
+  table.rows.push(row)
+  request.resolved_layout.paragraphs.push({ ...structuredClone(request.resolved_layout.paragraphs[1]!), paragraph_id: `paragraph:cell:${ordinal}` })
+  const shaped = structuredClone(request.shaped_lines.paragraphs[1]!)
+  shaped.paragraph_id = `paragraph:cell:${ordinal}`; shaped.lines[0]!.id = `line:paragraph:cell:${ordinal}:0`
+  request.shaped_lines.paragraphs.push(shaped)
+}
+
 describe('bounded native DOCX table page-paint geometry', () => {
   it('repeats a leading header exactly once on each continuation page with unique placement identities', () => {
     const request = fixture(14_000)
@@ -95,6 +107,33 @@ describe('bounded native DOCX table page-paint geometry', () => {
       const request = fixture(10_000); configure(request)
       expect(paginateNativeDocxV1(request)).toMatchObject({ ok: true, value: { status: 'refused', pages: [] } })
     }
+  })
+
+  it('keeps a multi-row header prefix with the next body row and replays all header rows', () => {
+    const request = fixture(21_000)
+    appendRow(request, 3); appendRow(request, 4)
+    const table = request.document.body.blocks[0]!.table!
+    table.rows[0]!.repeat_header = true; table.rows[1]!.repeat_header = true
+    const result = paginateNativeDocxV1(request)
+    expect(result.ok && result.value.status === 'paginated' ? result.value.pages.map((page) => page.lines.map((line) => line.paragraph_id)) : result).toEqual([
+      ['paragraph:cell:1', 'paragraph:cell:2', 'paragraph:cell:3'],
+      ['paragraph:cell:1', 'paragraph:cell:2', 'paragraph:cell:4'],
+    ])
+    if (!result.ok) throw new Error('pagination failed')
+    expect(decodeNativeDocxPaginatedLayoutForRequest(result.value, request).ok).toBe(true)
+    const wrongCell = structuredClone(result.value)
+    wrongCell.pages[1]!.lines[0]!.table_cell_id = 'cell:wrong'
+    wrongCell.pages[1]!.paragraph_slices[0]!.table_cell_id = 'cell:wrong'
+    expect(decodeNativeDocxPaginatedLayoutForRequest(wrongCell, request).ok).toBe(false)
+  })
+
+  it('refuses a later body row that fits alone but not together with its repeated headers', () => {
+    const request = fixture(21_000)
+    appendRow(request, 3)
+    const table = request.document.body.blocks[0]!.table!
+    table.rows[0]!.repeat_header = true
+    table.rows[2]!.height_twips = 400; table.rows[2]!.height_rule = 'exact'
+    expect(paginateNativeDocxV1(request)).toMatchObject({ ok: true, value: { status: 'refused', pages: [], diagnostics: [expect.objectContaining({ message: expect.stringContaining('Repeated headers and the next indivisible row') })] } })
   })
   it('derives a source-ordered 2x2 grid without guessing widths or shared cells', () => {
     const request = fixture()

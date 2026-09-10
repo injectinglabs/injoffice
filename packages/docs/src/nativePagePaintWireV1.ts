@@ -457,6 +457,7 @@ export function decodeNativeDocxPagePaintV1(value: unknown): DecodeNativeDocxPag
       if (lineID && pageLineIDs.has(lineID)) add(issues, 'DUPLICATE_ID', `${linePath}/line_id`, 'line id is duplicated on the page')
       if (lineID) pageLineIDs.add(lineID)
       if (placedID && lineID && !placedLineIDMatches(placedID, lineID)) add(issues, 'INVALID_VALUE', `${linePath}/placed_line_id`, 'placed line id must derive from its body, header/footer, or note placement and shaped line id')
+      if (placedID && lineID && placedID.startsWith(`placed:${lineID}:table-header:`) && placedID !== `placed:${lineID}:table-header:${pageID}`) add(issues, 'BROKEN_REFERENCE', `${linePath}/placed_line_id`, 'repeated table header must derive from this exact page identity')
       stringValue(line.paragraph_id, `${linePath}/paragraph_id`, issues)
       const lineSectionID = stringValue(line.section_id, `${linePath}/section_id`, issues)
       const region = line.region === 'body' || line.region === 'header' || line.region === 'footer' || line.region === 'footnote' || line.region === 'endnote' ? line.region : undefined
