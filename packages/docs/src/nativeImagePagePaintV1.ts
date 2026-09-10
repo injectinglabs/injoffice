@@ -261,6 +261,16 @@ export function collectNativeDocxQualifiedInlineImagesV1(document: NativeDocxDoc
   }))
 }
 
+/** Prepare a source-part-bound static raster for native replay, without a DOCX model. */
+export function prepareNativeRasterResourceV1(partName: string, contentType: 'image/png' | 'image/jpeg', bytes: Uint8Array): NativeDocxPagePaintMediaAssetV1 {
+  if (!validPartName(partName) || !(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > DOCX_INLINE_IMAGE_LIMITS.maxAssetBytes) throw new RangeError('Native raster identity or byte budget is invalid')
+  const owned = Uint8Array.from(bytes)
+  const dimensions = contentType === 'image/png' ? pngDimensions(owned) : contentType === 'image/jpeg' ? nativeBaselineJpegDimensions(owned) : undefined
+  if (!dimensions) throw new TypeError('Native raster must be a complete static PNG or baseline JFIF JPEG')
+  const contentDigest = digest(owned)
+  return decodeNativeDocxPagePaintResourceListV1([{id: imageAssetID(contentDigest, partName), part_name: partName, content_type: contentType, content_digest: contentDigest, byte_length: owned.byteLength, width_px: dimensions.width, height_px: dimensions.height, bytes_base64: base64(owned)}])[0]!
+}
+
 export function prepareNativeDocxPagePaintMediaAssetsV1(document: NativeDocxDocumentV1, values: readonly NativeDocxAuthoritativeMediaAssetV1[]): NativeDocxPagePaintMediaAssetV1[] {
   if (!Array.isArray(values) || values.length > DOCX_INLINE_IMAGE_LIMITS.maxAssets) throw new RangeError(`authoritative media assets exceed ${DOCX_INLINE_IMAGE_LIMITS.maxAssets} entries`)
   const qualified = collectNativeDocxQualifiedInlineImagesV1(document).flatMap((entry) => entry.ok ? [entry.value] : [])

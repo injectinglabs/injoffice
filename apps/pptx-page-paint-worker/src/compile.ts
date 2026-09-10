@@ -6,6 +6,7 @@ import {compileNativePptxSlide,createRecordingPaintSurface,paintSlideRenderTree,
 import {createHarfBuzzTextShaperV1,createHarfBuzzOutlineProviderV1,inspectHarfBuzzFontMetricsV1} from '@injoffice/font-metrics/harfbuzz'
 import type {NativeFontManifest,NativeFontResolver,ResolvedFontFace,FontResource} from '@injoffice/font-metrics/layout'
 import {decodePptxPreview,type PreviewNode,type PptxPreview} from './contract.js'
+import {prepareNativeRasterResourceV1,type NativeDocxPagePaintMediaAssetV1} from '@injoffice/docs/native-raster'
 
 const hash=(bytes:Uint8Array)=>`sha256:${createHash('sha256').update(bytes).digest('hex')}` as const
 const object=(v:unknown):Record<string,unknown>=>{if(!v||typeof v!=='object'||Array.isArray(v))throw new TypeError('Expected bounded object');return v as Record<string,unknown>}
@@ -19,7 +20,7 @@ function fontProviders(path:string){
  let total=0
  for(const [index,entry] of config.faces.entries()){
   const f=object(entry)
-  if(typeof f.family!=='string'||!f.family||f.family.length>128||![400,700].includes(Number(f.weight))||!['normal','italic'].includes(String(f.style))||typeof f.path!=='string'||!isAbsolute(f.path)||typeof f.sha256!=='string'||!/^sha256:[a-f0-9]{64}$/.test(f.sha256))throw new Error('Invalid operator face metadata')
+  if(typeof f.family!=='string'||!f.family||f.family.length>128||typeof f.weight!=='number'||![400,700].includes(f.weight)||typeof f.style!=='string'||!['normal','italic'].includes(f.style)||typeof f.path!=='string'||!isAbsolute(f.path)||typeof f.sha256!=='string'||!/^sha256:[a-f0-9]{64}$/.test(f.sha256))throw new Error('Invalid operator face metadata')
   if(statSync(f.path).size>16*1024*1024)throw new Error('Operator font exceeds 16 MiB')
   const bytes=Uint8Array.from(readFileSync(f.path));total+=bytes.length
   if(total>64*1024*1024||hash(bytes)!==f.sha256)throw new Error('Operator font digest or total byte budget failed')
@@ -53,6 +54,7 @@ export async function compilePptxPreview(input:unknown):Promise<PptxPreview>{
  const root:Extract<PreviewNode,{kind:'group'}>={kind:'group',transform:[1,0,0,1,0,0],children:[]}
  const stack=[root],diagnostics=tree.diagnostics.map(d=>`${d.code}: ${d.message}`)
  let glyphs=0
+ const resources=new Map<string,NativeDocxPagePaintMediaAssetV1>()
  for(const command of recording.finish()){
   const current=stack[stack.length-1]!
   switch(command.kind){
@@ -62,7 +64,8 @@ export async function compilePptxPreview(input:unknown):Promise<PptxPreview>{
    case 'clipRect':current.clip=command.rect;break
    case 'path':{
     if(command.headArrow||command.tailArrow){diagnostics.push('Arrowhead replay is not available in this native vector view');current.children.push({kind:'placeholder',rect:{x:0,y:0,cx:300000,cy:100000},label:'Arrowhead unavailable'});break}
-    const paint={fill:command.fill??'none',...(command.stroke?{stroke:command.stroke.color,strokeWidth:command.stroke.widthEmu}:{})}
+    const stroke=command.stroke
+    const paint={fill:command.fill??'none',...(stroke?{stroke:stroke.color,strokeWidth:stroke.widthEmu,strokeLinecap:stroke.cap==='flat'?'butt' as const:stroke.cap,strokeLinejoin:stroke.join,strokeMiterlimit:stroke.miterLimit}:{})}
     const first=command.path[0]
     if(first?.kind==='rect'||first?.kind==='roundRect')current.children.push({kind:'rect',rect:first.rect,radius:first.kind==='roundRect'?first.radiusEmu:0,...paint})
     else if(first?.kind==='ellipse')current.children.push({kind:'ellipse',rect:first.rect,...paint})
@@ -81,10 +84,22 @@ export async function compilePptxPreview(input:unknown):Promise<PptxPreview>{
     break
    }
    case 'placeholder':current.children.push({kind:'placeholder',rect:command.rect,label:command.label});break
-   case 'image':current.children.push({kind:'placeholder',rect:command.rect,label:'Image remains available in file preview'});diagnostics.push('Image raster replay is not yet supported by this native vector view');break
+   case 'image':{
+    let resource=resources.get(command.assetId)
+    if(!resource){
+     const asset=deck.assets.find(a=>a.id===command.assetId)
+     if(!asset?.source?.partName||!asset.dataBase64||!['image/png','image/jpeg'].includes(asset.contentType)||asset.dataBase64.length>24*1024*1024)throw new Error('Native image requires bounded embedded PNG or baseline JFIF bytes')
+     const bytes=Buffer.from(asset.dataBase64,'base64')
+     if(bytes.toString('base64')!==asset.dataBase64||bytes.length!==asset.byteLength||hash(bytes).slice(7)!==asset.sha256.replace(/^sha256:/,''))throw new Error('Native image source digest or byte identity mismatch')
+     resource=prepareNativeRasterResourceV1(asset.source.partName,asset.contentType as 'image/png'|'image/jpeg',bytes)
+     resources.set(command.assetId,resource)
+    }
+    current.children.push({kind:'image',rect:command.rect,resourceId:resource.id,...(command.crop?{crop:{...command.crop}}:{})});break
+   }
   }
  }
- const result:PptxPreview={version:1,package_sha256:request.package_sha256,slide_index:request.slide_index as number,slide_count:deck.slides.length,width:tree.size.cx,height:tree.size.cy,background:tree.background.color,policy:'max-run-natural-v1',nodes:root.children,diagnostics,font_digests:[...fonts.resources.values()].map(r=>r.face.contentDigest)}
+ const result:PptxPreview={version:1,package_sha256:request.package_sha256,slide_index:request.slide_index as number,slide_count:deck.slides.length,width:tree.size.cx,height:tree.size.cy,background:tree.background.color,policy:'max-run-natural-v1',nodes:root.children,diagnostics,font_digests:[...fonts.resources.values()].map(r=>r.face.contentDigest),resources:[]}
+ result.resources=[...resources.values()].sort((a,b)=>a.part_name.toLowerCase()<b.part_name.toLowerCase()?-1:1)
  return decodePptxPreview(result)
 }
 function pathPart(p:RenderPathCommand):string {switch(p.kind){case 'moveTo':return `M${p.x} ${p.y}`;case 'lineTo':return `L${p.x} ${p.y}`;case 'close':return 'Z';default:throw new Error('Unmodeled path command')}}

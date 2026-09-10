@@ -1,7 +1,11 @@
 package pptxpatch
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"strings"
 	"testing"
@@ -49,5 +53,24 @@ func TestNativeMeasuredPreviewBrowserFixture(t *testing.T) {
 		if err := os.WriteFile(name, input, 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	quadrants := image.NewRGBA(image.Rect(0, 0, 80, 80))
+	colors := []color.RGBA{{255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}, {255, 255, 0, 255}}
+	for y := 0; y < 80; y++ {
+		for x := 0; x < 80; x++ {
+			quadrants.SetRGBA(x, y, colors[(y/40)*2+x/40])
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, quadrants); err != nil {
+		t.Fatal(err)
+	}
+	picture := nativePictureFixture(t, nativePictureFixtureOptions{imageData: encoded.String(), sourceRect: `<a:srcRect l="50000" b="50000"/>`})
+	part := "relocated/slides/slide-a.xml"
+	slide := string(chartZipEntry(t, picture, part))
+	start, end := strings.Index(slide, "<p:sp>"), strings.Index(slide, "</p:sp>")+len("</p:sp>")
+	picture = replaceChartZipEntry(t, picture, part, []byte(slide[:start]+slide[end:]))
+	if err := os.WriteFile(strings.TrimSuffix(output, ".pptx")+"-crop.pptx", picture, 0600); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -1,20 +1,22 @@
 import {useEffect,useId,useRef,useState,type ReactNode} from 'react'
-import {decodePptxPreview,type PptxPreview,type PreviewNode} from '../../../pptx-page-paint-worker/src/contract'
-import {readNativePreviewResponse} from './NativeDocxPages'
+import {decodePptxPreview,type PptxPreview,type PreviewNode,type PreviewStroke} from '../../../pptx-page-paint-worker/src/contract'
+import {readNativePreviewResponse,decodeNativeDocxImages,nativeDocxImagesWithinBudget} from './NativeDocxPages'
 import {DsButton,DsField,DsSelect} from '../design-system/primitives'
 
-export function NativePptxVector({preview}:{preview:PptxPreview}){
+export function NativePptxVector({preview,onImageError}:{preview:PptxPreview;onImageError?:()=>void}){
  const prefix=useId().replace(/:/g,'')
  const color=(value:string)=>value==='none'?'none':`#${value}`
+ const strokeProps=(node:PreviewStroke)=>({strokeLinecap:node.strokeLinecap,strokeLinejoin:node.strokeLinejoin,strokeMiterlimit:node.strokeMiterlimit})
  function draw(node:PreviewNode,key:string):ReactNode{
   switch(node.kind){
+   case 'image':{const resource=preview.resources.find(r=>r.id===node.resourceId)!;const c=node.crop??{left:0,top:0,right:0,bottom:0};return <svg key={key} x={node.rect.x} y={node.rect.y} width={node.rect.cx} height={node.rect.cy} viewBox={`${c.left} ${c.top} ${100000-c.left-c.right} ${100000-c.top-c.bottom}`} preserveAspectRatio="none" overflow="hidden"><image data-native-raster={resource.id} href={`data:${resource.content_type};base64,${resource.bytes_base64}`} width={100000} height={100000} preserveAspectRatio="none" onError={onImageError}/></svg>}
    case 'group':{const clip=node.clip,id=`${prefix}-${key}`;return <g key={key} data-native-source-role={node.sourceRole} transform={`matrix(${node.transform.join(' ')})`}>
     {clip&&<defs><clipPath id={id}><rect x={clip.x} y={clip.y} width={clip.cx} height={clip.cy}/></clipPath></defs>}
     <g clipPath={clip?`url(#${id})`:undefined}>{node.children.map((child,i)=>draw(child,`${key}-${i}`))}</g>
    </g>}
-   case 'path':return <path key={key} d={node.d} fill={color(node.fill)} stroke={node.stroke?color(node.stroke):undefined} strokeWidth={node.strokeWidth}/>
-   case 'rect':return <rect key={key} x={node.rect.x} y={node.rect.y} width={node.rect.cx} height={node.rect.cy} rx={node.radius} fill={color(node.fill)} stroke={node.stroke?color(node.stroke):undefined} strokeWidth={node.strokeWidth}/>
-   case 'ellipse':return <ellipse key={key} cx={node.rect.x+node.rect.cx/2} cy={node.rect.y+node.rect.cy/2} rx={node.rect.cx/2} ry={node.rect.cy/2} fill={color(node.fill)} stroke={node.stroke?color(node.stroke):undefined} strokeWidth={node.strokeWidth}/>
+   case 'path':return <path key={key} d={node.d} fill={color(node.fill)} stroke={node.stroke?color(node.stroke):undefined} strokeWidth={node.strokeWidth} {...strokeProps(node)}/>
+   case 'rect':return <rect key={key} x={node.rect.x} y={node.rect.y} width={node.rect.cx} height={node.rect.cy} rx={node.radius} fill={color(node.fill)} stroke={node.stroke?color(node.stroke):undefined} strokeWidth={node.strokeWidth} {...strokeProps(node)}/>
+   case 'ellipse':return <ellipse key={key} cx={node.rect.x+node.rect.cx/2} cy={node.rect.y+node.rect.cy/2} rx={node.rect.cx/2} ry={node.rect.cy/2} fill={color(node.fill)} stroke={node.stroke?color(node.stroke):undefined} strokeWidth={node.strokeWidth} {...strokeProps(node)}/>
    case 'placeholder':return <g key={key}><rect x={node.rect.x} y={node.rect.y} width={node.rect.cx} height={node.rect.cy} fill="#eee" stroke="#777" strokeWidth={12700}/><text x={node.rect.x+12700} y={node.rect.y+127000} fontSize={101600}>{node.label}</text></g>
   }
  }
@@ -28,6 +30,7 @@ export function NativePptxSlides({bytes,slideCount,apiBase}:{bytes:Uint8Array;sl
  const generation=useRef(0),pending=useRef<AbortController|null>(null)
  useEffect(()=>{generation.current++;pending.current?.abort();setPaint(null);setBusy(false);setAt(0);setMessage(consent);return()=>{generation.current++;pending.current?.abort()}},[bytes,apiBase])
  async function render(){
+  pending.current?.abort()
   const token=++generation.current,controller=new AbortController();pending.current=controller
   setBusy(true);setPaint(null);setMessage('Shaping this slide with exact operator-provided font bytes…')
   try{
@@ -38,6 +41,8 @@ export function NativePptxSlides({bytes,slideCount,apiBase}:{bytes:Uint8Array;sl
    if(!response.ok)throw new Error(typeof (result as {error?:unknown})?.error==='string'?(result as {error:string}).error:'Native slide preview was refused by the helper.')
    const decoded=decodePptxPreview(result)
    if(decoded.package_sha256!==digest||decoded.slide_index!==at||decoded.slide_count!==slideCount)throw new Error('Native slide does not match the opened source.')
+   if(!nativeDocxImagesWithinBudget(decoded.resources))throw new Error('Native slide image pixel budget exceeded.')
+   await decodeNativeDocxImages(decoded.resources,controller.signal)
    if(controller.signal.aborted||token!==generation.current)return
    setPaint(decoded);setMessage('Measured native glyphs. Mixed-font line boxes and anchors use the explicit InjOffice policy, not Office pixel-equivalence. Read-only; the source file is unchanged.')
   }catch(error){if(!controller.signal.aborted&&token===generation.current)setMessage(`${error instanceof Error?error.message:'Native preview failed'} The file preview remains available; the original file is unchanged.`)}
@@ -48,6 +53,6 @@ export function NativePptxSlides({bytes,slideCount,apiBase}:{bytes:Uint8Array;sl
   <h3>Measured native slide</h3><p className="ds-status" role="status">{message}</p>
   <div className="ds-workstrip"><DsField label="Native slide"><DsSelect value={at} onChange={event=>changeSlide(Number(event.target.value))}>{Array.from({length:Math.min(slideCount,10000)},(_,i)=><option key={i} value={i}>{i+1} of {slideCount}</option>)}</DsSelect></DsField>
   <DsButton disabled={busy} onClick={()=>void render()}>{busy?'Rendering native slide…':'Upload to helper and render native slide'}</DsButton></div>
-  {paint&&<><NativePptxVector preview={paint}/><details open><summary>Native preview limits ({paint.diagnostics.length})</summary><ul>{paint.diagnostics.map((message,i)=><li key={i}>{message}</li>)}</ul></details></>}
+  {paint&&<><NativePptxVector preview={paint} onImageError={()=>{setPaint(null);setMessage('Native image decoding failed. Native rendering was cleared; the original source is unchanged.')}}/><details open><summary>Native preview limits ({paint.diagnostics.length})</summary><ul>{paint.diagnostics.map((message,i)=><li key={i}>{message}</li>)}</ul></details></>}
  </section>
 }

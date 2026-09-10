@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os'
 import {resolve} from 'node:path'
 import {launchChromeForCDP,terminateProcess} from './chrome-cdp-startup.mjs'
 import {startShowcaseDevServer} from './showcase-smoke-dev-server.mjs'
+import {PNG} from 'pngjs'
 const root=resolve(import.meta.dirname,'..'),scratch=mkdtempSync(resolve(tmpdir(),'injoffice-pptx-native-'))
 const artifacts=process.env.SHOWCASE_OUTPUT?resolve(process.env.SHOWCASE_OUTPUT):mkdtempSync(resolve(tmpdir(),'injoffice-pptx-native-evidence-'));mkdirSync(artifacts,{recursive:true})
 const profiles=[],errors=[],section=`document.querySelector('[aria-label="Measured native presentation"]')`
@@ -48,9 +49,19 @@ try{
  await poll(()=>evaluate(`${section}?.querySelectorAll('[data-native-source-role="paragraphBullet"]').length===3`),'exact glyph markers on wrapped source paragraphs',45000)
  await assert(`(()=>{const markers=[...${section}.querySelectorAll('[data-native-source-role="paragraphBullet"]')];return markers.every(marker=>{const content=marker.parentElement.querySelector('[data-native-source-role="contentRun"]');const m=marker.transform.baseVal.consolidate().matrix,c=content.transform.baseVal.consolidate().matrix;return m.e<c.e&&m.f===c.f})})()`,'markers precede content at the same measured baseline')
  await assert(`window.__pptxPosts.length===2&&window.__pptxPosts[1].hash===${JSON.stringify(bulletHash)}`,'bullet source bytes remain unchanged')
+ const cropFixture=resolve(scratch,'mixed-anchors-crop.pptx'),cropHash=hash(readFileSync(cropFixture));await upload(cropFixture)
+ await poll(()=>evaluate(`${section}?.textContent.includes('Nothing is uploaded')&&${section}?.querySelector('svg')===null`),'crop source replacement');await clickRender()
+ await poll(()=>evaluate(`!!${section}?.querySelector('[data-native-raster]')`),'source-bound native cropped raster',45000)
+ await evaluate(`${section}.scrollIntoView()`)
+ const cropBounds=await evaluate(`(()=>{const svg=${section}.querySelector('[data-native-raster]').parentElement,v=svg.viewBox.baseVal,m=svg.getScreenCTM(),p=new DOMPoint(v.x,v.y).matrixTransform(m),q=new DOMPoint(v.x+v.width,v.y+v.height).matrixTransform(m);return {x:p.x,y:p.y,width:q.x-p.x,height:q.y-p.y}})()`)
+ const cropShot=await cdp.send('Page.captureScreenshot',{format:'png'}),pixels=PNG.sync.read(Buffer.from(cropShot.data,'base64'));writeFileSync(resolve(artifacts,'pptx-native-crop.png'),Buffer.from(cropShot.data,'base64'))
+ for(const fx of [.2,.5,.8])for(const fy of [.2,.5,.8]){const x=Math.round(cropBounds.x+cropBounds.width*fx),y=Math.round(cropBounds.y+cropBounds.height*fy);if(x<0||y<0||x>=pixels.width||y>=pixels.height)throw new Error('Crop sample outside screenshot');const offset=(y*pixels.width+x)*4;if(pixels.data[offset]>5||pixels.data[offset+1]<250||pixels.data[offset+2]>5)throw new Error(`Source crop did not paint only green quadrant at ${x},${y}: ${pixels.data.subarray(offset,offset+4)}`)}
+ await assert(`window.__pptxPosts.length===3&&window.__pptxPosts[2].hash===${JSON.stringify(cropHash)}`,'crop source identity preserved')
+ await evaluate(`${section}.querySelector('[data-native-raster]').dispatchEvent(new Event('error'))`)
+ await poll(()=>evaluate(`${section}?.querySelector('svg')===null&&${section}?.textContent.includes('Native image decoding failed')`),'raster decode error clears native success')
  const missing=resolve(root,'go/pptxpatch/testdata/playground_northstar_review.pptx');await upload(missing)
  await poll(()=>evaluate(`${section}?.textContent.includes('Nothing is uploaded')&&${section}?.querySelector('svg')===null`),'replacement clears stale native output')
- await assert('window.__pptxPosts.length===2','replacement still requires consent');await clickRender()
+ await assert('window.__pptxPosts.length===3','replacement still requires consent');await clickRender()
  await poll(()=>evaluate(`${section}?.textContent.includes('Exact operator font unavailable')`),'missing exact font refusal',45000)
  await assert(`${section}.querySelector('svg')===null`,'missing font never substitutes browser glyphs')
  if(errors.length)throw new Error(errors.join('\n'))

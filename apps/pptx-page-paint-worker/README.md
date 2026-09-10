@@ -20,8 +20,13 @@ verifies the response's package SHA-256, slide index, and slide count before
 mounting bounded SVG paths. Source files are never rewritten by this path.
 Measured mixed-run line boxes and anchors use `max-run-natural-v1`, not an
 Office-equivalence claim. The existing approximate file preview stays available.
-Image raster and arrowhead commands in this new vector view remain visibly
-unavailable; unqualified source content is not silently promoted to native paint.
+Embedded static PNG and baseline JFIF images are source-part/digest-bound and
+decoded before display. DrawingML positive source-edge crops are replayed without
+rewriting bytes; malformed rasters and browser decode failures clear native
+success. Browser limits are 16 million pixels per image and 32 million total.
+Arrowhead commands remain visibly unavailable; unqualified source content is
+not silently promoted to native paint.
 
 Run `node scripts/smoke-pptx-native-preview-browser.mjs` from the built workspace
-for real-file upload, HarfBuzz glyph, anchor, consent, and missing-font checks.
+for real-file upload, HarfBuzz glyph, anchor, hanging bullet, cropped-quadrant
+pixel, image failure, consent, and missing-font checks.
