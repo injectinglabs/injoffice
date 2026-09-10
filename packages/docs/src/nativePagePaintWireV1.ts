@@ -44,6 +44,7 @@ export const DOCX_PAGE_PAINT_V1_BINDING_FIELDS = {
   PathCloseV1: ['kind'],
   GlyphCommandV1: ['kind', 'id', 'line_id', 'fragment_id', 'source_id', 'glyph_index', 'face', 'glyph_id', 'font_size_millipoints', 'fill_rgb', 'fill_rule', 'outline_kind', 'path'],
   HighlightCommandV1: ['kind', 'id', 'line_id', 'fragment_id', 'source_id', 'x_millipoints', 'y_millipoints', 'width_millipoints', 'height_millipoints', 'fill_rgb'],
+  UnderlineCommandV1: ['kind', 'id', 'line_id', 'fragment_id', 'source_id', 'stroke_index', 'x1_millipoints', 'y1_millipoints', 'x2_millipoints', 'y2_millipoints', 'width_millipoints', 'stroke_rgb'],
   CellFillCommandV1: ['kind', 'id', 'table_id', 'row_id', 'cell_id', 'x_millipoints', 'y_millipoints', 'width_millipoints', 'height_millipoints', 'fill_rgb'],
   BorderCommandV1: ['kind', 'id', 'table_id', 'row_id', 'cell_id', 'edge', 'x1_millipoints', 'y1_millipoints', 'x2_millipoints', 'y2_millipoints', 'width_millipoints', 'stroke_rgb'],
   NoteSeparatorCommandV1: ['kind', 'id', 'line_id', 'story_id', 'x1_millipoints', 'y1_millipoints', 'x2_millipoints', 'y2_millipoints', 'width_millipoints', 'stroke_rgb'],
@@ -492,6 +493,7 @@ export function decodeNativeDocxPagePaintV1(value: unknown): DecodeNativeDocxPag
       const kind = isObject(commandValue) ? commandValue.kind : undefined
       const fields = kind === 'fill_glyph_path' ? DOCX_PAGE_PAINT_V1_BINDING_FIELDS.GlyphCommandV1
         : kind === 'fill_text_highlight' ? DOCX_PAGE_PAINT_V1_BINDING_FIELDS.HighlightCommandV1
+        : kind === 'stroke_text_underline' ? DOCX_PAGE_PAINT_V1_BINDING_FIELDS.UnderlineCommandV1
         : kind === 'paint_inline_image' ? DOCX_PAGE_PAINT_V1_BINDING_FIELDS.ImageCommandV1
           : kind === 'fill_table_cell' ? DOCX_PAGE_PAINT_V1_BINDING_FIELDS.CellFillCommandV1
             : kind === 'stroke_table_border' ? DOCX_PAGE_PAINT_V1_BINDING_FIELDS.BorderCommandV1
@@ -534,6 +536,15 @@ export function decodeNativeDocxPagePaintV1(value: unknown): DecodeNativeDocxPag
       }
       const fragmentID = stringValue(command.fragment_id, `${commandPath}/fragment_id`, issues, ID, 1024)
       stringValue(command.source_id, `${commandPath}/source_id`, issues)
+      if (kind === 'stroke_text_underline') {
+        const strokeIndex = integer(command.stroke_index, `${commandPath}/stroke_index`, issues, 0, 1)
+        if (commandID && fragmentID && commandPlacementID && commandID !== `paint:${commandPlacementID}:${fragmentID}:underline:${strokeIndex}`) add(issues, 'INVALID_VALUE', `${commandPath}/id`, 'underline id must derive from placement, fragment and stroke')
+        for (const key of ['x1_millipoints', 'y1_millipoints', 'x2_millipoints', 'y2_millipoints'] as const) integer(command[key], `${commandPath}/${key}`, issues, 0, DOCX_PAGE_PAINT_LIMITS.maxPaintCoordinateMilliPoints)
+        integer(command.width_millipoints, `${commandPath}/width_millipoints`, issues, 1, DOCX_PAGE_PAINT_LIMITS.maxPaintCoordinateMilliPoints)
+        if (typeof command.x1_millipoints === 'number' && typeof command.x2_millipoints === 'number' && command.x1_millipoints >= command.x2_millipoints || command.y1_millipoints !== command.y2_millipoints) add(issues, 'INVALID_VALUE', commandPath, 'underline must be a positive-width horizontal rule')
+        stringValue(command.stroke_rgb, `${commandPath}/stroke_rgb`, issues, RGB, 6)
+        return
+      }
       if (kind === 'fill_text_highlight') {
         if (commandID && fragmentID && commandPlacementID && commandID !== `paint:${commandPlacementID}:${fragmentID}:highlight`) add(issues, 'INVALID_VALUE', `${commandPath}/id`, 'highlight id must derive from its placed line and fragment')
         for (const key of ['x_millipoints', 'y_millipoints'] as const) integer(command[key], `${commandPath}/${key}`, issues, 0, DOCX_PAGE_PAINT_LIMITS.maxPaintCoordinateMilliPoints)
@@ -569,7 +580,7 @@ export function decodeNativeDocxPagePaintV1(value: unknown): DecodeNativeDocxPag
       }
     })
     if (commands.length > DOCX_PAGE_PAINT_LIMITS.maxGlyphs) add(issues, 'LIMIT_EXCEEDED', `${path}/commands`, `commands exceed ${DOCX_PAGE_PAINT_LIMITS.maxGlyphs}`)
-    const actualCommandIDs = commands.flatMap((command) => isObject(command) && (command.kind === 'fill_glyph_path' || command.kind === 'fill_text_highlight' || command.kind === 'paint_inline_image' || command.kind === 'stroke_note_separator') && typeof command.id === 'string' ? [command.id] : [])
+    const actualCommandIDs = commands.flatMap((command) => isObject(command) && (command.kind === 'fill_glyph_path' || command.kind === 'fill_text_highlight' || command.kind === 'stroke_text_underline' || command.kind === 'paint_inline_image' || command.kind === 'stroke_note_separator') && typeof command.id === 'string' ? [command.id] : [])
     if (actualCommandIDs.length !== referencedCommandIDs.length || actualCommandIDs.some((id, index) => id !== referencedCommandIDs[index])) add(issues, 'BROKEN_REFERENCE', `${path}/lines`, 'line command ids must exactly cover page commands in replay order')
     if (page.kind === 'parity-blank' && (commands.length > 0 || lines.length > 0)) add(issues, 'INVALID_UNION', path, 'parity-blank pages cannot contain lines or paint commands')
     if (!pageID) return

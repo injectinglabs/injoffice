@@ -362,7 +362,17 @@ request decoder bind every rectangle to the source highlight color, run,
 fragment, placement and geometry, and reject missing/reordered decorations.
 The 16 OOXML named colors and `none` are supported for text runs; zero-advance
 fragments produce no background. Highlighted tabs/other controls and list-marker
-backgrounds remain refused. Underline support and edit authority are unchanged.
+backgrounds remain refused. Edit authority is unchanged.
+
+Underlined runs support `single`, `double`, `words`, and `none` through explicit
+`stroke_text_underline` commands after the line's glyphs. Geometry uses the
+content-addressed font's underline position and thickness; missing metrics
+refuse instead of using browser decoration defaults. Double underlines have one
+stroke-width of clear separation, and `words` omits whitespace fragments.
+Source/style, fragment, font metrics, placement and command order are checked
+again by the request decoder. Other underline styles and custom underline
+colors remain outside this bounded profile. This is a deterministic metric
+policy, not a claim of Word-pixel parity.
 
 Stored output should first pass `decodeNativeDocxPagePaintV1`, then
 `decodeNativeDocxPagePaintForRequestV1` for exact request/page/line/glyph/style

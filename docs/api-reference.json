@@ -3788,7 +3788,7 @@
             {
               "name": "NativeDocxPagePaintCommandV1",
               "kind": "type",
-              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTextHighlightCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1"
+              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTextHighlightCommandV1 | NativeDocxStrokeTextUnderlineCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1"
             },
             {
               "name": "NativeDocxPagePaintCompletedV1",
@@ -4234,6 +4234,11 @@
               "name": "NativeDocxStrokeTableBorderCommandV1",
               "kind": "interface",
               "signature": "export interface NativeDocxStrokeTableBorderCommandV1"
+            },
+            {
+              "name": "NativeDocxStrokeTextUnderlineCommandV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxStrokeTextUnderlineCommandV1"
             },
             {
               "name": "NativeDocxTableBordersV1",
@@ -4926,7 +4931,7 @@
             {
               "name": "NativeDocxPagePaintCommandV1",
               "kind": "type",
-              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTextHighlightCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1"
+              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTextHighlightCommandV1 | NativeDocxStrokeTextUnderlineCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1"
             },
             {
               "name": "NativeDocxPagePaintV1",
@@ -4942,6 +4947,11 @@
               "name": "NativeDocxPaintPathCommandV1",
               "kind": "type",
               "signature": "export type NativeDocxPaintPathCommandV1 ="
+            },
+            {
+              "name": "NativeDocxStrokeTextUnderlineCommandV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxStrokeTextUnderlineCommandV1"
             }
           ]
         }

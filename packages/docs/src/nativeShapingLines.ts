@@ -174,6 +174,9 @@ export interface NativeDocxLineFragmentV1 {
   ascent_millipoints: number
   descent_millipoints: number
   line_gap_millipoints: number
+  /** Scaled metrics from the resolved font's post table, only for decorated text. */
+  underline_position_millipoints?: number
+  underline_thickness_millipoints?: number
   glyphs: NativeDocxPositionedGlyphV1[]
 }
 
@@ -1679,6 +1682,9 @@ function materializeLine(context: NativeShapingContext, paragraphID: string, ord
       glyphs[glyphs.length - 1]!.advance_x_millipoints += expansion
     }
     context.fragmentCount += 1
+    const underline = atom.sourceKind === 'list-marker'
+      ? context.paragraphs.get(paragraphID)?.numbering?.marker_properties.underline
+      : context.runs.get(atom.sourceID)?.properties.underline
     return {
       id: `fragment:${paragraphID}:${ordinal}:${visualIndex}`,
       source_kind: atom.sourceKind,
@@ -1698,6 +1704,8 @@ function materializeLine(context: NativeShapingContext, paragraphID: string, ord
       ascent_millipoints: atom.metrics.ascentMilliPoints,
       descent_millipoints: atom.metrics.descentMilliPoints,
       line_gap_millipoints: atom.metrics.lineGapMilliPoints,
+      ...(underline && underline !== 'none' && atom.metrics.underlinePositionMilliPoints !== undefined && atom.metrics.underlineThicknessMilliPoints !== undefined
+        ? { underline_position_millipoints: atom.metrics.underlinePositionMilliPoints, underline_thickness_millipoints: atom.metrics.underlineThicknessMilliPoints } : {}),
       glyphs,
     }
   })

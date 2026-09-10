@@ -23,7 +23,7 @@ export const DOCX_SHAPED_LINES_V1_BINDING_FIELDS = {
   FontManifestV1: ['manifest_id', 'revision'],
   ProvidersV1: ['resolver_id', 'resolver_revision', 'shaper_id', 'shaper_revision', 'bidi_id', 'bidi_revision', 'bidi_unicode_version', 'unicode13_revision'],
   GlyphV1: ['glyph_id', 'advance_x_millipoints', 'advance_y_millipoints', 'offset_x_millipoints', 'offset_y_millipoints'],
-  FragmentV1: ['id', 'source_kind', 'source_id', 'start_utf16', 'end_utf16', 'text', 'direction', 'bidi_level', 'logical_order', 'script', 'language', 'face_id', 'whitespace', 'advance_inline_millipoints', 'justification_expansion_millipoints', 'ascent_millipoints', 'descent_millipoints', 'line_gap_millipoints', 'glyphs'],
+  FragmentV1: ['id', 'source_kind', 'source_id', 'start_utf16', 'end_utf16', 'text', 'direction', 'bidi_level', 'logical_order', 'script', 'language', 'face_id', 'whitespace', 'advance_inline_millipoints', 'justification_expansion_millipoints', 'ascent_millipoints', 'descent_millipoints', 'line_gap_millipoints', 'underline_position_millipoints', 'underline_thickness_millipoints', 'glyphs'],
   HardBreakV1: ['source_run_id', 'control'],
   LineV1: ['id', 'ordinal', 'available_width_millipoints', 'inline_offset_millipoints', 'advance_inline_millipoints', 'ascent_millipoints', 'descent_millipoints', 'line_gap_millipoints', 'line_height_millipoints', 'justified', 'logical_to_visual', 'fragments', 'hard_break_after'],
   NumberingSourceV1: ['relationships_part', 'relationships_sha256', 'relationship_id', 'relationship_type', 'relationship_target', 'part_name', 'content_type', 'part_sha256', 'model_sha256'],
@@ -239,6 +239,11 @@ function validateFragment(value: unknown, path: string, issues: NativeDocxValida
   integer(entry.ascent_millipoints, `${path}/ascent_millipoints`, issues, 0, MAX_METRIC)
   integer(entry.descent_millipoints, `${path}/descent_millipoints`, issues, -MAX_METRIC, 0)
   integer(entry.line_gap_millipoints, `${path}/line_gap_millipoints`, issues, 0, MAX_METRIC)
+  if (entry.underline_position_millipoints !== undefined || entry.underline_thickness_millipoints !== undefined) {
+    integer(entry.underline_position_millipoints, `${path}/underline_position_millipoints`, issues, -MAX_METRIC, MAX_METRIC)
+    integer(entry.underline_thickness_millipoints, `${path}/underline_thickness_millipoints`, issues, 0, MAX_METRIC)
+    if (entry.face_id === undefined || sourceKind === 'image') add(issues, 'BROKEN_REFERENCE', path, 'underline metrics require a resolved font face')
+  }
   const glyphs = array(entry.glyphs, `${path}/glyphs`, issues, MAX_FRAGMENT_TEXT_UTF16)
   if (sourceKind === 'image' && (entry.text !== '' || entry.start_utf16 !== 0 || entry.end_utf16 !== 0 || entry.face_id !== undefined || entry.whitespace !== false || glyphs.length !== 0)) add(issues, 'INVALID_VALUE', path, 'image fragment must be glyphless, face-less, non-whitespace, and carry an empty UTF-16 range')
   state.glyphs += glyphs.length

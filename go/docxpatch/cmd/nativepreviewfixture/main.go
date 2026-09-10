@@ -28,6 +28,13 @@ func build(font []byte) ([]byte, error) {
 }
 
 func buildWithJPEG(font []byte, withJPEG bool) ([]byte, error) {
+	return buildWithUnderline(font, withJPEG, "")
+}
+
+func buildWithUnderline(font []byte, withJPEG bool, underline string) ([]byte, error) {
+	if underline != "" && underline != "single" && underline != "double" && underline != "words" {
+		return nil, fmt.Errorf("unsupported underline style")
+	}
 	if len(font) < 32 || len(font) > 8*1024*1024 {
 		return nil, fmt.Errorf("font must be 32 bytes–8 MiB")
 	}
@@ -45,6 +52,9 @@ func buildWithJPEG(font []byte, withJPEG bool) ([]byte, error) {
 		highlight := ""
 		if withJPEG && text == "Native document preview" {
 			highlight = `<w:highlight w:val="yellow"/>`
+		}
+		if underline != "" && text == "Native document preview" {
+			highlight += `<w:u w:val="` + underline + `"/>`
 		}
 		return `<w:p><w:pPr>` + br + `<w:jc w:val="left"/><w:spacing w:before="0" w:after="120"/><w:rPr>` + runProps + `</w:rPr></w:pPr><w:r><w:rPr>` + runProps + highlight + `</w:rPr><w:t>` + text + `</w:t></w:r></w:p>`
 	}
@@ -130,6 +140,7 @@ func main() {
 	fontPath := flag.String("font", "", "path to licensed embeddable DejaVuSans.ttf")
 	out := flag.String("out", "", "new temporary DOCX output path")
 	withJPEG := flag.Bool("jpeg", false, "include generated baseline JFIF JPEG bands")
+	underline := flag.String("underline", "", "title underline: single, double, or words")
 	flag.Parse()
 	if *fontPath == "" || *out == "" {
 		fmt.Fprintln(os.Stderr, "-font and -out are required")
@@ -138,7 +149,7 @@ func main() {
 	font, err := os.ReadFile(*fontPath)
 	if err == nil {
 		var data []byte
-		data, err = buildWithJPEG(font, *withJPEG)
+		data, err = buildWithUnderline(font, *withJPEG, *underline)
 		if err == nil {
 			err = os.WriteFile(*out, data, 0600)
 		}

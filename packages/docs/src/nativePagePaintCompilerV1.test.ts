@@ -363,6 +363,34 @@ function combinedNoteImageTableHeaderFixture(): NativeDocxPagePaintPrepareInputV
   return input
 }
 describe('native DOCX page-paint compiler v1', () => {
+  it.each(['single', 'double', 'words'] as const)('paints font-bound %s underlines and rejects decoration tampering', async (style) => {
+    const input = fixture()
+    ;(input.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs[0]!.properties = { underline: style }
+    ;(input.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs[0]!.text = 'A A'
+    ;(input.resolved_layout as NativeDocxResolvedLayoutInputV1).runs[0]!.properties.underline = style
+    const prepared = await prepareNativeDocxPagePaintV1(input)
+    const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+    const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map(request => {
+      const outline = provider.outline(request.glyph_id)
+      return outline.path.length ? { status: 'outlined' as const, ...request, ...outline } : { status: 'empty' as const, ...request, units_per_em: outline.units_per_em }
+    }) })
+    expect(completed.page_paint_output.status, JSON.stringify(completed.page_paint_output)).toBe('painted')
+    if (completed.page_paint_output.status !== 'painted') throw new Error('underline refused')
+    const page = completed.page_paint_output.pages[0]!
+    const strokes = page.commands.filter(command => command.kind === 'stroke_text_underline')
+    expect(strokes).toHaveLength(style === 'double' ? 6 : style === 'words' ? 2 : 3)
+    expect(page.commands.at(-1)?.kind).toBe('stroke_text_underline')
+    const fragment = prepared.page_paint_request.pagination_request.shaped_lines.paragraphs[0]!.lines[0]!.fragments[0]!
+    expect(strokes[0]).toMatchObject({ y1_millipoints: page.lines[0]!.baseline_y_millipoints - fragment.underline_position_millipoints!, width_millipoints: fragment.underline_thickness_millipoints })
+    for (const patch of [{ stroke_rgb: 'FF0000' }, { width_millipoints: 1 }, { y1_millipoints: 1, y2_millipoints: 1 }, { source_id: 'run:other' }]) {
+      const tampered = structuredClone(completed.page_paint_output)
+      Object.assign(tampered.pages[0]!.commands.find(command => command.kind === 'stroke_text_underline')!, patch)
+      expect(decodeNativeDocxPagePaintForRequestV1(tampered, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(false)
+    }
+    const missing = structuredClone(completed.page_paint_output)
+    missing.pages[0]!.commands.pop(); missing.pages[0]!.lines[0]!.command_ids.pop()
+    expect(decodeNativeDocxPagePaintForRequestV1(missing, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(false)
+  })
   it('paints text highlight behind real glyphs and rejects color/geometry/coverage tampering', async () => {
     const input = fixture()
     ;(input.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs[0]!.properties = { highlight: 'yellow' }
