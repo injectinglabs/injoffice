@@ -39,7 +39,7 @@ describe('PPTX approximate preview policy', () => {
       contractVersion: 'pptx-native/v1', documentId: 'preview-test', origin: 'parsed',
       size: { cx: 12_192_000, cy: 6_858_000 }, assets: [], compatibility: { status: 'editable', diagnostics: [] },
       slides: [{ id: 'slide', provenance: 'parsed', passthrough: [], compatibility: { status: 'editable', diagnostics: [] }, elements: [
-        element({ kind: 'text', paragraphs: [{ runs: [{ text: '<script>alert(1)</script>', bold: true, fontSizeHundredthPt: 2400 }] }] }),
+        element({ kind: 'text', textBody: { leftInsetEmu: 0, rightInsetEmu: 0, topInsetEmu: 0, bottomInsetEmu: 0, wrap: 'none', verticalAnchor: 'top', autoFit: 'none', horizontalOverflow: 'overflow', verticalOverflow: 'overflow' }, paragraphs: [{ runs: [{ text: '<script>alert(1)</script>', bold: true, fontSizeHundredthPt: 2400 }] }] }),
         element({ id: 'chart', kind: 'chart', chart: {} }),
         element({ id: 'invalid', transform: { x: 0, y: 0, cx: 0, cy: 100 } }),
       ] }],
@@ -52,6 +52,9 @@ describe('PPTX approximate preview policy', () => {
     expect(html).toContain('no embedded preview image')
     expect(html).toContain('preview geometry unavailable')
     expect(html).toContain('&lt;script&gt;')
+    expect(html).toContain('white-space:pre;')
+    expect(html).toContain('overflow:visible')
+    expect(html).not.toContain('overflow-wrap:anywhere')
     expect(html).not.toContain('<script>')
     expect(JSON.stringify(deck)).toBe(before)
   })

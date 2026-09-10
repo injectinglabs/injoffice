@@ -199,6 +199,13 @@ try {
   })()`)
   await pollExpression(cdp, `document.querySelector('.native-status')?.textContent?.includes('Last change undone') === true`, 'DOCX exact-byte undo', 90_000)
   await pollExpression(cdp, `document.querySelector('#docx-replacement-text')?.value === ${JSON.stringify(selectedDocxText)} && Boolean(document.querySelector('.native-download[href^="blob:"]'))`, 'DOCX undo restores editable text and download')
+  // A real ZIP-packaged inline PNG must resolve from the exact DOCX bytes,
+  // not from a remote URL or a synthetic HTML-only document.
+  const dom = await cdp.send('DOM.getDocument')
+  const uploadNode = await cdp.send('DOM.querySelector', { nodeId: dom.root.nodeId, selector: '[data-demo-surface="docs"] input[type="file"]' })
+  await cdp.send('DOM.setFileInputFiles', { nodeId: uploadNode.nodeId, files: [resolve(root, 'go/officecompat/corpus/generated/packages/docx-inline-png-page-paint.docx')] })
+  await pollExpression(cdp, `(() => { const image = document.querySelector('.docx-contract-sheet img'); return Boolean(image && image.src.startsWith('blob:') && image.complete && image.naturalWidth > 0) })()`, 'source-bound embedded DOCX PNG preview', 90_000)
+  await capturePreview('docx-embedded-image.png', '.docx-contract-sheet img')
 
   sectionKey = 'slides'
   featureKey = 'pptx-native'
