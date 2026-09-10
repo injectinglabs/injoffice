@@ -89,10 +89,10 @@ func handlePPTXPreview(w http.ResponseWriter, r *http.Request, options PPTXPrevi
 	var identity struct {
 		Version       int    `json:"version"`
 		PackageSHA256 string `json:"package_sha256"`
-		SlideIndex    int    `json:"slide_index"`
+		SlideIndex    *int   `json:"slide_index"`
 		SlideCount    int    `json:"slide_count"`
 	}
-	if json.Unmarshal(result, &identity) != nil || identity.Version != 1 || identity.PackageSHA256 != input["package_sha256"] || identity.SlideIndex != query || identity.SlideCount != len(input["deck"].(pptxpatch.NativePPTXDeck).Slides) {
+	if json.Unmarshal(result, &identity) != nil || identity.Version != 1 || identity.PackageSHA256 != input["package_sha256"] || identity.SlideIndex == nil || *identity.SlideIndex != query || identity.SlideCount != len(input["deck"].(pptxpatch.NativePPTXDeck).Slides) {
 		xlsxhttp.WriteError(w, http.StatusUnprocessableEntity, errors.New("native preview worker result does not match the source slide"))
 		return
 	}

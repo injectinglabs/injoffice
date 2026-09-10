@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -98,5 +99,53 @@ func TestPPTXPreviewWorkerProtocolBudgetAndDeadline(t *testing.T) {
 	defer cancel()
 	if _, err := compilePreviewWorker(ctx, hung.WorkerPath, "injoffice.pptx.preview-worker", map[string]any{}, 1024, 1024); err == nil || ctx.Err() == nil {
 		t.Fatal("worker ignored deadline")
+	}
+}
+
+func TestPPTXPreviewRejectsStaleOrMissingWorkerIdentity(t *testing.T) {
+	data := readPinned(t, commonPPTXSHA, "officecompat", "corpus", "generated", "packages", "pptx-transitional-common.pptx")
+	for _, test := range []struct {
+		name  string
+		patch map[string]any
+		want  int
+	}{
+		{"matching", nil, http.StatusOK},
+		{"wrong-package", map[string]any{"package_sha256": strings.Repeat("0", 64)}, http.StatusUnprocessableEntity},
+		{"wrong-slide", map[string]any{"slide_index": 1}, http.StatusUnprocessableEntity},
+		{"missing-slide", map[string]any{"slide_index": nil}, http.StatusUnprocessableEntity},
+		{"wrong-count", map[string]any{"slide_count": 999}, http.StatusUnprocessableEntity},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input, err := pptxPreviewInput(context.Background(), data, 0, PPTXPreviewOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The corpus fixture has one slide, independently checked by extraction.
+			deckJSON, _ := json.Marshal(input["deck"])
+			var deck struct {
+				Slides []json.RawMessage `json:"slides"`
+			}
+			if err := json.Unmarshal(deckJSON, &deck); err != nil {
+				t.Fatal(err)
+			}
+			result := map[string]any{"version": 1, "package_sha256": input["package_sha256"], "slide_index": 0, "slide_count": len(deck.Slides)}
+			for key, value := range test.patch {
+				if value == nil {
+					delete(result, key)
+				} else {
+					result[key] = value
+				}
+			}
+			payload, _ := json.Marshal(map[string]any{"protocol": "injoffice.pptx.preview-worker", "version": 1, "id": "preview", "ok": true, "result": result})
+			worker := previewFixtureWorker(t, fmt.Sprintf("const payload=Buffer.from(%q);const h=Buffer.alloc(4);h.writeUInt32BE(payload.length);process.stdout.write(Buffer.concat([h,payload]));", string(payload)))
+			gate := make(chan struct{}, 1)
+			request := httptest.NewRequest(http.MethodPost, PPTXPreviewPath, bytes.NewReader(data))
+			request.Header.Set("Content-Type", PPTXContentType)
+			response := httptest.NewRecorder()
+			handlePPTXPreview(response, request, PPTXPreviewOptions{WorkerPath: worker.WorkerPath, FontManifestPath: "/operator/fonts.json"}, gate)
+			if response.Code != test.want || len(gate) != 0 || response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("response=%d gate=%d body=%s", response.Code, len(gate), response.Body.String())
+			}
+		})
 	}
 }
