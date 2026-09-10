@@ -4072,6 +4072,11 @@
               "signature": "export interface NativeDocxPlacedNoteStoryV1"
             },
             {
+              "name": "NativeDocxPlacedTableRowFragmentV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxPlacedTableRowFragmentV1"
+            },
+            {
               "name": "NativeDocxPositionedGlyphV1",
               "kind": "interface",
               "signature": "export interface NativeDocxPositionedGlyphV1"
@@ -9080,6 +9085,11 @@
               "signature": "NativeAnimationEffect"
             },
             {
+              "name": "NativeArrowEnd",
+              "kind": "type",
+              "signature": "export interface NativeArrowEnd"
+            },
+            {
               "name": "NativeAsset",
               "kind": "type",
               "signature": "export interface NativeAsset"
@@ -9327,7 +9337,7 @@
             {
               "name": "PPTX_NATIVE_SCHEMA_SHA256",
               "kind": "const",
-              "signature": "export declare const PPTX_NATIVE_SCHEMA_SHA256: \"db4f9fd5877294a9b0c353c2c0cbbd2330b0e3414486f7bbde9720ce57cf3eca\""
+              "signature": "export declare const PPTX_NATIVE_SCHEMA_SHA256: \"5fec15ba9b3d68a110d3a8ef386bf9d75b39fd2516dabef8a7fb69eeb80af3ec\""
             },
             {
               "name": "provenanceValues",
