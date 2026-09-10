@@ -20,6 +20,8 @@ const (
 
 // Metadata-only admission before the generic extractor allocates expanded
 // parts. CRC, XML and OPC graph validity remain the extractor's authority.
+// The entry cap is checked after archive/zip parses the bounded 8 MiB input;
+// it is not a strict cap on that parser's temporary metadata allocations.
 // Neither this preflight nor synchronous extraction is OS-level isolation.
 func preflightPPTXPreviewZIP(ctx context.Context, data []byte) error {
 	if err := ctx.Err(); err != nil {
@@ -45,19 +47,19 @@ func preflightPPTXPreviewZIP(ctx context.Context, data []byte) error {
 			return err
 		}
 		name := part.Name
-		if part.FileInfo().IsDir() {
+		directory := part.FileInfo().IsDir()
+		if directory {
 			name = strings.TrimSuffix(name, "/")
 		}
 		alias, err := pptxPreviewPartAlias(name)
 		if err != nil {
 			return err
 		}
-		if aliases[alias] {
+		if !directory && aliases[alias] {
 			return errors.New("PPTX preview ZIP contains duplicate or case/percent-aliased entries")
 		}
-		aliases[alias] = true
-		if part.Flags&1 != 0 || (part.Method != zip.Store && part.Method != zip.Deflate) {
-			return errors.New("PPTX preview ZIP contains encrypted or unsupported-compression entries")
+		if !directory {
+			aliases[alias] = true
 		}
 		if part.UncompressedSize64 > pptxPreviewMaxPartBytes {
 			return errors.New("PPTX preview ZIP expanded part exceeds 8 MiB")
@@ -66,6 +68,15 @@ func preflightPPTXPreviewZIP(ctx context.Context, data []byte) error {
 			return errors.New("PPTX preview ZIP expanded total exceeds 32 MiB")
 		}
 		total += part.UncompressedSize64
+		// Safe directory records are not OPC parts and the extractor skips them.
+		// Keep their declared sizes in admission budgets, but do not let their
+		// spelling collide with actual parts or other directory records.
+		if directory {
+			continue
+		}
+		if part.Flags&1 != 0 || (part.Method != zip.Store && part.Method != zip.Deflate) {
+			return errors.New("PPTX preview ZIP contains encrypted or unsupported-compression entries")
+		}
 		offset, err := part.DataOffset()
 		if err != nil || offset < 0 || offset > int64(len(data)) || part.CompressedSize64 > uint64(int64(len(data))-offset) {
 			return errors.New("PPTX preview ZIP has invalid local entry bounds")

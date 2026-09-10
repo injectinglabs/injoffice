@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -139,5 +140,34 @@ func TestPPTXPreviewZIPMetadataRefusals(t *testing.T) {
 	cancel()
 	if err := preflightPPTXPreviewZIP(ctx, data); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation lost: %v", err)
+	}
+}
+
+func TestPPTXPreviewZIPDirectoryRecordsAreNotPartAliases(t *testing.T) {
+	for _, names := range [][]string{
+		{"ppt/", "ppt/", "ppt/a.xml"},
+		{"PPT/", "%70pt/", "ppt", "ppt/a.xml"},
+	} {
+		headers := make([]zip.FileHeader, len(names))
+		for i, name := range names {
+			headers[i] = zip.FileHeader{Name: name, Method: zip.Store}
+		}
+		if err := preflightPPTXPreviewZIP(context.Background(), previewZIP(t, headers, nil)); err != nil {
+			t.Fatalf("harmless directory records refused: %v", err)
+		}
+	}
+	for _, name := range []string{"../", "ppt/%2E%2E/", "/ppt/", "ppt//"} {
+		if err := preflightPPTXPreviewZIP(context.Background(), previewZIP(t, []zip.FileHeader{{Name: name, Method: zip.Store}}, nil)); err == nil {
+			t.Fatalf("unsafe directory admitted: %s", name)
+		}
+	}
+	data := previewZIP(t, []zip.FileHeader{{Name: "ppt/", Method: zip.Store}}, nil)
+	central := bytes.Index(data, []byte{'P', 'K', 1, 2})
+	if central < 0 {
+		t.Fatal("central directory missing")
+	}
+	binary.LittleEndian.PutUint32(data[central+24:central+28], pptxPreviewMaxPartBytes+1)
+	if err := preflightPPTXPreviewZIP(context.Background(), data); err == nil || !strings.Contains(err.Error(), "expanded part") {
+		t.Fatalf("directory declaration bypassed expanded budget: %v", err)
 	}
 }

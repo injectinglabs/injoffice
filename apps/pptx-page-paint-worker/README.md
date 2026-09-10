@@ -17,6 +17,10 @@ are used. Missing family/weight/style combinations refuse visibly. Limits are
 
 Before full extraction, the HTTP helper checks ZIP metadata: at most 8 MiB
 uploaded, 2,048 entries, 8 MiB expanded per entry and 32 MiB expanded in total.
+The entry count is checked after Go parses metadata from the bounded 8 MiB
+upload; it is not a strict metadata-allocation cap. Safe directory records do
+not participate in OPC part alias checks, but their declared sizes still count
+toward admission budgets.
 Duplicate/case/percent aliases, unsafe names, encryption, unsupported compression
 and invalid local-entry bounds refuse before decompression. The extractor still
 checks actual decoded sizes, CRCs, XML and package relationships. These limits
