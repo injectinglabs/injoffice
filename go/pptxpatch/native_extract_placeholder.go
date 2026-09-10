@@ -87,7 +87,7 @@ func nativeMatchingPlaceholder(root *nativeXMLNode, wanted nativePlaceholderIden
 	return matched, identity, nil
 }
 
-func mergeNativeListStyles(base, override *nativeXMLNode, dialect nativeExtractDialect) (*nativeXMLNode, error) {
+func mergeNativeListStyles(base, override *nativeXMLNode, dialect nativeExtractDialect, theme nativeResolvedTheme) (*nativeXMLNode, error) {
 	result := &nativeXMLNode{Name: xml.Name{Space: dialect.drawing, Local: "lstStyle"}}
 	for _, source := range []*nativeXMLNode{base, override} {
 		if source == nil {
@@ -102,7 +102,7 @@ func mergeNativeListStyles(base, override *nativeXMLNode, dialect nativeExtractD
 				return nil, fmt.Errorf("pptxpatch: duplicate inherited list level")
 			}
 			seen[level.Name] = true
-			if err := validateNativeTextStyleProperties(level, dialect, true); err != nil {
+			if err := validateNativeTextStyleProperties(level, dialect, true, theme); err != nil {
 				return nil, err
 			}
 			found := false
@@ -158,7 +158,7 @@ func (extractor *nativeExtractor) resolveNativePlaceholder(node *nativeXMLNode, 
 		if err != nil {
 			return nil, nil, err
 		}
-		list, err = mergeNativeListStyles(nil, style, dialect)
+		list, err = mergeNativeListStyles(nil, style, dialect, extractor.theme)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -242,7 +242,7 @@ func (extractor *nativeExtractor) resolveNativePlaceholder(node *nativeXMLNode, 
 		if err != nil {
 			return nil, nil, err
 		}
-		list, err = mergeNativeListStyles(list, localList, dialect)
+		list, err = mergeNativeListStyles(list, localList, dialect, extractor.theme)
 		if err != nil {
 			return nil, nil, err
 		}
