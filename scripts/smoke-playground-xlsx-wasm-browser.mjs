@@ -90,6 +90,7 @@ try {
     cdp.send('Page.enable'),
     cdp.send('Runtime.enable'),
   ])
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
   await cdp.send('Page.navigate', { url: `${siteUrl}#/sheets?feature=native` })
   await pollExpression(cdp, `document.querySelector('.native-toolbar') !== null`, 'spreadsheet native workspace feature', 90_000)
   await pollExpression(cdp, `(() => {
@@ -216,7 +217,7 @@ try {
   await pollExpression(cdp, `document.querySelector('.native-status')?.textContent?.includes('Extracted ') === true`, 'PPTX browser extraction', 90_000)
   await pollExpression(cdp, `Boolean(document.querySelector('[aria-label="Presentation file preview"] svg g'))`, 'real PPTX positioned object preview')
   await pollExpression(cdp, `document.querySelector('[aria-label="Presentation file preview"]')?.textContent.includes('Approximate file preview')`, 'PPTX fidelity disclosure')
-  await capturePreview('pptx-file-preview.png', '[aria-label="Presentation file preview"]')
+  await capturePreview('pptx-file-preview.png', '[aria-label="Presentation file preview"] svg')
 
   const expectedPptx = `pptx-browser-smoke-${Date.now().toString(36)}`
   await evaluate(cdp, `(() => {
