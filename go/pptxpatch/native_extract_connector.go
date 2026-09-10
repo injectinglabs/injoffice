@@ -39,10 +39,11 @@ func (gaps nativeConnectorGapSet) refused() bool {
 }
 
 // extractConnector projects only a straight, unrotated DrawingML connector
-// whose complete paint is explicit. Named endpoint arrows, including
-// ST_LineEndWidth/Length sm/med/lg that map onto integer EMU as 2/3/5 × the
-// existing stroke width, are exact boolean flags. Unknown named types,
-// unmapped sizes, transformed/theme-unresolved paint, non-solid dash,
+// whose line paint is explicit. Named endpoint arrows are currently presence
+// flags only: their original named geometry is not retained by the v1 model.
+// All explicit endpoint sizes refuse. A renderer must not treat a true flag
+// as an exact triangle or infer an Office arrow size. Unknown named types,
+// sizes, transformed/theme-unresolved paint, non-solid dash,
 // custom/bent geometry, and unknown rendering markup remain an exact
 // capability-backed refusal rather than a nearby line approximation.
 func (extractor *nativeExtractor) extractConnector(node *nativeXMLNode, slidePart, slideID string, dialect nativeExtractDialect) (NativeElement, error) {

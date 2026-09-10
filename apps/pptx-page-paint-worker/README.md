@@ -38,8 +38,10 @@ Embedded static PNG and baseline JFIF images are source-part/digest-bound and
 decoded before display. DrawingML positive source-edge crops are replayed without
 rewriting bytes; malformed rasters and browser decode failures clear native
 success. Browser limits are 16 million pixels per image and 32 million total.
-Arrowhead commands remain visibly unavailable; unqualified source content is
-not silently promoted to native paint.
+Arrowhead commands remain visibly unavailable: the v1 connector contract stores
+only presence flags, not the original triangle/stealth/diamond/oval geometry or
+qualified dimensions. No true flag is guessed as a triangle. Unqualified source
+content is not silently promoted to native paint.
 
 Run `node scripts/smoke-pptx-native-preview-browser.mjs` from the built workspace
 for real-file upload, HarfBuzz glyph, anchor, hanging bullet, cropped-quadrant
