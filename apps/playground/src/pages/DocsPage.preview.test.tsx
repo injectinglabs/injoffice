@@ -37,4 +37,13 @@ describe('DOCX content preview markup', () => {
     expect(html).toContain('border-top:none')
     expect(html).not.toContain('continued merged cell')
   })
+  it('keeps white source text but visibly explains a readability outline when its background is unavailable', () => {
+    const table: NativeDocxTableV1 = { id: 'table', anchor, edit_policy, rows: [{ id: 'row', anchor, repeat_header: true, cells: [{ id: 'cell', anchor, vertical_merge: 'none', grid_span: 1, paragraphs: [{ ...paragraph, runs: [{ id: 'white', anchor, kind: 'text', text: 'Visible heading', properties: { color: 'FFFFFF' } }] }] }] }] }
+    const html = renderToStaticMarkup(createElement(TableView, { table }))
+    expect(html).toContain('docx-missing-background')
+    expect(html).toContain('Background unavailable')
+    expect(html).toContain('color:#FFFFFF')
+    table.rows[0].cells[0].shading_rgb = '234F78'
+    expect(renderToStaticMarkup(createElement(TableView, { table }))).not.toContain('Background unavailable')
+  })
 })
