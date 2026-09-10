@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { extname, resolve, sep } from 'node:path'
@@ -8,6 +8,7 @@ const root = resolve(import.meta.dirname, '..')
 const dist = resolve(root, 'apps/playground/dist')
 const base = '/injoffice-smoke/'
 const profile = mkdtempSync(resolve(tmpdir(), 'injoffice-office-browser-'))
+const screenshots = mkdtempSync(resolve(tmpdir(), 'injoffice-rendering-review-'))
 const requests = []
 const browserRequests = []
 const pageErrors = []
@@ -149,6 +150,8 @@ try {
     return true
   })()`, 'bundled DOCX action')
   await pollExpression(cdp, `document.querySelector('.native-status')?.textContent?.includes('editable passage') === true`, 'browser DOCX extraction', 90_000)
+  await pollExpression(cdp, `Boolean(document.querySelector('[data-rendering-mode="approximate-content"]'))`, 'DOCX approximate fidelity disclosure')
+  await capturePreview('docx-file-preview.png', '.docx-contract-sheet')
   const selectedDocxText = await evaluate(cdp, `(() => {
     const runs = [...document.querySelectorAll('.docx-editable-run')]
     const run = runs[1] ?? runs[0]
@@ -211,6 +214,9 @@ try {
     return true
   })()`, 'bundled PPTX action')
   await pollExpression(cdp, `document.querySelector('.native-status')?.textContent?.includes('Extracted ') === true`, 'PPTX browser extraction', 90_000)
+  await pollExpression(cdp, `Boolean(document.querySelector('[aria-label="Presentation file preview"] svg g'))`, 'real PPTX positioned object preview')
+  await pollExpression(cdp, `document.querySelector('[aria-label="Presentation file preview"]')?.textContent.includes('Approximate file preview')`, 'PPTX fidelity disclosure')
+  await capturePreview('pptx-file-preview.png', '[aria-label="Presentation file preview"]')
 
   const expectedPptx = `pptx-browser-smoke-${Date.now().toString(36)}`
   await evaluate(cdp, `(() => {
@@ -249,6 +255,7 @@ try {
   if (apiRequests.length > 0) throw new Error(`browser mode made API requests: ${apiRequests.join(', ')}`)
   if (requests.some((value) => value.startsWith('/v1/'))) throw new Error('static host received an unexpected /v1/ request')
   console.log(`Browser XLSX, DOCX, and PPTX WASM smoke passed at ${base}: extract, apply, re-extract, readback, zero /v1/ requests.`)
+  console.log(`Rendering review screenshots: ${screenshots}`)
 } catch (error) {
   const detail = [
     error instanceof Error ? error.message : String(error),
@@ -281,6 +288,13 @@ try {
   } catch (error) {
     console.warn(`Could not remove temporary Chrome profile ${profile}:`, error)
   }
+}
+
+async function capturePreview(name, selector) {
+  await evaluate(cdp, `document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block: 'center'})`)
+  await delay(150)
+  const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+  writeFileSync(resolve(screenshots, name), Buffer.from(shot.data, 'base64'))
 }
 
 function findChrome() {
