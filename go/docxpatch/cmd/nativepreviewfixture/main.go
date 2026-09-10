@@ -42,7 +42,11 @@ func buildWithJPEG(font []byte, withJPEG bool) ([]byte, error) {
 		if pageBreak {
 			br = `<w:pageBreakBefore/>`
 		}
-		return `<w:p><w:pPr>` + br + `<w:jc w:val="left"/><w:spacing w:before="0" w:after="120"/><w:rPr>` + runProps + `</w:rPr></w:pPr><w:r><w:rPr>` + runProps + `</w:rPr><w:t>` + text + `</w:t></w:r></w:p>`
+		highlight := ""
+		if withJPEG && text == "Native document preview" {
+			highlight = `<w:highlight w:val="yellow"/>`
+		}
+		return `<w:p><w:pPr>` + br + `<w:jc w:val="left"/><w:spacing w:before="0" w:after="120"/><w:rPr>` + runProps + `</w:rPr></w:pPr><w:r><w:rPr>` + runProps + highlight + `</w:rPr><w:t>` + text + `</w:t></w:r></w:p>`
 	}
 	parts := map[string][]byte{}
 	parts["[Content_Types].xml"] = []byte(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/><Override PartName="/word/fonts/regular.odttf" ContentType="application/vnd.openxmlformats-officedocument.obfuscatedFont"/></Types>`)

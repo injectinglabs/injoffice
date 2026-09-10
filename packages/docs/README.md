@@ -344,14 +344,25 @@ visual paint order, requiring no paint-time text reversal or measurement. It
 also emits RTL/mixed-bidi fragments, exact list-marker glyphs, and bounded
 U+0020-justified lines in visual paint order, requiring no paint-time text
 reversal or measurement. It refuses distributed-character justification,
-underline/highlight paint, header/footer tables, shapes, references, fields
-(including cached PAGE results),
-and unsupported note content. Native note marker fragments must exactly equal
-the paginator-assigned decimal label. It also refuses
+underline paint, header/footer tables, shapes, references, fields
+(including cached PAGE results), and unsupported note content. Native note marker
+fragments must exactly equal the paginator-assigned decimal label. It also refuses
 system or unaddressed faces, missing glyphs, invalid/mismatched provider output,
 unclosed or overflowing paths, incomplete pages, and all resource overflows.
 Any such condition returns one `status: 'refused'` output with `pages: []`; no
 previously accumulated page or command escapes.
+
+Text-run highlighting emits the additive `fill_text_highlight` paint command.
+Consumers must replay these filled rectangles in command order before the line's
+glyph paths; do not assume every non-image command is a glyph. Background width
+comes from each shaped visual fragment's advance (including ordinary spaces),
+and height from its qualified font ascent/descent. This deterministic native
+metric policy is not a claim of Word-pixel parity. The compiler and strict
+request decoder bind every rectangle to the source highlight color, run,
+fragment, placement and geometry, and reject missing/reordered decorations.
+The 16 OOXML named colors and `none` are supported for text runs; zero-advance
+fragments produce no background. Highlighted tabs/other controls and list-marker
+backgrounds remain refused. Underline support and edit authority are unchanged.
 
 Stored output should first pass `decodeNativeDocxPagePaintV1`, then
 `decodeNativeDocxPagePaintForRequestV1` for exact request/page/line/glyph/style

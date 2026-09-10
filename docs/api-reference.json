@@ -3626,6 +3626,11 @@
               "signature": "export interface NativeDocxFillTableCellCommandV1"
             },
             {
+              "name": "NativeDocxFillTextHighlightCommandV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxFillTextHighlightCommandV1"
+            },
+            {
               "name": "NativeDOCXFontFaceV1",
               "kind": "interface",
               "signature": "export interface NativeDOCXFontFaceV1"
@@ -3783,7 +3788,7 @@
             {
               "name": "NativeDocxPagePaintCommandV1",
               "kind": "type",
-              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1"
+              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTextHighlightCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1"
             },
             {
               "name": "NativeDocxPagePaintCompletedV1",
@@ -4916,7 +4921,7 @@
             {
               "name": "NativeDocxPagePaintCommandV1",
               "kind": "type",
-              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1"
+              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTextHighlightCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1"
             },
             {
               "name": "NativeDocxPagePaintV1",

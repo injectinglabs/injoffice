@@ -72,6 +72,7 @@ try {
   await poll(async () => await evaluate(`(() => { const image = ${native}?.querySelector('svg image'); return !!image && image.getAttribute('href')?.startsWith('data:image/jpeg;base64,') && image.getAttribute('preserveAspectRatio') === 'none' })()`), 'native JPEG image and source-defined aspect ratio')
   await assert(`(async () => { const image = new Image(); image.src = ${native}.querySelector('svg image').getAttribute('href'); await image.decode(); const canvas = document.createElement('canvas'); canvas.width=16; canvas.height=8; const context=canvas.getContext('2d'); context.drawImage(image,0,0); const left=context.getImageData(2,4,1,1).data; const right=context.getImageData(13,4,1,1).data; return image.naturalWidth===16 && image.naturalHeight===8 && left[0]>left[2]+80 && right[2]>right[0]+80 })()`, 'JPEG pixels decode to the generated red/blue pattern')
   await screenshot('docx-native-page-one.png')
+  await assert(`(() => { const svg = ${native}.querySelector('svg'); const background = svg.querySelector('rect[data-native-highlight]'); const glyph = svg.querySelector('path'); return background?.getAttribute('fill') === '#FFFF00' && Number(background.getAttribute('width')) > 0 && Number(background.getAttribute('height')) > 0 && (background.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 })()`, 'source-bound native highlight precedes glyph painting')
   await click('Next native page')
   await poll(() => evaluate(`${native}?.querySelector('svg[aria-label="Native document page 2"] path') !== null`), 'next native page')
   await assert(`${native}.querySelectorAll('svg').length === 1`, 'navigation keeps a single mounted SVG')
@@ -113,7 +114,7 @@ try {
   await assert(`${native}.querySelector('svg') === null && document.querySelectorAll('.docx-editable-run').length > 0 && ${docs}?.dataset.demoDirty !== 'true'`, 'refusal retains approximate editable content and original source')
   await screenshot('docx-native-refusal.png')
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('\n')}`)
-  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
+  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
 } catch (error) {
   console.error(`Native DOCX screenshots: ${artifacts}\nHelper diagnostics: ${helperLog}`)
   if (cdp) {
