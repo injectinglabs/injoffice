@@ -8,7 +8,7 @@ export function NativePptxVector({preview}:{preview:PptxPreview}){
  const color=(value:string)=>value==='none'?'none':`#${value}`
  function draw(node:PreviewNode,key:string):ReactNode{
   switch(node.kind){
-   case 'group':{const clip=node.clip,id=`${prefix}-${key}`;return <g key={key} transform={`matrix(${node.transform.join(' ')})`}>
+   case 'group':{const clip=node.clip,id=`${prefix}-${key}`;return <g key={key} data-native-source-role={node.sourceRole} transform={`matrix(${node.transform.join(' ')})`}>
     {clip&&<defs><clipPath id={id}><rect x={clip.x} y={clip.y} width={clip.cx} height={clip.cy}/></clipPath></defs>}
     <g clipPath={clip?`url(#${id})`:undefined}>{node.children.map((child,i)=>draw(child,`${key}-${i}`))}</g>
    </g>}

@@ -118,6 +118,8 @@ export interface RenderCluster extends Omit<ShapedCluster, 'startUtf16' | 'endUt
 }
 
 export interface RenderTextRunNode {
+  /** Marker UTF-16 offsets refer to paragraph.bulletCharacter, not a content run. */
+  readonly sourceRole?: 'paragraphBullet'
   readonly kind: 'textRun'
   readonly sourceElementId: string
   readonly paragraphIndex: number
@@ -145,6 +147,7 @@ export interface RenderTextRunNode {
 }
 
 export interface RenderParagraphNode {
+  readonly marker?: RenderTextRunNode
   readonly kind: 'paragraph'
   readonly sourceElementId: string
   readonly paragraphIndex: number

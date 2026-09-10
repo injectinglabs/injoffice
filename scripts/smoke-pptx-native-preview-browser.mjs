@@ -43,13 +43,18 @@ try{
  if(!bounds.every(Number.isFinite)||!(bounds[0]<bounds[1]&&bounds[1]<bounds[2]))throw new Error(`Anchor glyph positions are not ordered: ${bounds}`)
  await evaluate(`${section}.scrollIntoView()`);const shot=await cdp.send('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(artifacts,'pptx-measured-native.png'),Buffer.from(shot.data,'base64'))
  if(hash(readFileSync(fixture))!==sourceHash)throw new Error('Original source changed')
+ const bulletFixture=resolve(scratch,'mixed-anchors-bullets.pptx'),bulletHash=hash(readFileSync(bulletFixture));await upload(bulletFixture)
+ await poll(()=>evaluate(`${section}?.textContent.includes('Nothing is uploaded')&&${section}?.querySelector('svg')===null`),'bullet source replacement clears output');await clickRender()
+ await poll(()=>evaluate(`${section}?.querySelectorAll('[data-native-source-role="paragraphBullet"]').length===3`),'exact glyph markers on wrapped source paragraphs',45000)
+ await assert(`(()=>{const markers=[...${section}.querySelectorAll('[data-native-source-role="paragraphBullet"]')];return markers.every(marker=>{const content=marker.parentElement.querySelector('[data-native-source-role="contentRun"]');const m=marker.transform.baseVal.consolidate().matrix,c=content.transform.baseVal.consolidate().matrix;return m.e<c.e&&m.f===c.f})})()`,'markers precede content at the same measured baseline')
+ await assert(`window.__pptxPosts.length===2&&window.__pptxPosts[1].hash===${JSON.stringify(bulletHash)}`,'bullet source bytes remain unchanged')
  const missing=resolve(root,'go/pptxpatch/testdata/playground_northstar_review.pptx');await upload(missing)
  await poll(()=>evaluate(`${section}?.textContent.includes('Nothing is uploaded')&&${section}?.querySelector('svg')===null`),'replacement clears stale native output')
- await assert('window.__pptxPosts.length===1','replacement still requires consent');await clickRender()
+ await assert('window.__pptxPosts.length===2','replacement still requires consent');await clickRender()
  await poll(()=>evaluate(`${section}?.textContent.includes('Exact operator font unavailable')`),'missing exact font refusal',45000)
  await assert(`${section}.querySelector('svg')===null`,'missing font never substitutes browser glyphs')
  if(errors.length)throw new Error(errors.join('\n'))
- console.log(`PPTX real upload → source-bound helper → measured HarfBuzz glyphs/anchors → missing-font refusal: PASS (${artifacts})`)
+ console.log(`PPTX real upload → source-bound helper → measured HarfBuzz glyphs/anchors and wrapped hanging bullets → missing-font refusal: PASS (${artifacts})`)
 }finally{cdp?.close();if(chrome)await terminateProcess(chrome.child);await server?.close();if(helper)await terminateProcess(helper);for(const profile of profiles)rmSync(profile,{recursive:true,force:true,maxRetries:10,retryDelay:100});rmSync(scratch,{recursive:true,force:true})}
 async function unusedPort(){const server=createServer();await new Promise(done=>server.listen(0,'127.0.0.1',done));const port=server.address().port;await new Promise(done=>server.close(done));return port}
 async function evaluate(expression){const r=await cdp.send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value}

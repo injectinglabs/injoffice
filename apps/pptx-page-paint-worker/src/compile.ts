@@ -76,7 +76,7 @@ export async function compilePptxPreview(input:unknown):Promise<PptxPreview>{
      if(++glyphs>20000)throw new Error('Glyph path budget exceeded')
      const outline=provider.outline(glyph.glyphId),scale=run.fontSizeMilliPoints*12.7/outline.units_per_em
      const d=outline.path.map(p=>{switch(p.kind){case 'move_to':return `M${p.x} ${p.y}`;case 'line_to':return `L${p.x} ${p.y}`;case 'quadratic_to':return `Q${p.control_x} ${p.control_y} ${p.x} ${p.y}`;case 'cubic_to':return `C${p.control_1_x} ${p.control_1_y} ${p.control_2_x} ${p.control_2_y} ${p.x} ${p.y}`;case 'close_path':return 'Z'}}).join(' ')
-     current.children.push({kind:'group',transform:[scale,0,0,-scale,run.x+glyph.xEmu,run.baselineY+glyph.yEmu],children:[{kind:'path',d,fill:run.color}]})
+     current.children.push({kind:'group',sourceRole:run.sourceRole??'contentRun',transform:[scale,0,0,-scale,run.x+glyph.xEmu,run.baselineY+glyph.yEmu],children:[{kind:'path',d,fill:run.color}]})
     }
     break
    }

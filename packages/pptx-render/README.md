@@ -92,6 +92,16 @@ marker/indent metadata and resolves local list/paragraph/run style defaults,
 but marker shaping and indentation are not promoted to exact layout by that
 data extraction alone. The separately labeled approximate file preview uses
 the retained marker and paragraph offsets.
+The explicit `max-run-natural-v1` policy also supports source-defined margins,
+positive first-line indents and hanging character bullets. Markers are shaped
+from the first source run's exact face and rendered once, at `margin + indent`,
+on the first line's measured baseline. Content starts at `margin`; continuation
+lines retain that margin. Non-list first lines add their source indent to the
+text origin. Wrapping uses each line's resulting available width. Marker runs
+carry `sourceRole: 'paragraphBullet'`; their UTF-16 offsets refer to the authored
+marker, never to the content run. Explicit offsets are required for nonzero
+list levels. RTL/centered bullets, absent markers, or an indent too small for the
+measured marker still refuse. No numbering, tab stop, or indentation is invented.
 Self-contained resolved typeface/size runs layout while leftover
 layout/master/theme diagnostics stay preserve-only; missing fonts or unresolved
 `+mj-`/`+mn-` tokens become `text.inheritanceUnavailable` rather than host

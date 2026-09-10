@@ -485,6 +485,37 @@ describe('native PPTX RenderTree', () => {
     expect(lines.map(line=>line.runs[0]!.baselineY)).toEqual([-800,151600])
   })
 
+  it('shapes one authored marker at its hanging indent and preserves content-run source ranges across wrapping', async () => {
+    const element=nativeTextElement('bullet','AB CD',nativeTextBody(),{x:0,y:0,cx:38100,cy:500000})
+    element.paragraphs=[{...element.paragraphs[0]!,level:2,bullet:true,bulletCharacter:'▪',marginLeftEmu:12700,indentEmu:-12700}]
+    const deck=authoredDeck([element]),before=JSON.stringify(deck)
+    const strict=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+    expect(findNode(strict,'text',element.id).textBody.status).toBe('refused')
+    const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+    const lines=findNode(tree,'text',element.id).textBody.paragraphs
+    expect(lines).toHaveLength(2)
+    expect(lines.map(line=>line.x)).toEqual([12700,12700])
+    expect(lines[0]!.marker).toMatchObject({sourceRole:'paragraphBullet',text:'▪',x:0,baselineY:101600,startUtf16:0,endUtf16:1})
+    expect(lines[1]!.marker).toBeUndefined()
+    expect(lines.flatMap(line=>line.runs.map(run=>[run.text,run.startUtf16,run.endUtf16]))).toEqual([['AB',0,2],['CD',3,5]])
+    const paint=createRecordingPaintSurface();paintSlideRenderTree(tree,paint)
+    expect(paint.finish().filter(command=>command.kind==='glyphRun').map(command=>command.kind==='glyphRun'?command.run.text:'')).toEqual(['▪','AB','CD'])
+    expect(JSON.stringify(deck)).toBe(before)
+  })
+
+  it('uses different first/continuation widths for a positive non-list indent and refuses ambiguous bullet geometry', async () => {
+    const base=nativeTextElement('indent','AB CD',nativeTextBody(),{x:0,y:0,cx:50800,cy:500000})
+    base.paragraphs=[{...base.paragraphs[0]!,marginLeftEmu:12700,indentEmu:12700}]
+    const tree=await compileNativePptxSlide(authoredDeck([base]),0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+    expect(findNode(tree,'text',base.id).textBody.paragraphs.map(p=>p.x)).toEqual([25400,12700])
+    for(const override of [{bullet:true,bulletCharacter:'▪',indentEmu:0},{bullet:true,bulletCharacter:'▪',indentEmu:-12700,align:'center' as const},{level:2,marginLeftEmu:undefined}]){
+      const element={...base,paragraphs:[{...base.paragraphs[0]!,...override}]}
+      if(element.paragraphs[0]!.marginLeftEmu===undefined)delete element.paragraphs[0]!.marginLeftEmu
+      const refused=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+      expect(findNode(refused,'text',base.id).textBody.status).toBe('refused')
+    }
+  })
+
   it('wraps only at modeled shaped-cluster boundaries and leaves native no-wrap text on one overflowing line', async () => {
     const wrapped = nativeTextElement('cluster-wrap', 'AB CD', nativeTextBody(), { x: 0, y: 0, cx: 38_100, cy: 500_000 })
     const noWrap = nativeTextElement('cluster-no-wrap', 'A💡 B', nativeTextBody({ wrap: 'none' }), { x: 0, y: 600_000, cx: 25_400, cy: 500_000 })
