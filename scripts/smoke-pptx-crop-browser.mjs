@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { resolve, sep } from 'node:path'
 import { createHash } from 'node:crypto'
-import { build } from 'esbuild'
+import { build } from 'vite'
 import { PNG } from 'pngjs'
 import { launchChromeForCDP, terminateProcess } from './chrome-cdp-startup.mjs'
 
@@ -26,10 +26,22 @@ const deck = {
   compatibility: { status: 'editable', diagnostics: [] },
   slides: [{ id: 'slide', provenance: 'authored', passthrough: [], compatibility: { status: 'editable', diagnostics: [] }, elements: crops.map((crop, i) => ({ kind: 'picture', id: `picture-${i}`, provenance: 'authored', assetId: 'quadrants', transform: { x: i * 3200000, y: 0, cx: 3200000, cy: 3200000 }, ...(crop ? { crop } : {}), passthrough: [], compatibility: { status: 'editable', diagnostics: [] } })) }],
 }
-const bundle = await build({
-  stdin: { contents: `import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Preview from './apps/playground/src/components/PptxFilePreview.tsx'; createRoot(document.body).render(createElement(Preview, {deck: ${JSON.stringify(deck)}}));`, resolveDir: root, loader: 'tsx' },
-  bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' },
+const entry = resolve(root, 'virtual-pptx-crop-smoke.js')
+const built = await build({
+  configFile: false, root, logLevel: 'warn',
+  plugins: [{
+    name: 'pptx-crop-smoke-entry',
+    resolveId(id) { if (id === entry) return entry },
+    load(id) { if (id === entry) return "import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Preview from './apps/playground/src/components/PptxFilePreview.tsx'; createRoot(document.body).render(createElement(Preview, {deck: globalThis.__injofficeCropFixture}));" },
+  }],
+  define: { 'process.env.NODE_ENV': '"production"' },
+  build: {
+    write: false, minify: false,
+    lib: { entry, name: 'InjOfficeCropSmoke', formats: ['iife'] },
+  },
 })
+const bundle = (Array.isArray(built) ? built : [built]).flatMap(result => result.output).find(output => output.type === 'chunk' && output.isEntry)
+if (!bundle) throw new Error('Vite did not produce the crop smoke entry bundle')
 const profiles = []
 let chrome, cdp
 try {
@@ -41,7 +53,10 @@ try {
   cdp = await connect(chrome.target.webSocketDebuggerUrl)
   await cdp.send('Page.enable')
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false })
-  await evaluate(bundle.outputFiles[0].text)
+  const global = await cdp.send('Runtime.evaluate', { expression: 'globalThis' })
+  const assigned = await cdp.send('Runtime.callFunctionOn', { objectId: global.result.objectId, functionDeclaration: 'function (deck) { this.__injofficeCropFixture = deck; }', arguments: [{ value: deck }] })
+  if (assigned.exceptionDetails) throw new Error('Could not transfer crop fixture as data')
+  await evaluate(bundle.code)
   await evaluate(`new Promise((resolve, reject) => { const end = Date.now() + 10000; function check() { const svg = document.querySelector('svg[role="img"]'); if (svg) { Promise.all([...svg.querySelectorAll('image')].map(node => new Promise((done, fail) => { const image = new Image(); image.onload = done; image.onerror = fail; image.src = node.getAttribute('href'); }))).then(() => requestAnimationFrame(() => requestAnimationFrame(resolve)), reject); } else if (Date.now() > end) reject(new Error('preview not mounted')); else setTimeout(check, 20); } check(); })`)
   const bounds = await evaluate(`(() => { const r = document.querySelector('svg[role="img"]').getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; })()`)
   const capture = await cdp.send('Page.captureScreenshot', { format: 'png' })
