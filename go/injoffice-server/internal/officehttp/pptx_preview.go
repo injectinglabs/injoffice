@@ -32,6 +32,9 @@ func pptxPreviewInput(ctx context.Context, data []byte, slide int, options PPTXP
 	if slide < 0 {
 		return nil, errors.New("slide must be a zero-based nonnegative index")
 	}
+	if err := preflightPPTXPreviewZIP(ctx, data); err != nil {
+		return nil, err
+	}
 	deck, err := pptxpatch.ExtractNativePPTX(data, pptxExtractOptions)
 	if err != nil {
 		return nil, err

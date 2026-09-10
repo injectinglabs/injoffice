@@ -15,6 +15,16 @@ HarfBuzz implementation. No aliases, platform-font discovery, or silent fallback
 are used. Missing family/weight/style combinations refuse visibly. Limits are
 32 faces, 16 MiB per font, 64 MiB total font bytes, and 16 MiB framed JSON.
 
+Before full extraction, the HTTP helper checks ZIP metadata: at most 8 MiB
+uploaded, 2,048 entries, 8 MiB expanded per entry and 32 MiB expanded in total.
+Duplicate/case/percent aliases, unsafe names, encryption, unsupported compression
+and invalid local-entry bounds refuse before decompression. The extractor still
+checks actual decoded sizes, CRCs, XML and package relationships. These limits
+bound admitted package data, not total process memory. Cancellation is checked
+around metadata traversal and synchronous extraction; the 45-second request
+context cannot interrupt a synchronous extractor call. The Node subprocess has
+its separate 30-second timeout and a V8 heap limit, not an OS memory sandbox.
+
 The playground's native PPTX workbench asks for explicit upload consent and
 verifies the response's package SHA-256, slide index, and slide count before
 mounting bounded SVG paths. Source files are never rewritten by this path.
