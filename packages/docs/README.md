@@ -347,8 +347,8 @@ canonical hashes for the complete validated request and output.
 Images are restricted to embedded static PNG or baseline JFIF JPEG pictures in `wp:inline` with zero
 distances/effect extents, extent-preserving `a:xfrm` (quarter-turn rotation and
 horizontal/vertical flips), bounded source crop, exact integer
-milli-point geometry, and bounded bytes/pixels. It refuses anchors/floating
-placement, wrapping, remote or external relationships, vectors and other
+milli-point geometry, and bounded bytes/pixels. It refuses text-wrapping anchors,
+remote or external relationships, vectors and other
 raster formats, animation, negative/extending crop, arbitrary rotation, effects, mismatched extents, and
 media digest drift. JPEG support is deliberately bounded to one baseline 8-bit
 grayscale/YCbCr interleaved scan with internal tables and JFIF APP0, following
@@ -356,6 +356,21 @@ grayscale/YCbCr interleaved scan with internal tables and JFIF APP0, following
 progressive/multiple scans and ambiguous color metadata remain refused. The
 validator checks marker structure, not entropy decoding; the viewer decodes the
 preserved bytes and the browser smoke verifies generated red/blue JPEG pixels.
+
+Body-paragraph `wp:anchor` pictures also qualify with explicit page-relative
+non-negative offsets, `wrapNone`, zero distances/effects, disabled `simplePos`
+and `locked`, and enabled `allowOverlap`/`layoutInCell`. Their source
+`behindDoc` and `relativeHeight` become `floating_layer` and `stacking_order`.
+The anchor consumes no inline width or image-height line space; its actual
+paginated paragraph selects the page. `paint_floating_image` replays behind all
+page content or in front of it, sorted by the source stacking order. Consumers
+must handle this additive command and respect global page replay order rather
+than concatenating line-owned commands. At most 128 floating pictures qualify;
+orders must be unique per layer, and images
+must fit wholly inside the page. Header/footer/table anchors, alignment-based
+positions, relative sizing, text wrapping and collision avoidance remain refused.
+This is a source-contract implementation, not independently established Word
+pixel parity.
 Quarter turns require explicit unrotated DrawingML extents whose swapped bounds
 exactly match `wp:extent`; missing or inconsistent extents refuse before painting.
 Reflections apply in source axes before clockwise rotation. Integer SVG matrices

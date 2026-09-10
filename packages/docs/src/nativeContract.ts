@@ -105,6 +105,8 @@ export interface NativeDocxDrawingV1 {
   x_emu?: number
   y_emu?: number
   horizontal_relative_from?: string
+  floating_layer?: 'behind' | 'front'
+  stacking_order?: number
   vertical_relative_from?: string
   wrap?: 'none' | 'square' | 'tight' | 'through' | 'top-and-bottom'
   edit_policy: NativeDocxEditPolicyV1
@@ -368,7 +370,7 @@ export const DOCX_NATIVE_V1_BINDING_FIELDS = {
   CapabilityV1: ['name', 'level', 'detail'],
   PassthroughPartV1: ['part_name', 'content_type', 'byte_length', 'sha256', 'policy'],
   RunPropertiesV1: ['character_style_id', 'font_family', 'font_size_half_points', 'bold', 'italic', 'underline', 'vertical_alignment', 'color', 'highlight', 'language', 'rtl', 'hidden'],
-  DrawingV1: ['id', 'anchor', 'relationship_id', 'media_part', 'content_type', 'name', 'alt_text', 'placement', 'width_emu', 'height_emu', 'x_emu', 'y_emu', 'horizontal_relative_from', 'vertical_relative_from', 'wrap', 'edit_policy', 'rotation_degrees', 'flip_horizontal', 'flip_vertical', 'source_crop'],
+  DrawingV1: ['id', 'anchor', 'relationship_id', 'media_part', 'content_type', 'name', 'alt_text', 'placement', 'width_emu', 'height_emu', 'x_emu', 'y_emu', 'horizontal_relative_from', 'vertical_relative_from', 'wrap', 'edit_policy', 'rotation_degrees', 'flip_horizontal', 'flip_vertical', 'source_crop', 'floating_layer', 'stacking_order'],
   DrawingCropV1: ['left', 'top', 'right', 'bottom'],
   ReferenceV1: ['kind', 'target_id', 'role'],
   RunV1: ['kind', 'id', 'anchor', 'properties', 'text', 'page_field', 'control', 'reference', 'drawing'],
@@ -642,6 +644,10 @@ function validateDrawing(value: unknown, path: string, issues: NativeDocxValidat
   integer(entry.x_emu, `${path}/x_emu`, issues, Number.MIN_SAFE_INTEGER, false)
   integer(entry.y_emu, `${path}/y_emu`, issues, Number.MIN_SAFE_INTEGER, false)
   optionalString(entry.horizontal_relative_from, `${path}/horizontal_relative_from`, issues)
+  if (entry.floating_layer !== undefined) enumValue(entry.floating_layer, `${path}/floating_layer`, ['behind', 'front'], issues)
+  integer(entry.stacking_order, `${path}/stacking_order`, issues, 0, false)
+  if (typeof entry.stacking_order === 'number' && entry.stacking_order > 0xffffffff) add(issues, 'OUT_OF_RANGE', `${path}/stacking_order`, 'must be an unsigned 32-bit integer')
+  if (placement === 'inline' && (entry.floating_layer !== undefined || entry.stacking_order !== undefined)) add(issues, 'INVALID_VALUE', path, 'inline drawings cannot carry floating layering')
   optionalString(entry.vertical_relative_from, `${path}/vertical_relative_from`, issues)
   if (entry.wrap !== undefined) enumValue(entry.wrap, `${path}/wrap`, ['none', 'square', 'tight', 'through', 'top-and-bottom'], issues)
   if (placement === 'inline' && (entry.x_emu !== undefined || entry.y_emu !== undefined)) add(issues, 'INVALID_VALUE', path, 'inline drawings cannot carry floating offsets')

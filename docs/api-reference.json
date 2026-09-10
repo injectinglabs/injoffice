@@ -3859,7 +3859,7 @@
             {
               "name": "NativeDocxPagePaintCommandV1",
               "kind": "type",
-              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTextHighlightCommandV1 | NativeDocxStrokeTextUnderlineCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1"
+              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTextHighlightCommandV1 | NativeDocxStrokeTextUnderlineCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1 | NativeDocxPaintFloatingImageCommandV1"
             },
             {
               "name": "NativeDocxPagePaintCompletedV1",
@@ -4010,6 +4010,11 @@
               "name": "NativeDocxPaginationSettingsV1",
               "kind": "interface",
               "signature": "export interface NativeDocxPaginationSettingsV1"
+            },
+            {
+              "name": "NativeDocxPaintFloatingImageCommandV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxPaintFloatingImageCommandV1 extends Omit<NativeDocxPaintInlineImageCommandV1, 'kind'>"
             },
             {
               "name": "NativeDocxPaintInlineImageCommandV1",
@@ -5012,12 +5017,22 @@
             {
               "name": "NativeDocxPagePaintCommandV1",
               "kind": "type",
-              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTextHighlightCommandV1 | NativeDocxStrokeTextUnderlineCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1"
+              "signature": "export type NativeDocxPagePaintCommandV1 = NativeDocxFillGlyphPathCommandV1 | NativeDocxFillTextHighlightCommandV1 | NativeDocxStrokeTextUnderlineCommandV1 | NativeDocxFillTableCellCommandV1 | NativeDocxStrokeTableBorderCommandV1 | NativeDocxStrokeNoteSeparatorCommandV1 | NativeDocxPaintInlineImageCommandV1 | NativeDocxPaintFloatingImageCommandV1"
             },
             {
               "name": "NativeDocxPagePaintV1",
               "kind": "type",
               "signature": "export type NativeDocxPagePaintV1 = NativeDocxPagePaintSuccessV1 | NativeDocxPagePaintRefusedV1"
+            },
+            {
+              "name": "NativeDocxPaintFloatingImageCommandV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxPaintFloatingImageCommandV1 extends Omit<NativeDocxPaintInlineImageCommandV1, 'kind'>"
+            },
+            {
+              "name": "NativeDocxPaintInlineImageCommandV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxPaintInlineImageCommandV1"
             },
             {
               "name": "NativeDocxPaintPageV1",

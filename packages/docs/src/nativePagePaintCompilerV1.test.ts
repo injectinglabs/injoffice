@@ -16,7 +16,7 @@ import {
   type NativeDocxPagePaintPrepareInputV1,
 } from './nativePagePaintCompilerV1.js'
 import { encodeNativeDOCXFontInventoryV1, nativeDOCXCanonicalWireSHA256V1, type NativeDOCXFontInventoryV1 } from './nativeFontInventoryV1.js'
-import { decodeNativeDocxPagePaintResourceListV1 } from './nativeImagePagePaintV1.js'
+import { decodeNativeDocxPagePaintResourceListV1, qualifyNativeDocxInlineImageV1 } from './nativeImagePagePaintV1.js'
 import { paginateNativeDocxV1 } from './nativePaginationV1.js'
 import { decodeNativeDocxShapedLines } from './nativeShapedLinesContract.js'
 import { decodeNativeDocxPagePaintForRequestV1, decodeNativeDocxPagePaintRequestV1, nativeDocxPagePaintShapedLinesSha256V1 } from './nativePagePaintV1.js'
@@ -495,6 +495,60 @@ describe('native DOCX page-paint compiler v1', () => {
       command.source_crop.left -= 1
       command.transform.flip_horizontal = !flip_horizontal
       expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(false)
+    }
+  })
+  it('paints page-relative floating images outside text flow with source-bound front/behind layers', async () => {
+    for (const layer of ['front', 'behind'] as const) {
+      const input = imageFixture()
+      const drawing = (input.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs[0]!.drawing!
+      Object.assign(drawing, { placement: 'floating', x_emu: 914400, y_emu: 1270000, horizontal_relative_from: 'page', vertical_relative_from: 'page', wrap: 'none', floating_layer: layer, stacking_order: 7 })
+      const prepared = await prepareNativeDocxPagePaintV1(input)
+      const fragment = prepared.page_paint_request.pagination_request.shaped_lines.paragraphs[0]!.lines[0]!.fragments.find(fragment => fragment.source_kind === 'image')!
+      expect(fragment).toMatchObject({ advance_inline_millipoints: 0, ascent_millipoints: 0, descent_millipoints: 0, glyphs: [] })
+      const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+      const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map(request => ({ status: 'outlined' as const, ...request, ...provider.outline(request.glyph_id) })) })
+      expect(completed.page_paint_output.status).toBe('painted')
+      if (completed.page_paint_output.status !== 'painted') throw new Error('floating refused')
+      const page = completed.page_paint_output.pages[0]!
+      const command = layer === 'behind' ? page.commands[0]! : page.commands.at(-1)!
+      expect(command).toMatchObject({ kind: 'paint_floating_image', x_millipoints: 72000, y_millipoints: 100000, width_millipoints: 10000, height_millipoints: 10000, layer, stacking_order: 7 })
+      expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output,completed.page_paint_request,completed.page_paint_request.outline_provider).ok).toBe(true)
+      if (command.kind !== 'paint_floating_image') throw new Error('missing floating image')
+      command.x_millipoints += 10
+      expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output,completed.page_paint_request,completed.page_paint_request.outline_provider).ok).toBe(false)
+      command.x_millipoints -= 10
+      command.stacking_order += 1
+      expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output,completed.page_paint_request,completed.page_paint_request.outline_provider).ok).toBe(false)
+      command.stacking_order -= 1
+      page.commands.reverse()
+      expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output,completed.page_paint_request,completed.page_paint_request.outline_provider).ok).toBe(false)
+    }
+  })
+  it('refuses ambiguous stacking, non-body anchors and excessive floating counts', () => {
+    const input = imageFixture(), document = input.document as NativeDocxDocumentV1
+    const paragraph = document.body.blocks[0]!.paragraph!, run = paragraph.runs[0]!, drawing = run.drawing!
+    Object.assign(drawing, { placement: 'floating', x_emu: 0, y_emu: 0, horizontal_relative_from: 'page', vertical_relative_from: 'page', wrap: 'none', floating_layer: 'front', stacking_order: 7 })
+    expect(qualifyNativeDocxInlineImageV1(document,run.id,drawing).ok).toBe(true)
+    paragraph.runs.push({ ...run, id: 'run:duplicate', drawing: { ...drawing, id: 'drawing:duplicate' } })
+    expect(qualifyNativeDocxInlineImageV1(document,run.id,drawing)).toMatchObject({ ok: false, code: 'unsupported-image' })
+    paragraph.runs.pop()
+    paragraph.runs.shift()
+    expect(qualifyNativeDocxInlineImageV1(document,run.id,drawing)).toMatchObject({ ok: false, code: 'unsupported-image' })
+    paragraph.runs = Array.from({ length: 129 }, (_,index) => ({ ...run, id: index ? `run:float:${index}` : run.id, drawing: { ...drawing, id: index ? `drawing:float:${index}` : drawing.id, stacking_order: index } }))
+    expect(qualifyNativeDocxInlineImageV1(document,run.id,paragraph.runs[0]!.drawing!)).toMatchObject({ ok: false, code: 'resource-limit' })
+  })
+  it('refuses floating wrapping, unqualified positioning, missing layering and off-page extents', async () => {
+    for (const mutation of [ { wrap: 'square' }, { horizontal_relative_from: 'column' }, { floating_layer: undefined }, { x_emu: -127 }, { x_emu: 1 }, { y_emu: 127000000 } ]) {
+      const input = imageFixture()
+      Object.assign((input.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs[0]!.drawing!, { placement: 'floating', x_emu: 914400, y_emu: 1270000, horizontal_relative_from: 'page', vertical_relative_from: 'page', wrap: 'none', floating_layer: 'front', stacking_order: 7 },mutation)
+      let outcome = 'unknown'
+      try {
+        const prepared = await prepareNativeDocxPagePaintV1(input)
+        const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+        const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map(request => ({ status: 'outlined' as const, ...request, ...provider.outline(request.glyph_id) })) })
+        outcome = completed.page_paint_output.status
+      } catch (error) { expect(error).toBeInstanceOf(Error); outcome = 'refused' }
+      expect(outcome).toBe('refused')
     }
   })
   it('paints text highlight behind real glyphs and rejects color/geometry/coverage tampering', async () => {

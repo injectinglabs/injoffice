@@ -728,8 +728,8 @@ func TestExtractNativeDocumentDrawingMLFloatingAndCropRefusal(t *testing.T) {
 				drawing = run.Drawing
 			}
 		}
-		if drawing == nil || drawing.Placement != "floating" || drawing.XEMU == nil || *drawing.XEMU != 12345 || drawing.YEMU == nil || *drawing.YEMU != -23456 || drawing.Wrap == nil || *drawing.Wrap != "square" {
-			t.Fatalf("floating picture projection = %#v", drawing)
+		if drawing != nil || !hasUnsupportedCode(doc, "FLOATING_DRAWING_SEMANTICS_PRESERVED") {
+			t.Fatalf("unmodeled wrapped anchor must remain preserve-only: %#v", drawing)
 		}
 		if !hasNativePassthrough(doc, "Custom/Media/image.PNG") {
 			t.Fatal("floating image bytes must remain passthrough")

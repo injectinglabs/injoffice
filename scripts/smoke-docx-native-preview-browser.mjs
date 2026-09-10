@@ -26,7 +26,7 @@ try {
   const worker = resolve(root, 'apps/docx-page-paint-worker/dist/worker.js')
   if (!existsSync(worker)) throw new Error('Build the workspace packages and DOCX page-paint worker before running this smoke.')
   const fixture = resolve(scratch, 'native-two-pages.docx')
-  await command('go', ['run', './cmd/nativepreviewfixture', '-font', resolve(root, 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf'), '-out', fixture, '-jpeg', '-page-fields', '-scripts', '-underline', 'double'], resolve(root, 'go/docxpatch'))
+  await command('go', ['run', './cmd/nativepreviewfixture', '-font', resolve(root, 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf'), '-out', fixture, '-jpeg', '-page-fields', '-scripts', '-underline', 'double', '-floating'], resolve(root, 'go/docxpatch'))
   const originalHash = hash(readFileSync(fixture))
   const binary = resolve(scratch, process.platform === 'win32' ? 'injoffice-server.exe' : 'injoffice-server')
   await command('go', ['build', '-o', binary, './cmd/injoffice-server'], resolve(root, 'go/injoffice-server'))
@@ -86,6 +86,7 @@ try {
   await assert(`${native}.querySelectorAll('svg').length === 1`, 'navigation keeps a single mounted SVG')
   await assert(`${native}.querySelectorAll('svg path').length === window.__nativeDocxPaint.pages[1].commands.filter(command=>command.kind==='fill_glyph_path').length`, 'all native field glyph paths mount on page two')
   await screenshot('docx-native-page-two.png')
+  await assert(`window.__nativeDocxPaint.pages[0].commands.every(command => command.kind !== 'paint_floating_image') && (() => { const page = window.__nativeDocxPaint.pages[1]; const command = page.commands.at(-1); const image = ${native}.querySelector('svg image'); return command.kind === 'paint_floating_image' && command.layer === 'front' && command.stacking_order === 7 && command.x_millipoints === 288000 && command.y_millipoints === 216000 && image?.getAttribute('x') === '288000' && image?.getAttribute('y') === '216000' && image === ${native}.querySelector('svg').lastElementChild })()`, 'floating image follows its anchor paragraph to page two with exact page coordinates and foreground replay')
   await evaluate(`${native}.querySelector('svg').lastElementChild.scrollIntoView({ block: 'center' })`)
   await screenshot('docx-native-page-two-footer.png')
   await evaluate(`${native}.querySelector('h3').scrollIntoView({ block: 'start' })`)
@@ -226,7 +227,7 @@ try {
   await assert(`${native}.querySelector('svg') === null && document.querySelectorAll('.docx-editable-run').length > 0 && ${docs}?.dataset.demoDirty !== 'true'`, 'refusal retains approximate editable content and original source')
   await screenshot('docx-native-refusal.png')
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('\n')}`)
-  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native PAGE/NUMPAGES in both header and footer, stale cache ignored', 'native subscript/superscript outlines and baselines', 'native font-metric double underline', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'real two-column repeating table across four pages', 'source image flips and all quarter turns verified in raster pixels', 'source crop before rotation verified in raster pixels', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
+  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native PAGE/NUMPAGES in both header and footer, stale cache ignored', 'native subscript/superscript outlines and baselines', 'native font-metric double underline', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'page-relative floating image follows source paragraph to page two and paints in front', 'real two-column repeating table across four pages', 'source image flips and all quarter turns verified in raster pixels', 'source crop before rotation verified in raster pixels', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
 } catch (error) {
   console.error(`Native DOCX screenshots: ${artifacts}\nHelper diagnostics: ${helperLog}`)
   if (cdp) {

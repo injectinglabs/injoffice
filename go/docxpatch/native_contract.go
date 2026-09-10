@@ -105,6 +105,8 @@ type NativeDrawingV1 struct {
 	HorizontalRelativeFrom *string              `json:"horizontal_relative_from,omitempty"`
 	VerticalRelativeFrom   *string              `json:"vertical_relative_from,omitempty"`
 	Wrap                   *string              `json:"wrap,omitempty"`
+	FloatingLayer          *string              `json:"floating_layer,omitempty"`
+	StackingOrder          *int64               `json:"stacking_order,omitempty"`
 	EditPolicy             NativeEditPolicyV1   `json:"edit_policy"`
 }
 
@@ -1066,6 +1068,16 @@ func (v *nativeValidator) drawing(drawing *NativeDrawingV1, path, ownerPart stri
 	}
 	v.optionalString(drawing.HorizontalRelativeFrom, path+"/horizontal_relative_from")
 	v.optionalString(drawing.VerticalRelativeFrom, path+"/vertical_relative_from")
+	if drawing.FloatingLayer != nil {
+		v.oneOf(*drawing.FloatingLayer, path+"/floating_layer", "behind", "front")
+	}
+	v.optionalSafe(drawing.StackingOrder, path+"/stacking_order")
+	if drawing.StackingOrder != nil && (*drawing.StackingOrder < 0 || *drawing.StackingOrder > 4294967295) {
+		v.add("OUT_OF_RANGE", path+"/stacking_order", "must be an unsigned 32-bit stacking order")
+	}
+	if drawing.Placement == "inline" && (drawing.FloatingLayer != nil || drawing.StackingOrder != nil) {
+		v.add("INVALID_VALUE", path, "inline drawings cannot carry floating layering")
+	}
 	if drawing.Placement == "inline" && (drawing.XEMU != nil || drawing.YEMU != nil) {
 		v.add("INVALID_VALUE", path, "inline drawings cannot carry floating offsets")
 	}
