@@ -142,7 +142,27 @@ try {
   unitPage.node.set(PDFName.of('UserUnit'), PDFNumber.of(2))
   unitPage.drawText('Scaled PDF coordinates', { x: 20, y: 240, size: 12, font: await unitDoc.embedFont(StandardFonts.Helvetica) })
   const unitBytes = [...await unitDoc.save()]
-  await evaluate(`(() => { const transfer = new DataTransfer(); transfer.items.add(new File([new Uint8Array(${JSON.stringify(unitBytes)})], 'user-unit.pdf', { type: 'application/pdf' })); const input = ${pdf}.querySelector('[aria-label="Open a PDF file"]'); input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+  // Pass fixture bytes as a CDP value, never interpolate them into source code.
+  const documentHandle = await cdp.send('Runtime.evaluate', { expression: 'document' })
+  const objectId = documentHandle.result.objectId
+  if (!objectId) throw new Error('Browser document handle unavailable')
+  try {
+    const uploaded = await cdp.send('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: `function(bytes) {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([new Uint8Array(bytes)], 'user-unit.pdf', { type: 'application/pdf' }));
+        const input = this.querySelector('[data-demo-surface="pdf"] [aria-label="Open a PDF file"]');
+        input.files = transfer.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }`,
+      arguments: [{ value: unitBytes }],
+      returnByValue: true,
+    })
+    if (uploaded.exceptionDetails) throw new Error(uploaded.exceptionDetails.text)
+  } finally {
+    await cdp.send('Runtime.releaseObject', { objectId })
+  }
   await poll(() => evaluate(`${pdf}.querySelector('.native-status').textContent.includes('user-unit.pdf')`), 'UserUnit PDF opened')
   await ready()
   await textLayerReady()
