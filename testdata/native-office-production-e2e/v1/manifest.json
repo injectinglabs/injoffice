@@ -43,7 +43,7 @@
       "protocol": "injoffice.docx.native",
       "version": 1,
       "schemaPath": "packages/docs/schema/native-docx-v1.schema.json",
-      "schemaSha256": "d7e074d3324959f8f98d9e6acf66f4ceb719fbe764b6749e31565ad8e2cf7e95"
+      "schemaSha256": "640f6b28d575084f4edeadff28912b6effe51fdfb6014893a4b88e1dcd829853"
     },
     "pptx": {
       "protocol": "pptx-native/v1",
