@@ -77,6 +77,10 @@ func TestNativeTextStyleRefusesUnmodeledOrAmbiguousDefaults(t *testing.T) {
 		{`<a:buChar char="▪"/>`, `<a:buAutoNum type="arabicPeriod"/>`},
 		{`<a:buChar char="▪"/>`, `<a:buChar char="two"/>`},
 		{`<a:buChar char="▪"/>`, `<a:buChar char="▪"/><a:buFont typeface="Symbol"/>`},
+		{`sz="1800"`, `sz="invalid"`},
+		{`b="0" i="1"`, `b="invalid" i="1"`},
+		{`algn="r"`, `algn="invalid"`},
+		{`<a:buChar char="▪"/>`, `<a:buChar char="▪" unknown="1"/>`},
 	} {
 		input := nativeStyledTextFixture(t, false, "▪", func(parts map[string]string) {
 			parts["relocated/slides/slide-a.xml"] = strings.Replace(parts["relocated/slides/slide-a.xml"], mutation.from, mutation.to, 1)
@@ -84,6 +88,30 @@ func TestNativeTextStyleRefusesUnmodeledOrAmbiguousDefaults(t *testing.T) {
 		deck, err := ExtractNativePPTX(input, nativeTestExtractOptions())
 		if err == nil && (deck.Compatibility.Status == NativeCompatibilityStatusEditable || (len(deck.Slides[0].Elements) > 0 && deck.Slides[0].Elements[0].Compatibility.Status == NativeCompatibilityStatusEditable)) {
 			t.Fatalf("unmodeled source was approximated: %s", mutation.to)
+		}
+	}
+}
+
+func TestNativeTextStyleCannotHideMalformedOverriddenLeaf(t *testing.T) {
+	for _, leaf := range []struct{ valid, invalid string }{
+		{`<a:latin typeface="+mn-lt"/>`, `<a:latin typeface="+mn-lt" unknown="1"/>`},
+		{`<a:solidFill><a:schemeClr val="accent1"/></a:solidFill>`, `<a:solidFill><a:schemeClr val="accent1"><a:unknown/></a:schemeClr></a:solidFill>`},
+	} {
+		input := nativeStyledTextFixture(t, false, "▪", func(parts map[string]string) {
+			part := "relocated/slides/slide-a.xml"
+			source := strings.Replace(parts[part], leaf.valid, leaf.invalid, 1)
+			source = strings.Replace(source, `<a:rPr b="1"/>`, `<a:rPr b="1">`+leaf.valid+`</a:rPr>`, 1)
+			source = strings.Replace(source, `<a:r><a:t>world`, `<a:r><a:rPr>`+leaf.valid+`</a:rPr><a:t>world`, 1)
+			parts[part] = source
+		})
+		deck, err := ExtractNativePPTX(input, nativeTestExtractOptions())
+		if err != nil {
+			continue
+		}
+		for _, element := range deck.Slides[0].Elements {
+			if element.Compatibility.Status == NativeCompatibilityStatusEditable {
+				t.Fatal("malformed overridden leaf became editable")
+			}
 		}
 	}
 }

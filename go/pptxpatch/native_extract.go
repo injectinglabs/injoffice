@@ -1904,7 +1904,7 @@ func (extractor *nativeExtractor) extractNativeParagraphs(txBody *nativeXMLNode,
 	if txBody == nil {
 		return []NativeParagraph{}, nil
 	}
-	resolvedBody, styleErr := resolveNativeLocalTextStyles(txBody, dialect)
+	resolvedBody, styleErr := resolveNativeLocalTextStyles(txBody, dialect, extractor.theme)
 	if styleErr != nil {
 		return nil, styleErr
 	}
