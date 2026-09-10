@@ -12,6 +12,8 @@ import '../design-system/live-create-edit.css'
 import './docs-workspace.css'
 import {
   DOCX_MEDIA_TYPE,
+  nativeDocxHighlight,
+  nativeDocxTableRows,
   nativeDocxParagraphText,
   nativeDocxPreviewStats,
   nativeDocxStoryText,
@@ -39,6 +41,7 @@ import type {
   NativeDocxParagraphV1,
   NativeDocxRunV1,
   NativeDocxTableV1,
+  NativeDocxTableBorderV1,
 } from '../../../../packages/docs/src/nativeContract'
 
 const API_BASE = (import.meta.env.VITE_INJOFFICE_API_BASE ?? '').trim().replace(/\/$/, '')
@@ -67,6 +70,10 @@ function runStyle(run: NativeDocxRunV1): CSSProperties {
     fontStyle: properties.italic ? 'italic' : undefined,
     fontWeight: properties.bold ? 700 : undefined,
     textDecoration: properties.underline && properties.underline !== 'none' ? 'underline' : undefined,
+    textDecorationStyle: properties.underline === 'double' ? 'double' : undefined,
+    backgroundColor: nativeDocxHighlight(properties.highlight),
+    direction: properties.rtl ? 'rtl' : undefined,
+    unicodeBidi: properties.rtl ? 'isolate' : undefined,
   }
 }
 
@@ -79,8 +86,9 @@ function RunView({ run }: { run: NativeDocxRunV1 }) {
     return <span style={runStyle(run)}>{run.text}</span>
   }
   if (run.kind === 'control') {
-    if (run.control === 'tab') return <span className="docx-control" title="Native tab">→</span>
+    if (run.control === 'tab') return <span>{'\t'}</span>
     if (run.control === 'soft-hyphen') return <span aria-hidden="true">&shy;</span>
+    if (run.control === 'line-break') return <br />
     return <><br /><span className="docx-control">[{run.control}]</span></>
   }
   if (run.kind === 'drawing') {
@@ -90,37 +98,47 @@ function RunView({ run }: { run: NativeDocxRunV1 }) {
   return <sup className="docx-reference" title={`${run.reference?.kind ?? 'reference'} ${run.reference?.target_id ?? ''}`}>[{run.reference?.kind ?? 'ref'}]</sup>
 }
 
-function ParagraphView({ paragraph }: { paragraph: NativeDocxParagraphV1 }) {
+export function ParagraphView({ paragraph }: { paragraph: NativeDocxParagraphV1 }) {
   const properties = paragraph.properties
   const style: CSSProperties = { textAlign: properties.alignment === 'both' || properties.alignment === 'distribute' ? 'justify' : properties.alignment }
   const empty = nativeDocxParagraphText(paragraph).length === 0 && !paragraph.runs.some((run) => run.kind === 'drawing' || run.kind === 'reference')
   const className = properties.paragraph_style_id?.toLowerCase().startsWith('heading') ? 'docx-paragraph docx-heading' : 'docx-paragraph'
   return (
     <p className={className} style={style} data-edit-mode={paragraph.edit_policy.mode} title={`${paragraph.id} · ${paragraph.edit_policy.mode}`}>
-      {properties.numbering && <span className="docx-numbering" title={`List ${properties.numbering.num_id}, level ${properties.numbering.level}`}>•</span>}
+      {properties.numbering && <span className="docx-unresolved-numbering" title={`List ${properties.numbering.num_id}, level ${properties.numbering.level}. The extracted content contract does not resolve the list marker.`}>[list]</span>}
       {paragraph.runs.map((run) => <RunView key={run.id} run={run} />)}
       {empty && <span aria-hidden="true">&nbsp;</span>}
     </p>
   )
 }
 
-function TableView({ table }: { table: NativeDocxTableV1 }) {
+export function TableView({ table }: { table: NativeDocxTableV1 }) {
   const widths = table.grid_widths_twips
   const totalWidth = widths?.reduce((total, width) => total + width, 0) ?? 0
+  const rows = nativeDocxTableRows(table)
+  const border = (value?: NativeDocxTableBorderV1) => value ? value.style === 'none' ? 'none' : `${value.size_eighth_points / 8}pt solid ${value.color_rgb ? `#${value.color_rgb}` : 'currentColor'}` : undefined
   return (
     <div className="docx-table-wrap">
-      <table className="docx-table" data-edit-mode={table.edit_policy.mode} title={`${table.id} · ${table.edit_policy.mode}`}>
+      <table className="docx-table" data-edit-mode={table.edit_policy.mode} title={`${table.id} · ${table.edit_policy.mode}`} style={{ width: table.width_twips ? `${table.width_twips / 20}pt` : undefined, maxWidth: '100%', marginInlineStart: table.indent_twips ? `${table.indent_twips / 20}pt` : undefined }}>
         {widths && totalWidth > 0 && <colgroup>{widths.map((width, index) => <col key={index} style={{ width: `${width / totalWidth * 100}%` }} />)}</colgroup>}
         <tbody>
-          {table.rows.map((row) => (
-            <tr key={row.id}>
-              {row.cells.map((cell) => (
-                <td key={cell.id} colSpan={cell.grid_span} style={{ background: cell.shading_rgb ? `#${cell.shading_rgb}` : undefined }}>
-                  {cell.vertical_merge === 'continue'
-                    ? <span className="docx-control">[continued merged cell]</span>
-                    : cell.paragraphs.map((paragraph) => <ParagraphView key={paragraph.id} paragraph={paragraph} />)}
-                </td>
-              ))}
+          {table.rows.map((row, rowIndex) => (
+            <tr key={row.id} style={{ height: row.height_twips ? `${row.height_twips / 20}pt` : undefined }}>
+              {rows[rowIndex].map(({ cell, column, rowSpan, orphanContinuation }) => {
+                const Cell = row.repeat_header ? 'th' : 'td'
+                const margins = table.cell_margins
+                return <Cell key={cell.id} scope={row.repeat_header ? 'col' : undefined} colSpan={cell.grid_span} rowSpan={rowSpan} style={{
+                  background: cell.shading_rgb ? `#${cell.shading_rgb}` : undefined,
+                  padding: margins ? `${margins.top_twips / 20}pt ${margins.right_twips / 20}pt ${margins.bottom_twips / 20}pt ${margins.left_twips / 20}pt` : undefined,
+                  borderTop: border(cell.borders?.top ?? (rowIndex === 0 ? table.borders?.top : table.borders?.inside_horizontal)),
+                  borderBottom: border(cell.borders?.bottom ?? (rowIndex + rowSpan === table.rows.length ? table.borders?.bottom : table.borders?.inside_horizontal)),
+                  borderLeft: border(cell.borders?.left ?? (column === 0 ? table.borders?.left : table.borders?.inside_vertical)),
+                  borderRight: border(cell.borders?.right ?? (column + cell.grid_span === row.cells.reduce((sum, item) => sum + item.grid_span, 0) ? table.borders?.right : table.borders?.inside_vertical)),
+                }}>
+                  {orphanContinuation && <span className="docx-control" title="The merge could not be projected safely; cell content is shown separately.">[unresolved merge]</span>}
+                  {cell.paragraphs.map((paragraph) => <ParagraphView key={paragraph.id} paragraph={paragraph} />)}
+                </Cell>
+              })}
             </tr>
           ))}
         </tbody>
@@ -173,8 +191,6 @@ export default function DocsPage() {
   const mutationEvidence = useMemo(() => document && target
     ? JSON.stringify(buildDocxMutationEvidence(document, target, draft), null, 2)
     : '', [document, target, draft])
-  const firstSection = document?.sections[0]
-  const pageRatio = firstSection ? `${firstSection.page.width_twips} / ${firstSection.page.height_twips}` : '8.5 / 11'
 
   const runtimeFor = (selectedMode: DocxRoundTripMode): DocxRoundTripRuntime => {
     if (selectedMode === 'browser') {
@@ -417,7 +433,7 @@ export default function DocsPage() {
       </p>
       <DsCallout
         tone="note"
-        title="Document preview"
+        title="Approximate content preview · not Word pagination"
       >
         {mode === 'browser'
           ? 'Edit supported text and download a real Word file, entirely in your browser. This preview shows document structure; page layout and drawings may look different in Word.'
@@ -438,9 +454,10 @@ export default function DocsPage() {
               </div>
             </div>
           ) : (
-            <article className="docx-contract-sheet ds-page" style={{ aspectRatio: pageRatio }}>
+            <article className="docx-contract-sheet ds-page" data-rendering-mode="approximate-content">
               <h4>{sourceName}</h4>
               <p className="native-muted ds-muted">Select a passage to edit. The selected passage is highlighted.</p>
+              <p className="docx-preview-boundary">Continuous content view. Fonts and wrapping may differ; images use placeholders, list markers are unresolved, and headers/footers appear below the body. Unsupported content remains in the original file.</p>
               {preview.blocks.map((block) => <BlockView key={block.id} block={block} />)}
               {preview.omitted > 0 && <p className="docx-omitted">Preview stopped after 200 body blocks; {preview.omitted} remain in the validated contract.</p>}
               {selectedOutsidePreview && <section className="docx-preview-story" aria-label="Selected passage outside the preview"><h5>Selected passage</h5><BlockView block={selectedOutsidePreview} /></section>}

@@ -25,3 +25,7 @@
 .docx-technical-details > summary { cursor: pointer; font-weight: 600; padding-block: 8px; }
 .docx-technical-details > summary:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 3px; }
 .docx-technical-details pre { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; }
+.docx-paragraph { tab-size: 4; }
+.docx-unresolved-numbering { margin-inline-end: .5em; color: #56605d; font-size: .8em; }
+.docx-preview-boundary { font: 400 .85rem/1.5 var(--ds-font, sans-serif); color: #56605d; padding-block-end: 12px; border-bottom: 1px solid #d4d9dd; }
+.docx-table th { min-width: 72px; padding: 7px 9px; border: 1px solid #a8b0b8; vertical-align: top; font-weight: inherit; text-align: start; }
