@@ -42,6 +42,9 @@ func pptxPreviewInput(ctx context.Context, data []byte, slide int, options PPTXP
 	if slide >= len(deck.Slides) {
 		return nil, errors.New("slide index is outside the source presentation")
 	}
+	if err := attachPPTXPreviewImages(ctx, data, &deck, slide); err != nil {
+		return nil, err
+	}
 	return map[string]any{"deck": deck, "package_sha256": fmt.Sprintf("%x", sha256.Sum256(data)), "slide_index": slide, "font_manifest_path": options.FontManifestPath}, nil
 }
 
