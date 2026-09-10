@@ -80,6 +80,12 @@ try {
   await poll(() => evaluate(`${native}?.querySelector('svg[aria-label="Native document page 1"] path') !== null`), 'previous native page')
   await assert(`${docs}?.dataset.demoDirty !== 'true' && window.__nativeDocxPosts.every(request => request.url.endsWith('/v1/docx/page-preview'))`, 'preview never mutates the document')
   if (hash(readFileSync(fixture)) !== originalHash) throw new Error('The source fixture changed')
+  // Exercise an actual SVG image decode failure after a successful render.
+  // The viewer must clear the native success claim, not silently lose pixels.
+  await evaluate(`${native}.querySelector('svg image').setAttribute('href', 'data:image/jpeg;base64,AA==')`)
+  await poll(() => evaluate(`${native}?.textContent.includes('Native image could not be displayed') && ${native}?.querySelector('svg') === null`), 'image failure clears native pages visibly')
+  await assert(`!${native}.textContent.includes('2 native pages') && ${docs}?.dataset.demoDirty !== 'true'`, 'failed image never leaves a misleading success claim or changes source')
+  await screenshot('docx-native-image-failure.png')
   // This existing real DOCX has no embedded qualified font assets. It must
   // retain its approximate content view rather than invent native glyphs.
   const unsupported = resolve(scratch, 'unsupported-font.docx')
@@ -92,7 +98,7 @@ try {
   await assert(`${native}.querySelector('svg') === null && document.querySelectorAll('.docx-editable-run').length > 0 && ${docs}?.dataset.demoDirty !== 'true'`, 'refusal retains approximate editable content and original source')
   await screenshot('docx-native-refusal.png')
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('\n')}`)
-  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native JPEG pixels and source extents', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
+  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native JPEG pixels and source extents', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
 } catch (error) {
   console.error(`Native DOCX screenshots: ${artifacts}\nHelper diagnostics: ${helperLog}`)
   if (cdp) {

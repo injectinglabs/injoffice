@@ -44,10 +44,16 @@ export function nativeBaselineJpegDimensions(bytes: Uint8Array): { width: number
         const table = bytes[at++]!
         if (table >>> 4 > 1 || (table & 15) > 3 || huffman.has(table) || at + 16 > end) return undefined
         let count = 0, available = 1
-        for (let i = 0; i < 16; i++) { const n = bytes[at + i]!; count += n; available = available * 2 - n; if (available < 0) return undefined }
+        // JPEG reserves an all-ones code at every length for entropy padding.
+        // A complete tree (available === 0) is therefore invalid as well.
+        for (let i = 0; i < 16; i++) { const n = bytes[at + i]!; count += n; available = available * 2 - n; if (available <= 0) return undefined }
         at += 16
         if (count === 0 || count > 256 || at + count > end) return undefined
         if (table >>> 4 === 0 && bytes.subarray(at, at + count).some((symbol) => symbol > 11)) return undefined
+        if (table >>> 4 === 1 && bytes.subarray(at, at + count).some((symbol) => {
+          const size = symbol & 15
+          return size > 10 || (size === 0 && symbol !== 0x00 && symbol !== 0xf0)
+        })) return undefined
         huffman.add(table); at += count
       }
     } else if (marker === 0xdd) {

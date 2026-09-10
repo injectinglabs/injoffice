@@ -8,6 +8,29 @@ import { decodeNativeDocxPagePaintResourceListV1 } from './nativeImagePagePaintV
 const JPEG = Uint8Array.from(Buffer.from('/9j/4AAQSkZJRgABAgAAAQABAAD/2wCEAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgoBAgICAgICBQMDBQoHBgcKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCv/AABEIAAgAEAMBIgACEQEDEQH/xAGiAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/APneuLrtK4uv2D6Hf/M8/wC5b/3YP2z6cn/NP/8Ac3/7rH//2Q==', 'base64'))
 function marker(code: number) { return JPEG.findIndex((byte, index) => byte === 0xff && JPEG[index + 1] === code) }
 describe('bounded native baseline JFIF', () => {
+  it('refuses invalid baseline AC symbols and complete Huffman trees', () => {
+    const dht = marker(0xc4), end = dht + 2 + JPEG[dht + 2]! * 256 + JPEG[dht + 3]!
+    let acSymbol = -1
+    for (let at = dht + 4; at < end;) {
+      const table = JPEG[at++]!
+      const count = JPEG.subarray(at, at + 16).reduce((sum, value) => sum + value, 0)
+      at += 16
+      if (table >>> 4 === 1) { acSymbol = at; break }
+      at += count
+    }
+    expect(acSymbol).toBeGreaterThan(0)
+    for (const symbol of [0x0b, 0xff, 0x10, 0xe0]) {
+      const invalid = JPEG.slice(); invalid[acSymbol] = symbol
+      expect(nativeBaselineJpegDimensions(invalid)).toBeUndefined()
+    }
+    // Keep all twelve original DC symbols/segment lengths, but assign four
+    // length-three and eight length-four codes: the latter consumes 1111.
+    const complete = JPEG.slice()
+    complete.fill(0, dht + 5, dht + 21)
+    complete[dht + 7] = 4
+    complete[dht + 8] = 8
+    expect(nativeBaselineJpegDimensions(complete)).toBeUndefined()
+  })
   it('validates MIME, dimensions, digest and canonical JPEG resource identity', () => {
     const hash = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex')
     const part = 'word/media/bands.jpg', digest = hash(JPEG)
