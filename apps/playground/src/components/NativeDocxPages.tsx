@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { decodeNativeDocxPagePaintV1, type NativeDocxPagePaintV1, type NativeDocxPaintPathCommandV1, type NativeDocxPaintInlineImageCommandV1 } from '../../../../packages/docs/src/nativePagePaintV1'
+import type { NativeDocxPagePaintV1, NativeDocxPaintPathCommandV1, NativeDocxPaintInlineImageCommandV1 } from '../../../../packages/docs/src/nativePagePaintV1'
+import { decodeNativeDocxPagePaintV1 } from '../../../../packages/docs/src/nativePagePaintOutputV1'
 import { DsButton } from '../design-system/primitives'
 
 export function NativeDocxImage({ command, base64 }: { command: NativeDocxPaintInlineImageCommandV1; base64: string }) {
