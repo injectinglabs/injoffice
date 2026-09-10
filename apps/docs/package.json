@@ -25,6 +25,7 @@
     "@injoffice/slides": "0.1.0",
     "@injoffice/pdf": "0.1.0",
     "pdf-lib": "^1.17.1",
+    "typescript": "7.0.2",
     "vitepress": "1.6.4"
   },
   "engines": { "node": ">=22" }
