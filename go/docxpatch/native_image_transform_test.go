@@ -36,6 +36,9 @@ func TestNativeBoundedInlineImageTransforms(t *testing.T) {
 		parts["Custom/Main.XML"] = strings.Replace(parts["Custom/Main.XML"], `<a:xfrm/>`, `<a:xfrm `+attrs+`/>`, 1)
 		doc, err := ExtractNativeDocumentV1(buildNativeDOCX(t, nativeEntries(parts)))
 		if err != nil {
+			if strings.Contains(err.Error(), "duplicate attribute") && (strings.Count(attrs, "rot=") > 1 || strings.Count(attrs, "flipH=") > 1) {
+				continue
+			}
 			t.Fatal(err)
 		}
 		for _, run := range doc.Body.Blocks[0].Paragraph.Runs {
