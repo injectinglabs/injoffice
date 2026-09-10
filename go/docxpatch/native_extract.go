@@ -3171,6 +3171,8 @@ func (extractor *nativeExtractor) extractTable(partName string, node *nativeXMLN
 				typeValue, typeOK := nativeAttr(property, extractor.wordNS, "type")
 				if widthOK && width > 0 && typeOK && typeValue == "dxa" && nativeExactLeaf(property, xml.Name{Space: extractor.wordNS, Local: "w"}, xml.Name{Space: extractor.wordNS, Local: "type"}) {
 					table.WidthTwips = nativeInt64(width)
+				} else if widthOK && width > 0 && width <= 5000 && typeOK && typeValue == "pct" && nativeExactLeaf(property, xml.Name{Space: extractor.wordNS, Local: "w"}, xml.Name{Space: extractor.wordNS, Local: "type"}) {
+					table.WidthPercentFiftieths = nativeInt64(width)
 				} else {
 					unsafe = true
 				}

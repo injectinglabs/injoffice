@@ -71,6 +71,34 @@ function appendRow(request: NativeDocxPaginationRequestV1, ordinal: number): voi
 }
 
 describe('bounded native DOCX table page-paint geometry', () => {
+  it('resolves explicit percent widths proportionally against the owning section without changing source', () => {
+    const request = fixture(14_000), table = request.document.body.blocks[0]!.table!
+    delete table.width_twips; table.width_percent_fiftieths = 2500
+    for (const paragraph of request.shaped_lines.paragraphs) paragraph.lines[0]!.available_width_millipoints = 9_000
+    const original = JSON.stringify(request)
+    const result = qualifyNativeDocxTablesV1(request.document, request.resolved_layout)
+    expect(result.status).toBe('qualified')
+    if (result.status !== 'qualified') throw new Error('percentage refused')
+    expect(result.tables[0]).toMatchObject({ width_millipoints: 10_000, grid_widths_millipoints: [10_000], width_policy: { name: 'fixed-grid-percent-exact-twips-v1', section_id: 'section:1', container_width_twips: 400, percent_fiftieths: 2500, source_grid_widths_twips: [400] } })
+    expect([...result.paragraph_widths.values()]).toEqual([9_000,9_000])
+    const paginated = paginateNativeDocxV1(request)
+    expect(paginated).toMatchObject({ ok: true, value: { status: 'paginated' } })
+    if (!paginated.ok) throw new Error('pagination failed')
+    expect(decodeNativeDocxPaginatedLayoutForRequest(paginated.value, request).ok).toBe(true)
+    expect(JSON.stringify(request)).toBe(original)
+  })
+
+  it('refuses non-integral percent projection and conflicting source grid/cell preferences', () => {
+    for (const mutate of [
+      (table: NonNullable<NativeDocxPaginationRequestV1['document']['body']['blocks'][number]['table']>) => { table.width_percent_fiftieths = 3333 },
+      (table: NonNullable<NativeDocxPaginationRequestV1['document']['body']['blocks'][number]['table']>) => { table.rows[0]!.cells[0]!.width_twips = 399 },
+      (table: NonNullable<NativeDocxPaginationRequestV1['document']['body']['blocks'][number]['table']>) => { table.width_twips = 400 },
+    ]) {
+      const request = fixture(), table = request.document.body.blocks[0]!.table!
+      delete table.width_twips; table.width_percent_fiftieths = 2500; mutate(table)
+      expect(qualifyNativeDocxTablesV1(request.document,request.resolved_layout)).toMatchObject({ status: 'refused', tables: [] })
+    }
+  })
   it('repeats a leading header exactly once on each continuation page with unique placement identities', () => {
     const request = fixture(14_000)
     const table = request.document.body.blocks[0]!.table!

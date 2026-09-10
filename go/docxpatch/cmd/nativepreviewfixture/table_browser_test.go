@@ -52,6 +52,9 @@ func TestNativePreviewRepeatingTableBrowserFixture(t *testing.T) {
 	}
 	body.WriteString(`</w:tbl><w:sectPr><w:pgSz w:w="12240" w:h="4480" w:orient="landscape"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>`)
 	document := []byte(`<w:document xmlns:w="` + wns + `"><w:body>` + body.String() + `</w:body></w:document>`)
+	if os.Getenv("INJOFFICE_TABLE_PERCENT") == "2500" {
+		document = []byte(strings.Replace(string(document), `<w:tblW w:w="9360" w:type="dxa"/>`, `<w:tblW w:w="2500" w:type="pct"/>`, 1))
+	}
 	reader, err := zip.NewReader(bytes.NewReader(source), int64(len(source)))
 	if err != nil {
 		t.Fatal(err)

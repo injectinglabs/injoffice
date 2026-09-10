@@ -298,7 +298,7 @@ V1 deliberately accepts only diagnostic-free, simple horizontal body and
 selected static header/footer paragraphs with natural shaped line height, plus
 qualified footnote/endnote paragraphs with natural shaped line height, plus a
 bounded body-table subset:
-explicit fixed dxa width and grid, left alignment/indent, four cell margins,
+explicit fixed dxa or percentage width and grid, left alignment/indent, four cell margins,
 indivisible rows, direct cell paragraphs, table-level single/RGB
 borders, and clear RGB cell shading. Horizontal `grid_span`, vertical restart/continue
 merges, `atLeast`/`exact` row heights, and simple whole-table styles that project
@@ -314,7 +314,15 @@ parallel text flows of adjacent cells; repeated line placements have unique
 page-derived IDs and are validated by exact pagination replay, not accepted as
 arbitrary duplicate body content. Generated two-column DOCX browser fixtures
 verify this bounded behavior, not Word pixel equivalence.
-It refuses autofit/percentage/missing widths, non-prefix repeating headers,
+Percentage width uses the named `fixed-grid-percent-exact-twips-v1` policy:
+resolve the authored 1..5000 fiftieths-of-a-percent against the owning single
+section column, then scale the authored grid proportionally. Every preferred
+cell width must match its original grid span, and all resulting widths must be
+integral twips; non-integral allocations refuse rather than silently round.
+The policy, source grid, percentage and container identity enter the qualified
+table hash. Cell text is shaped again at the resulting content widths. This is
+flexible percentage sizing of a fixed grid, **not content-based autofit**.
+It refuses autofit/missing widths, non-prefix repeating headers,
 cell-border conflicts, nested content, numbered cells, conditional
 `tblStylePr` effects, and any table-descendant resolution diagnostic. Selected story
 lines must fit between the exact header/footer edge distance and the body box.

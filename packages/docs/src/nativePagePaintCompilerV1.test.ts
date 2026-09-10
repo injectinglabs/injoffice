@@ -891,6 +891,20 @@ describe('native DOCX page-paint compiler v1', () => {
     expect(completed.page_paint_output.pages[0]!.commands.map((command) => command.kind)).toEqual(['fill_table_cell', 'fill_glyph_path', 'stroke_table_border', 'stroke_table_border', 'stroke_table_border', 'stroke_table_border'])
     expect(completed.page_paint_output.provenance.table_projection.sha256).toMatch(/^sha256:[0-9a-f]{64}$/)
   })
+  it('reflows cell shaping to the exact percentage table width and binds the width policy in provenance', async () => {
+    const input = tableFixture(), table = (input.document as NativeDocxDocumentV1).body.blocks[0]!.table!
+    delete table.width_twips; table.width_percent_fiftieths = 2500
+    const original = JSON.stringify(input.document)
+    const prepared = await prepareNativeDocxPagePaintV1(input)
+    expect(prepared.page_paint_request.pagination_request.shaped_lines.paragraphs[0]!.lines[0]!.available_width_millipoints).toBe(224_000)
+    const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+    const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map((request) => ({ status:'outlined' as const,...request,...provider.outline(request.glyph_id) })) })
+    expect(completed.page_paint_output.status).toBe('painted')
+    if(completed.page_paint_output.status!=='painted')throw new Error('percentage paint refused')
+    expect(completed.page_paint_output.pages[0]!.commands.find(command=>command.kind==='fill_table_cell')).toMatchObject({ width_millipoints:234_000 })
+    expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output,completed.page_paint_request,completed.page_paint_request.outline_provider).ok).toBe(true)
+    expect(JSON.stringify(input.document)).toBe(original)
+  })
 
   it('paints source-bound repeated table headings, shading and borders on continuation pages', async () => {
     const input = tableFixture()

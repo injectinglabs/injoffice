@@ -208,6 +208,21 @@ func TestExtractNativeDocumentProjectsExactBoundedTablePaintProperties(t *testin
 	}
 }
 
+func TestExtractNativePercentageTableWidth(t *testing.T) {
+	for _, value := range []string{"1250", "2500", "5000"} {
+		parts := transitionalNativeParts()
+		parts["Custom/Main.XML"] = strings.Replace(parts["Custom/Main.XML"], `<w:tblPr><w:tblStyle w:val="TableGrid"/></w:tblPr>`, `<w:tblPr><w:tblW w:w="`+value+`" w:type="pct"/><w:tblLayout w:type="fixed"/></w:tblPr>`, 1)
+		doc, err := ExtractNativeDocumentV1(buildNativeDOCX(t, nativeEntries(parts)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		table := doc.Body.Blocks[1].Table
+		if table == nil || table.WidthTwips != nil || table.WidthPercentFiftieths == nil || fmt.Sprint(*table.WidthPercentFiftieths) != value {
+			t.Fatalf("percentage source width lost: %#v", table)
+		}
+	}
+}
+
 func TestExtractNativeDocumentProjectsExactThemeSrgbRunAndTablePaint(t *testing.T) {
 	parts := map[string]string{
 		"[Content_Types].xml":          `<Types xmlns="` + opcContentTypesNS + `"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>`,
