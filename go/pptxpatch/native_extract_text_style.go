@@ -4,12 +4,15 @@ import (
 	"encoding/xml"
 	"fmt"
 	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Materialize the bounded DrawingML style cascade into an owned projection.
 // Raw source nodes/offsets remain untouched: writes still target the original
 // element subtree, not this rendering-only property view.
-func resolveNativeLocalTextStyles(body *nativeXMLNode, dialect nativeExtractDialect) (*nativeXMLNode, error) {
+func resolveNativeLocalTextStyles(body *nativeXMLNode, dialect nativeExtractDialect, theme nativeResolvedTheme) (*nativeXMLNode, error) {
 	if body == nil {
 		return nil, nil
 	}
@@ -28,7 +31,7 @@ func resolveNativeLocalTextStyles(body *nativeXMLNode, dialect nativeExtractDial
 		if levels[child.Name.Local] != nil {
 			return nil, fmt.Errorf("pptxpatch: duplicate list style level")
 		}
-		if err := validateNativeTextStyleProperties(child, dialect, true); err != nil {
+		if err := validateNativeTextStyleProperties(child, dialect, true, theme); err != nil {
 			return nil, err
 		}
 		levels[child.Name.Local] = child
@@ -49,7 +52,7 @@ func resolveNativeLocalTextStyles(body *nativeXMLNode, dialect nativeExtractDial
 			return nil, err
 		}
 		if local != nil {
-			if err := validateNativeTextStyleProperties(local, dialect, true); err != nil {
+			if err := validateNativeTextStyleProperties(local, dialect, true, theme); err != nil {
 				return nil, err
 			}
 		}
@@ -94,7 +97,7 @@ func resolveNativeLocalTextStyles(body *nativeXMLNode, dialect nativeExtractDial
 				return nil, err
 			}
 			if localRun != nil {
-				if err := validateNativeTextStyleProperties(localRun, dialect, false); err != nil {
+				if err := validateNativeTextStyleProperties(localRun, dialect, false, theme); err != nil {
 					return nil, err
 				}
 			}
@@ -114,7 +117,7 @@ func resolveNativeLocalTextStyles(body *nativeXMLNode, dialect nativeExtractDial
 	return &result, nil
 }
 
-func validateNativeTextStyleProperties(node *nativeXMLNode, dialect nativeExtractDialect, paragraph bool) error {
+func validateNativeTextStyleProperties(node *nativeXMLNode, dialect nativeExtractDialect, paragraph bool, theme nativeResolvedTheme) error {
 	attrs := []xml.Name{{Local: "b"}, {Local: "i"}, {Local: "sz"}}
 	names := []string{"latin", "ea", "cs", "solidFill"}
 	if paragraph {
@@ -123,6 +126,27 @@ func validateNativeTextStyleProperties(node *nativeXMLNode, dialect nativeExtrac
 	}
 	if err := requireOnlyNativeAttrs(node, attrs...); err != nil {
 		return unsupportedNativeTextContent("unmodeled inherited text property")
+	}
+	// Validate each source before precedence can hide a malformed value.
+	for _, attr := range node.Attrs {
+		var err error
+		switch attr.Name.Local {
+		case "b", "i":
+			_, err = nativeBool(attr.Value)
+		case "sz":
+			_, err = parseCanonicalNativeInt(attr.Value, 1, 400000)
+		case "lvl":
+			_, err = parseCanonicalNativeInt(attr.Value, 0, 8)
+		case "marL":
+			_, err = parseCanonicalNativeInt(attr.Value, 0, 51206400)
+		case "indent":
+			_, err = parseCanonicalNativeInt(attr.Value, -51206400, 51206400)
+		case "algn":
+			_, err = nativeTextAlign(attr.Value)
+		}
+		if err != nil {
+			return err
+		}
 	}
 	allowed := make([]xml.Name, 0, len(names))
 	for _, name := range names {
@@ -136,10 +160,30 @@ func validateNativeTextStyleProperties(node *nativeXMLNode, dialect nativeExtrac
 		if err != nil {
 			return err
 		}
-		if child != nil && name == "defRPr" {
-			if err := validateNativeTextStyleProperties(child, dialect, false); err != nil {
-				return err
+		if child == nil {
+			continue
+		}
+		switch name {
+		case "defRPr":
+			err = validateNativeTextStyleProperties(child, dialect, false, theme)
+		case "solidFill":
+			_, err = exactNativeSolidColor(child, dialect, theme)
+		case "latin", "ea", "cs":
+			family, ok := exactNativeAttr(child, "", "typeface")
+			if !ok || family == "" || requireOnlyNativeAttrs(child, xml.Name{Local: "typeface"}) != nil || requireOnlyNativeChildren(child) != nil {
+				return unsupportedNativeTextContent("invalid inherited typeface metadata")
 			}
+			_, err = theme.resolveTypeface(family)
+		case "buNone":
+			err = requireEmptyNativeElement(child)
+		case "buChar":
+			marker, ok := exactNativeAttr(child, "", "char")
+			if !ok || !utf8.ValidString(marker) || utf8.RuneCountInString(marker) != 1 || strings.IndexFunc(marker, unicode.IsControl) >= 0 || requireOnlyNativeAttrs(child, xml.Name{Local: "char"}) != nil || requireOnlyNativeChildren(child) != nil {
+				return unsupportedNativeTextContent("invalid inherited bullet metadata")
+			}
+		}
+		if err != nil {
+			return unsupportedNativeTextContent("invalid inherited text property: " + err.Error())
 		}
 	}
 	if paragraph {
