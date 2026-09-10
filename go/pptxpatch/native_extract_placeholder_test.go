@@ -109,6 +109,20 @@ func TestNativeDuplicatePlaceholderTargetsStayClosed(t *testing.T) {
 	}
 }
 
+func TestNativeOmittedSlidePlaceholderTypeCannotWidenInheritedSubset(t *testing.T) {
+	for _, kind := range []string{"obj", "subTitle", "ctrTitle", ""} {
+		input := nativePlaceholderFixture(t, false, func(parts map[string]string) {
+			for _, part := range []string{"relocated/layouts/layout.xml", "relocated/masters/master.xml"} {
+				parts[part] = strings.ReplaceAll(parts[part], `type="body"`, `type="`+kind+`"`)
+			}
+		})
+		deck, err := ExtractNativePPTX(input, nativeTestExtractOptions())
+		if err == nil && len(deck.Slides[0].Elements) > 0 {
+			t.Fatalf("omitted slide type widened subset to %q", kind)
+		}
+	}
+}
+
 func TestNativePlaceholderAmbiguityAndUnknownMetadataStayClosed(t *testing.T) {
 	for _, mutation := range []struct{ part, from, to string }{
 		{"layout", `idx="7"`, `idx="8"`},

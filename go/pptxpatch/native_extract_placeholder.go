@@ -135,7 +135,7 @@ func (extractor *nativeExtractor) resolveNativePlaceholder(node *nativeXMLNode, 
 	if err != nil {
 		return nil, nil, err
 	}
-	if layoutIdentity.kind == "" || (identity.kind != "" && identity.kind != layoutIdentity.kind) {
+	if (layoutIdentity.kind != "title" && layoutIdentity.kind != "body") || (identity.kind != "" && identity.kind != layoutIdentity.kind) {
 		return nil, nil, fmt.Errorf("pptxpatch: placeholder type is missing or conflicts with layout")
 	}
 	master, _, err := nativeMatchingPlaceholder(extractor.slideDependencies.masterRoot, *layoutIdentity, false, dialect)
