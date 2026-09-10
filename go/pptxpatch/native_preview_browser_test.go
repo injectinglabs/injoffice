@@ -73,4 +73,16 @@ func TestNativeMeasuredPreviewBrowserFixture(t *testing.T) {
 	if err := os.WriteFile(strings.TrimSuffix(output, ".pptx")+"-crop.pptx", picture, 0600); err != nil {
 		t.Fatal(err)
 	}
+	group := `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="3" name="Chart preview group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="12192000" cy="6858000"/><a:chOff x="0" y="0"/><a:chExt cx="12192000" cy="6858000"/></a:xfrm></p:grpSpPr>` + nativeChartGraphicFrameXML(false, 4, "Cached chart preview", "") + `</p:grpSp>`
+	chart := nativeChartFixture(t, nativeChartFixtureOptions{previewData: encoded.String(), frameXML: group})
+	slide = string(chartZipEntry(t, chart, part))
+	start, end = strings.Index(slide, "<p:sp>"), strings.Index(slide, "</p:sp>")+len("</p:sp>")
+	chart = replaceChartZipEntry(t, chart, part, []byte(slide[:start]+slide[end:]))
+	deck, err := ExtractNativePPTX(chart, nativeAtomicTestExtractOptions())
+	if err != nil || len(deck.Slides) != 1 || len(deck.Slides[0].Elements) != 1 || deck.Slides[0].Elements[0].Kind != NativeElementKindGroup || len(deck.Slides[0].Elements[0].Children) != 1 || deck.Slides[0].Elements[0].Children[0].Kind != NativeElementKindChart {
+		t.Fatalf("chart-only fixture drift: %v", err)
+	}
+	if err := os.WriteFile(strings.TrimSuffix(output, ".pptx")+"-chart.pptx", chart, 0600); err != nil {
+		t.Fatal(err)
+	}
 }

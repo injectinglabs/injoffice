@@ -29,6 +29,9 @@ func attachPPTXPreviewImages(ctx context.Context, data []byte, deck *pptxpatch.N
 			if element.Kind == pptxpatch.NativeElementKindPicture && element.AssetID != nil {
 				wanted[*element.AssetID] = true
 			}
+			if element.Kind == pptxpatch.NativeElementKindChart && element.Chart != nil && element.Chart.PreviewAssetID != nil {
+				wanted[*element.Chart.PreviewAssetID] = true
+			}
 			if len(wanted) > 256 {
 				return errors.New("preview image count exceeds budget")
 			}

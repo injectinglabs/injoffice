@@ -42,6 +42,14 @@ func TestPPTXPreviewImageBytesAreSelectedAndSourceBound(t *testing.T) {
 	if deck.Assets[0].DataBase64 == nil || *deck.Assets[0].DataBase64 != base64.StdEncoding.EncodeToString(content) || deck.Assets[1].DataBase64 != nil {
 		t.Fatal("selected source bytes drifted or unrelated asset loaded")
 	}
+	chartDeck := makeDeck()
+	chartDeck.Slides[0].Elements[0].Children = []pptxpatch.NativeElement{{Kind: pptxpatch.NativeElementKindChart, Chart: &pptxpatch.NativeOpaqueChart{PreviewAssetID: &id}}}
+	if err := attachPPTXPreviewImages(context.Background(), data, &chartDeck, 0); err != nil {
+		t.Fatal(err)
+	}
+	if chartDeck.Assets[0].DataBase64 == nil || *chartDeck.Assets[0].DataBase64 != base64.StdEncoding.EncodeToString(content) || chartDeck.Assets[1].DataBase64 != nil {
+		t.Fatal("grouped chart-only preview bytes missing or unrelated asset loaded")
+	}
 	for _, test := range []struct {
 		name   string
 		mutate func(*pptxpatch.NativePPTXDeck)
