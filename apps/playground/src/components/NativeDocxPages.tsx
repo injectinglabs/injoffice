@@ -77,7 +77,7 @@ export function NativeDocxPages({ bytes, packageDigest, apiBase }: { bytes: Uint
       if (!nativeDocxImagesWithinBudget(decoded.value.resources)) throw new Error('Native images exceed the interactive viewer pixel budget.')
       if (decoded.value.status === 'painted' && decoded.value.pages.some((page) => page.commands.length > 20_000 || page.commands.reduce((count, command) => count + (command.kind === 'fill_glyph_path' ? command.path.length : 0), 0) > 200_000)) throw new Error('Native page geometry exceeds the interactive viewer budget.')
       setPaint(decoded.value); setPageIndex(0)
-      setMessage(decoded.value.status === 'painted' ? `${decoded.value.pages.length} native page${decoded.value.pages.length === 1 ? '' : 's'}. Read-only glyph geometry; use the content preview below to edit text.` : 'Native page rendering refused this document. The approximate content preview below remains available; the original file is unchanged.')
+      setMessage(decoded.value.status === 'painted' ? `${decoded.value.pages.length} native page${decoded.value.pages.length === 1 ? '' : 's'}. Read-only native page geometry. Supported text edits, when available, are offered in the content preview below.` : 'Native page rendering refused this document. The approximate content preview below remains available; the original file is unchanged.')
     } catch (error) {
       if (token !== generation.current || controller.signal.aborted) return
       setMessage(`${error instanceof Error ? error.message : 'Native preview failed.'} The approximate content preview remains available; the original file is unchanged.`)
