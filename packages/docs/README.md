@@ -337,17 +337,21 @@ explicit source-bound orientation transform. Prepared and completed compiler env
 canonical hashes for the complete validated request and output.
 
 Images are restricted to embedded static PNG or baseline JFIF JPEG pictures in `wp:inline` with zero
-distances/effect extents, extent-preserving `a:xfrm` (0/180-degree rotation and
+distances/effect extents, extent-preserving `a:xfrm` (quarter-turn rotation and
 horizontal/vertical flips), full-source crop, exact integer
 milli-point geometry, and bounded bytes/pixels. It refuses anchors/floating
 placement, wrapping, remote or external relationships, vectors and other
-raster formats, animation, crop, quarter-turn/arbitrary rotation, effects, mismatched extents, and
+raster formats, animation, crop, arbitrary rotation, effects, mismatched extents, and
 media digest drift. JPEG support is deliberately bounded to one baseline 8-bit
 grayscale/YCbCr interleaved scan with internal tables and JFIF APP0, following
 [ITU-T T.871](https://www.itu.int/rec/T-REC-T.871). EXIF, ICC, Adobe transforms,
 progressive/multiple scans and ambiguous color metadata remain refused. The
 validator checks marker structure, not entropy decoding; the viewer decodes the
 preserved bytes and the browser smoke verifies generated red/blue JPEG pixels.
+Quarter turns require explicit unrotated DrawingML extents whose swapped bounds
+exactly match `wp:extent`; missing or inconsistent extents refuse before painting.
+Reflections apply in source axes before clockwise rotation. Integer SVG matrices
+and original raster pixel fixtures verify all orientations without Office screenshots.
 Selected header/footer inline PNG/JPEG runs use the same
 digest-bound asset join and `paint_inline_image` command as body pictures. V1
 also emits RTL/mixed-bidi fragments and bounded U+0020-justified lines in

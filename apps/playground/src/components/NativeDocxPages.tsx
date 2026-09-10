@@ -4,14 +4,24 @@ import { decodeNativeDocxPagePaintV1 } from '../../../../packages/docs/src/nativ
 import { DsButton } from '../design-system/primitives'
 
 export function NativeDocxImage({ command, base64, contentType = 'image/png', onError }: { command: NativeDocxPaintInlineImageCommandV1; base64: string; contentType?: 'image/png' | 'image/jpeg'; onError?: () => void }) {
-  // Reflections and a half-turn commute and retain the exact inline box.
-  // Integer translation avoids browser transform-origin or angle rounding.
-  const rotated = command.transform.rotation_degrees === 180
-  const sx = command.transform.flip_horizontal !== rotated ? -1 : 1
-  const sy = command.transform.flip_vertical !== rotated ? -1 : 1
-  const tx = sx < 0 ? 2 * command.x_millipoints + command.width_millipoints : 0
-  const ty = sy < 0 ? 2 * command.y_millipoints + command.height_millipoints : 0
-  return <image x={command.x_millipoints} y={command.y_millipoints} width={command.width_millipoints} height={command.height_millipoints} transform={`matrix(${sx} 0 0 ${sy} ${tx} ${ty})`} preserveAspectRatio="none" href={`data:${contentType};base64,${base64}`} onError={onError} />
+  const geometry = nativeDocxImageOrientation(command)
+  return <image x={command.x_millipoints} y={command.y_millipoints} width={geometry.width} height={geometry.height} transform={`matrix(${geometry.matrix.join(' ')})`} preserveAspectRatio="none" href={`data:${contentType};base64,${base64}`} onError={onError} />
+}
+
+/** Reflect in source axes, then rotate clockwise into the attested inline box.
+ * Integer matrices avoid transform-origin and trigonometric rounding. */
+export function nativeDocxImageOrientation(command: NativeDocxPaintInlineImageCommandV1) {
+  const { x_millipoints: x, y_millipoints: y, width_millipoints: boxWidth, height_millipoints: boxHeight } = command
+  const angle = command.transform.rotation_degrees, quarter = angle === 90 || angle === 270
+  const width = quarter ? boxHeight : boxWidth, height = quarter ? boxWidth : boxHeight
+  const sx = command.transform.flip_horizontal ? -1 : 1, sy = command.transform.flip_vertical ? -1 : 1
+  const dx = sx < 0 ? width : 0, dy = sy < 0 ? height : 0
+  const local = angle === 90 ? [0, sx, -sy, 0, x + height - dy, y + dx]
+    : angle === 180 ? [-sx, 0, 0, -sy, x + width - dx, y + height - dy]
+      : angle === 270 ? [0, -sx, sy, 0, x + dy, y + width - dx]
+        : [sx, 0, 0, sy, x + dx, y + dy]
+  const [a, b, c, d, e, f] = local as [number, number, number, number, number, number]
+  return { width, height, matrix: [a, b, c, d, e - a*x - c*y, f - b*x - d*y].map((value) => value === 0 ? 0 : value) }
 }
 
 /** Marker admission is not pixel decoding. Check every bounded asset before

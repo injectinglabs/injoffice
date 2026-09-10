@@ -2447,7 +2447,7 @@ func (extractor *nativeExtractor) extractDrawing(partName, paragraphID string, n
 		return refuse("PICTURE_NONVISUAL_PRESERVED", "Picture nonvisual properties with missing, hidden, or unmodeled semantics remain preserve-only", picture)
 	}
 	if !nativePictureBoundedTransform(picture, aNS, picNS, width, height) {
-		return refuse("PICTURE_TRANSFORM_PRESERVED", "Only flips and 0/180-degree transforms with exact matching DrawingML and inline extents are projected", picture)
+		return refuse("PICTURE_TRANSFORM_PRESERVED", "Only flips and quarter turns with exact rotated DrawingML/inline extents are projected", picture)
 	}
 	blips := nativeDescendants(picture, aNS, "blip")
 	if len(blips) != 1 || !nativeExactLeaf(blips[0], xml.Name{Space: extractor.relNS, Local: "embed"}, xml.Name{Local: "cstate"}) {
@@ -2472,10 +2472,8 @@ func (extractor *nativeExtractor) extractDrawing(partName, paragraphID string, n
 	}
 	xfrm := firstDirectNativeChild(firstDirectNativeChild(picture, picNS, "spPr"), aNS, "xfrm")
 	if rotation, ok := nativeUnqualifiedAttr(xfrm, "rot"); ok {
-		degrees := int64(0)
-		if rotation == "10800000" {
-			degrees = 180
-		}
+		angle, _ := strconv.ParseInt(rotation, 10, 64) // bounded lexical values qualified above
+		degrees := angle / 60000
 		drawing.RotationDegrees = nativeInt64(degrees)
 	}
 	if flip, ok := nativeUnqualifiedAttr(xfrm, "flipH"); ok {
@@ -2644,15 +2642,17 @@ func nativePictureBoundedTransform(picture *nativeXMLNode, aNS, picNS string, wi
 			return false
 		}
 		seenTransformAttrs[attr.Name.Local] = true
-		if attr.Name.Local == "rot" && attr.Value != "0" && attr.Value != "10800000" || (attr.Name.Local == "flipH" || attr.Name.Local == "flipV") && attr.Value != "0" && attr.Value != "false" && attr.Value != "1" && attr.Value != "true" {
+		if attr.Name.Local == "rot" && attr.Value != "0" && attr.Value != "5400000" && attr.Value != "10800000" && attr.Value != "16200000" || (attr.Name.Local == "flipH" || attr.Name.Local == "flipV") && attr.Value != "0" && attr.Value != "false" && attr.Value != "1" && attr.Value != "true" {
 			return false
 		}
 	}
 	if !nativeXMLWhitespaceOnly(xfrm.Text) {
 		return false
 	}
+	rotation, _ := nativeUnqualifiedAttr(xfrm, "rot")
+	quarterTurn := rotation == "5400000" || rotation == "16200000"
 	if len(xfrm.Children) == 0 {
-		return true
+		return !quarterTurn // a quarter turn needs explicit original extents
 	}
 	if len(xfrm.Children) != 2 {
 		return false
@@ -2666,6 +2666,9 @@ func nativePictureBoundedTransform(picture *nativeXMLNode, aNS, picNS string, wi
 	y, okY := nativeInt64Attr(off, "", "y")
 	cx, okCX := nativePositiveInt64Attr(ext, "", "cx")
 	cy, okCY := nativePositiveInt64Attr(ext, "", "cy")
+	if quarterTurn {
+		return okX && okY && x == 0 && y == 0 && okCX && okCY && cy == width && cx == height
+	}
 	return okX && okY && x == 0 && y == 0 && okCX && okCY && cx == width && cy == height
 }
 

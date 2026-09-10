@@ -97,7 +97,7 @@ export interface NativeDocxDrawingV1 {
   placement: 'inline' | 'floating'
   width_emu: number
   height_emu: number
-  rotation_degrees?: 0 | 180
+  rotation_degrees?: 0 | 90 | 180 | 270
   flip_horizontal?: boolean
   flip_vertical?: boolean
   x_emu?: number
@@ -621,7 +621,7 @@ function validateDrawing(value: unknown, path: string, issues: NativeDocxValidat
   const placement = enumValue(entry.placement, `${path}/placement`, ['inline', 'floating'], issues)
   integer(entry.width_emu, `${path}/width_emu`, issues, 1)
   integer(entry.height_emu, `${path}/height_emu`, issues, 1)
-  if (entry.rotation_degrees !== undefined && entry.rotation_degrees !== 0 && entry.rotation_degrees !== 180) add(issues, 'INVALID_VALUE', `${path}/rotation_degrees`, 'must equal 0 or 180')
+  if (entry.rotation_degrees !== undefined && ![0, 90, 180, 270].includes(entry.rotation_degrees as number)) add(issues, 'INVALID_VALUE', `${path}/rotation_degrees`, 'must equal 0, 90, 180 or 270')
   booleanValue(entry.flip_horizontal, `${path}/flip_horizontal`, issues, false)
   booleanValue(entry.flip_vertical, `${path}/flip_vertical`, issues, false)
   integer(entry.x_emu, `${path}/x_emu`, issues, Number.MIN_SAFE_INTEGER, false)

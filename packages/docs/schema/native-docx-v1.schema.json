@@ -118,7 +118,7 @@
         "placement": { "enum": ["inline", "floating"] },
         "width_emu": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "height_emu": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
-        "rotation_degrees": { "type": "integer", "enum": [0, 180] },
+        "rotation_degrees": { "type": "integer", "enum": [0, 90, 180, 270] },
         "flip_horizontal": { "type": "boolean" },
         "flip_vertical": { "type": "boolean" },
         "x_emu": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },

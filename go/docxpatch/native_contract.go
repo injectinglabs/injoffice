@@ -1018,8 +1018,8 @@ func (v *nativeValidator) drawing(drawing *NativeDrawingV1, path, ownerPart stri
 	v.oneOf(drawing.Placement, path+"/placement", "inline", "floating")
 	v.positive(drawing.WidthEMU, path+"/width_emu")
 	v.positive(drawing.HeightEMU, path+"/height_emu")
-	if drawing.RotationDegrees != nil && *drawing.RotationDegrees != 0 && *drawing.RotationDegrees != 180 {
-		v.add("INVALID_VALUE", path+"/rotation_degrees", "bounded inline transforms support only 0 or 180 degrees")
+	if drawing.RotationDegrees != nil && *drawing.RotationDegrees != 0 && *drawing.RotationDegrees != 90 && *drawing.RotationDegrees != 180 && *drawing.RotationDegrees != 270 {
+		v.add("INVALID_VALUE", path+"/rotation_degrees", "bounded inline transforms support only quarter turns")
 	}
 	v.optionalSafe(drawing.XEMU, path+"/x_emu")
 	v.optionalSafe(drawing.YEMU, path+"/y_emu")

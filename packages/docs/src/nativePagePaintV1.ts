@@ -203,7 +203,7 @@ export interface NativeDocxPaintInlineImageCommandV1 {
   width_millipoints: number
   height_millipoints: number
   source_crop: { left: 0; top: 0; right: 0; bottom: 0; unit: 'one-hundred-thousandth' }
-  transform: { rotation_degrees: 0 | 180; flip_horizontal: boolean; flip_vertical: boolean }
+  transform: { rotation_degrees: 0 | 90 | 180 | 270; flip_horizontal: boolean; flip_vertical: boolean }
 }
 
 export interface NativeDocxFillTextHighlightCommandV1 {

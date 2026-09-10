@@ -443,7 +443,7 @@ describe('native DOCX page-paint compiler v1', () => {
     expect(() => nativeDocxPageFieldDocumentV1(bodyField, 0, 2)).toThrow(/only in header/)
   })
   it('exact-joins source-attested inline image flips and half-turns without changing layout extents', async () => {
-    for (const rotation_degrees of [0, 180] as const) for (const flip_horizontal of [false, true]) for (const flip_vertical of [false, true]) {
+    for (const rotation_degrees of [0, 90, 180, 270] as const) for (const flip_horizontal of [false, true]) for (const flip_vertical of [false, true]) {
       const input = imageFixture()
       const drawing = (input.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs.find((run) => run.drawing)!.drawing!
       Object.assign(drawing, { rotation_degrees, flip_horizontal, flip_vertical })

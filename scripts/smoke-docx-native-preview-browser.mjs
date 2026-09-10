@@ -153,13 +153,35 @@ try {
   await assert(`window.__nativeDocxPosts.length===4 && window.__nativeDocxPosts[3].hash===${JSON.stringify(transformedHash)} && ${docs}?.dataset.demoDirty !== 'true'`, 'orientation preview sends only unchanged source bytes')
   if (hash(readFileSync(transformedFixture)) !== transformedHash) throw new Error('Transformed image source changed')
   await screenshot('docx-native-transformed-image.png')
+  let finalPreviewPosts = 4
+  for (const angle of [90, 270]) {
+    const quarterFixture = resolve(scratch, `native-quarter-${angle}.docx`)
+    const exported = spawnSync('go', ['test', '-count=1', '-run', '^TestNativePreviewTransformedImageBrowserFixture$', '.'], { cwd: resolve(root, 'go/docxpatch/cmd/nativepreviewfixture'), env: { ...process.env, INJOFFICE_TRANSFORM_FIXTURE_OUTPUT: quarterFixture, INJOFFICE_TRANSFORM_FIXTURE_FONT: resolve(root, 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf'), INJOFFICE_TRANSFORM_ANGLE: String(angle) }, encoding: 'utf8', timeout: 60000 })
+    if (exported.status !== 0) throw new Error(`Quarter-turn fixture failed: ${exported.stderr}\n${exported.stdout}`)
+    const sourceHash = hash(readFileSync(quarterFixture))
+    await upload(quarterFixture)
+    await poll(() => evaluate(`${native}?.textContent.includes('Nothing is uploaded') && ${native}?.querySelector('svg') === null`), 'quarter-turn source replacement')
+    await assert(`window.__nativeDocxPosts.length===${finalPreviewPosts}`, 'quarter-turn preview requires fresh consent')
+    await click('Upload to helper and render native pages')
+    await poll(() => evaluate(`${native}?.textContent.includes('2 native pages') && ${native}?.querySelector('svg image') !== null`), `native ${angle}-degree image`, 45000)
+    await assert(`(async () => {
+      const node=${native}.querySelector('svg image'),x=Number(node.getAttribute('x')),y=Number(node.getAttribute('y'));
+      if(Number(node.getAttribute('width'))!==144000||Number(node.getAttribute('height'))!==36000)return false;
+      const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width','8');svg.setAttribute('height','16');svg.setAttribute('viewBox',[x,y,36000,144000].join(' '));svg.appendChild(node.cloneNode(true));
+      const raster=new Image();raster.src='data:image/svg+xml;base64,'+btoa(new XMLSerializer().serializeToString(svg));await raster.decode();const canvas=document.createElement('canvas');canvas.width=8;canvas.height=16;const ctx=canvas.getContext('2d');ctx.drawImage(raster,0,0);const top=ctx.getImageData(4,2,1,1).data,bottom=ctx.getImageData(4,13,1,1).data;
+      return ${angle === 90 ? 'top[0]>top[2]+80&&bottom[2]>bottom[0]+80' : 'top[2]>top[0]+80&&bottom[0]>bottom[2]+80'}&&top[3]===255&&bottom[3]===255;
+    })()`, `${angle}-degree source rotation has correct raster colors inside the exact swapped layout bounds`)
+    finalPreviewPosts += 1
+    await assert(`window.__nativeDocxPosts.length===${finalPreviewPosts} && window.__nativeDocxPosts[${finalPreviewPosts-1}].hash===${JSON.stringify(sourceHash)} && ${docs}?.dataset.demoDirty !== 'true'`, 'quarter-turn preview keeps source bytes unchanged')
+    await screenshot(`docx-native-quarter-${angle}.png`)
+  }
   // This existing real DOCX has no embedded qualified font assets. It must
   // retain its approximate content view rather than invent native glyphs.
   const unsupported = resolve(scratch, 'unsupported-font.docx')
   writeFileSync(unsupported, Buffer.from(readFileSync(resolve(root, 'apps/playground/public/native-docx/northstar-launch-brief.docx.b64'), 'utf8').trim(), 'base64'))
   await upload(unsupported)
   await poll(() => evaluate(`${native}?.textContent.includes('Nothing is uploaded') && ${native}?.querySelector('svg') === null`), 'source replacement clears stale pages')
-  await assert(`window.__nativeDocxPosts.length === 4`, 'replacement document also requires explicit consent')
+  await assert(`window.__nativeDocxPosts.length === ${finalPreviewPosts}`, 'replacement document also requires explicit consent')
   await click('Upload to helper and render native pages')
   await poll(() => evaluate(`${native}?.textContent.includes('original file is unchanged')`), 'unsupported document explicitly refused', 45000)
   await assert(`${native}.querySelector('svg') === null && document.querySelectorAll('.docx-editable-run').length > 0 && ${docs}?.dataset.demoDirty !== 'true'`, 'refusal retains approximate editable content and original source')

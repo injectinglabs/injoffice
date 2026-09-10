@@ -42,6 +42,15 @@ func TestNativePreviewTransformedImageBrowserFixture(t *testing.T) {
 		}
 		if entry.Name == "word/document.xml" {
 			data = []byte(strings.Replace(string(data), `<a:xfrm/>`, `<a:xfrm rot="10800000" flipH="false" flipV="true"/>`, 1))
+			angle := os.Getenv("INJOFFICE_TRANSFORM_ANGLE")
+			if angle == "90" || angle == "270" {
+				rotation := "5400000"
+				if angle == "270" {
+					rotation = "16200000"
+				}
+				data = []byte(strings.Replace(string(data), `<a:xfrm rot="10800000" flipH="false" flipV="true"/>`, `<a:xfrm rot="`+rotation+`"><a:off x="0" y="0"/><a:ext cx="1828800" cy="457200"/></a:xfrm>`, 1))
+				data = []byte(strings.Replace(string(data), `<wp:extent cx="1828800" cy="457200"/>`, `<wp:extent cx="457200" cy="1828800"/>`, 1))
+			}
 		}
 		part, err := writer.Create(entry.Name)
 		if err != nil {

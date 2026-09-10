@@ -7,11 +7,15 @@ import (
 )
 
 func TestNativeBoundedInlineImageTransforms(t *testing.T) {
-	for _, degrees := range []int64{0, 180} {
+	for _, degrees := range []int64{0, 90, 180, 270} {
 		for _, flipH := range []bool{false, true} {
 			for _, flipV := range []bool{false, true} {
 				parts := transitionalNativeParts()
-				parts["Custom/Main.XML"] = strings.Replace(parts["Custom/Main.XML"], `<a:xfrm/>`, fmt.Sprintf(`<a:xfrm rot="%d" flipH="%t" flipV="%t"/>`, degrees*60000, flipH, flipV), 1)
+				transform := fmt.Sprintf(`<a:xfrm rot="%d" flipH="%t" flipV="%t"/>`, degrees*60000, flipH, flipV)
+				if degrees == 90 || degrees == 270 {
+					transform = fmt.Sprintf(`<a:xfrm rot="%d" flipH="%t" flipV="%t"><a:off x="0" y="0"/><a:ext cx="457200" cy="914400"/></a:xfrm>`, degrees*60000, flipH, flipV)
+				}
+				parts["Custom/Main.XML"] = strings.Replace(parts["Custom/Main.XML"], `<a:xfrm/>`, transform, 1)
 				doc, err := ExtractNativeDocumentV1(buildNativeDOCX(t, nativeEntries(parts)))
 				if err != nil {
 					t.Fatal(err)
