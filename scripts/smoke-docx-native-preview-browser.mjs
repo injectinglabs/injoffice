@@ -147,7 +147,25 @@ async function poll(check, label, timeout = 30000) {
   throw new Error(`Timed out: ${label}`)
 }
 async function click(label) {
-  await poll(() => evaluate(`(() => { const button = [...${native}.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(label)}); if (!button || button.disabled) return false; button.click(); return true; })()`), label)
+  const handle = await cdp.send('Runtime.evaluate', { expression: 'globalThis' })
+  try {
+    await poll(async () => {
+      const value = await cdp.send('Runtime.callFunctionOn', {
+        functionDeclaration: `function (label) {
+          const section = document.querySelector('[aria-label="Native document pages"]');
+          const button = [...(section?.querySelectorAll('button') ?? [])].find(button => button.textContent.trim() === label);
+          if (!button || button.disabled) return false;
+          button.click();
+          return true;
+        }`,
+        objectId: handle.result.objectId,
+        arguments: [{ value: label }],
+        returnByValue: true,
+      })
+      if (value.exceptionDetails) throw new Error(value.exceptionDetails.exception?.description ?? value.exceptionDetails.text)
+      return value.result.value
+    }, label)
+  } finally { await cdp.send('Runtime.releaseObject', { objectId: handle.result.objectId }) }
 }
 async function screenshot(name) {
   await evaluate(`${native}?.scrollIntoView({ block: 'start' }); window.scrollBy(0, -80)`)
