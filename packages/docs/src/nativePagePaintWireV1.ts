@@ -576,7 +576,10 @@ export function decodeNativeDocxPagePaintV1(value: unknown): DecodeNativeDocxPag
         integer(command.width_millipoints, `${commandPath}/width_millipoints`, issues, 1, DOCX_PAGE_PAINT_LIMITS.maxPaintCoordinateMilliPoints)
         integer(command.height_millipoints, `${commandPath}/height_millipoints`, issues, 1, DOCX_PAGE_PAINT_LIMITS.maxPaintCoordinateMilliPoints)
         const crop = exactObject(command.source_crop, `${commandPath}/source_crop`, DOCX_PAGE_PAINT_V1_BINDING_FIELDS.ImageCropV1, issues)
-        if (crop && (crop.left !== 0 || crop.top !== 0 || crop.right !== 0 || crop.bottom !== 0 || crop.unit !== 'one-hundred-thousandth')) add(issues, 'INVALID_VALUE', `${commandPath}/source_crop`, 'v1 image crop must be the explicit full source rectangle')
+        if (crop) {
+          for (const key of ['left','top','right','bottom'] as const) integer(crop[key], `${commandPath}/source_crop/${key}`, issues, 0, 99000)
+          if (crop.unit !== 'one-hundred-thousandth' || (crop.left as number)+(crop.right as number)>99000 || (crop.top as number)+(crop.bottom as number)>99000) add(issues, 'INVALID_VALUE', `${commandPath}/source_crop`, 'source crop must retain at least one percent per axis in exact integer units')
+        }
         const transform = exactObject(command.transform, `${commandPath}/transform`, DOCX_PAGE_PAINT_V1_BINDING_FIELDS.ImageTransformV1, issues)
         if (transform && (![0, 90, 180, 270].includes(transform.rotation_degrees as number) || typeof transform.flip_horizontal !== 'boolean' || typeof transform.flip_vertical !== 'boolean')) add(issues, 'INVALID_VALUE', `${commandPath}/transform`, 'image transform must specify quarter-turn rotation and explicit flip booleans')
       }

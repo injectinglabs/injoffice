@@ -77,6 +77,13 @@ type NativeRunPropertiesV1 struct {
 	Hidden            *bool   `json:"hidden,omitempty"`
 }
 
+type NativeDrawingCropV1 struct {
+	Left   *int64 `json:"left"`
+	Top    *int64 `json:"top"`
+	Right  *int64 `json:"right"`
+	Bottom *int64 `json:"bottom"`
+}
+
 type NativeDrawingV1 struct {
 	ID                     string               `json:"id"`
 	Anchor                 NativeSourceAnchorV1 `json:"anchor"`
@@ -91,6 +98,7 @@ type NativeDrawingV1 struct {
 	RotationDegrees        *int64               `json:"rotation_degrees,omitempty"`
 	FlipHorizontal         *bool                `json:"flip_horizontal,omitempty"`
 	FlipVertical           *bool                `json:"flip_vertical,omitempty"`
+	SourceCrop             *NativeDrawingCropV1 `json:"source_crop,omitempty"`
 	XEMU                   *int64               `json:"x_emu,omitempty"`
 	YEMU                   *int64               `json:"y_emu,omitempty"`
 	HorizontalRelativeFrom *string              `json:"horizontal_relative_from,omitempty"`
@@ -1020,6 +1028,23 @@ func (v *nativeValidator) drawing(drawing *NativeDrawingV1, path, ownerPart stri
 	v.positive(drawing.HeightEMU, path+"/height_emu")
 	if drawing.RotationDegrees != nil && *drawing.RotationDegrees != 0 && *drawing.RotationDegrees != 90 && *drawing.RotationDegrees != 180 && *drawing.RotationDegrees != 270 {
 		v.add("INVALID_VALUE", path+"/rotation_degrees", "bounded inline transforms support only quarter turns")
+	}
+	if crop := drawing.SourceCrop; crop != nil {
+		for _, field := range []struct {
+			name  string
+			value *int64
+		}{{"left", crop.Left}, {"top", crop.Top}, {"right", crop.Right}, {"bottom", crop.Bottom}} {
+			v.nonnegative(field.value, path+"/source_crop/"+field.name)
+			if field.value != nil && *field.value > 99000 {
+				v.add("OUT_OF_RANGE", path+"/source_crop/"+field.name, "crop must retain at least one percent per axis")
+			}
+		}
+		if crop.Left != nil && crop.Right != nil && *crop.Left >= 0 && *crop.Left <= 99000 && *crop.Right >= 0 && *crop.Right <= 99000 && *crop.Left+*crop.Right > 99000 {
+			v.add("OUT_OF_RANGE", path+"/source_crop", "horizontal crop must retain at least one percent")
+		}
+		if crop.Top != nil && crop.Bottom != nil && *crop.Top >= 0 && *crop.Top <= 99000 && *crop.Bottom >= 0 && *crop.Bottom <= 99000 && *crop.Top+*crop.Bottom > 99000 {
+			v.add("OUT_OF_RANGE", path+"/source_crop", "vertical crop must retain at least one percent")
+		}
 	}
 	v.optionalSafe(drawing.XEMU, path+"/x_emu")
 	v.optionalSafe(drawing.YEMU, path+"/y_emu")

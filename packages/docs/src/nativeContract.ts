@@ -100,6 +100,7 @@ export interface NativeDocxDrawingV1 {
   rotation_degrees?: 0 | 90 | 180 | 270
   flip_horizontal?: boolean
   flip_vertical?: boolean
+  source_crop?: { left: number; top: number; right: number; bottom: number }
   x_emu?: number
   y_emu?: number
   horizontal_relative_from?: string
@@ -365,7 +366,8 @@ export const DOCX_NATIVE_V1_BINDING_FIELDS = {
   CapabilityV1: ['name', 'level', 'detail'],
   PassthroughPartV1: ['part_name', 'content_type', 'byte_length', 'sha256', 'policy'],
   RunPropertiesV1: ['character_style_id', 'font_family', 'font_size_half_points', 'bold', 'italic', 'underline', 'color', 'highlight', 'language', 'rtl', 'hidden'],
-  DrawingV1: ['id', 'anchor', 'relationship_id', 'media_part', 'content_type', 'name', 'alt_text', 'placement', 'width_emu', 'height_emu', 'x_emu', 'y_emu', 'horizontal_relative_from', 'vertical_relative_from', 'wrap', 'edit_policy', 'rotation_degrees', 'flip_horizontal', 'flip_vertical'],
+  DrawingV1: ['id', 'anchor', 'relationship_id', 'media_part', 'content_type', 'name', 'alt_text', 'placement', 'width_emu', 'height_emu', 'x_emu', 'y_emu', 'horizontal_relative_from', 'vertical_relative_from', 'wrap', 'edit_policy', 'rotation_degrees', 'flip_horizontal', 'flip_vertical', 'source_crop'],
+  DrawingCropV1: ['left', 'top', 'right', 'bottom'],
   ReferenceV1: ['kind', 'target_id', 'role'],
   RunV1: ['kind', 'id', 'anchor', 'properties', 'text', 'page_field', 'control', 'reference', 'drawing'],
   NumberingReferenceV1: ['num_id', 'level', 'abstract_num_id'],
@@ -624,6 +626,16 @@ function validateDrawing(value: unknown, path: string, issues: NativeDocxValidat
   if (entry.rotation_degrees !== undefined && ![0, 90, 180, 270].includes(entry.rotation_degrees as number)) add(issues, 'INVALID_VALUE', `${path}/rotation_degrees`, 'must equal 0, 90, 180 or 270')
   booleanValue(entry.flip_horizontal, `${path}/flip_horizontal`, issues, false)
   booleanValue(entry.flip_vertical, `${path}/flip_vertical`, issues, false)
+  if (entry.source_crop !== undefined) {
+    const crop = object(entry.source_crop, `${path}/source_crop`, DOCX_NATIVE_V1_BINDING_FIELDS.DrawingCropV1, issues)
+    if (crop) {
+      for (const key of ['left','top','right','bottom'] as const) {
+        const value = integer(crop[key], `${path}/source_crop/${key}`, issues, 0)
+        if (value !== undefined && value !== null && value > 99000) add(issues, 'OUT_OF_RANGE', `${path}/source_crop/${key}`, 'crop must retain at least one percent per axis')
+      }
+      if (typeof crop.left === 'number' && typeof crop.right === 'number' && crop.left + crop.right > 99000 || typeof crop.top === 'number' && typeof crop.bottom === 'number' && crop.top + crop.bottom > 99000) add(issues, 'OUT_OF_RANGE', `${path}/source_crop`, 'crop must retain at least one percent per axis')
+    }
+  }
   integer(entry.x_emu, `${path}/x_emu`, issues, Number.MIN_SAFE_INTEGER, false)
   integer(entry.y_emu, `${path}/y_emu`, issues, Number.MIN_SAFE_INTEGER, false)
   optionalString(entry.horizontal_relative_from, `${path}/horizontal_relative_from`, issues)

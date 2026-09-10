@@ -175,6 +175,26 @@ try {
     await assert(`window.__nativeDocxPosts.length===${finalPreviewPosts} && window.__nativeDocxPosts[${finalPreviewPosts-1}].hash===${JSON.stringify(sourceHash)} && ${docs}?.dataset.demoDirty !== 'true'`, 'quarter-turn preview keeps source bytes unchanged')
     await screenshot(`docx-native-quarter-${angle}.png`)
   }
+  const cropFixture = resolve(scratch, 'native-cropped-quarter-image.docx')
+  const cropExport = spawnSync('go', ['test', '-count=1', '-run', '^TestNativePreviewTransformedImageBrowserFixture$', '.'], { cwd: resolve(root, 'go/docxpatch/cmd/nativepreviewfixture'), env: { ...process.env, INJOFFICE_TRANSFORM_FIXTURE_OUTPUT: cropFixture, INJOFFICE_TRANSFORM_FIXTURE_FONT: resolve(root, 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf'), INJOFFICE_TRANSFORM_ANGLE: '90', INJOFFICE_TRANSFORM_CROP: 'left-half' }, encoding: 'utf8', timeout: 60000 })
+  if (cropExport.status !== 0) throw new Error(`Crop fixture failed: ${cropExport.stderr}\n${cropExport.stdout}`)
+  const cropHash = hash(readFileSync(cropFixture))
+  await upload(cropFixture)
+  await poll(() => evaluate(`${native}?.textContent.includes('Nothing is uploaded') && ${native}?.querySelector('svg') === null`), 'crop source replacement')
+  await assert(`window.__nativeDocxPosts.length===${finalPreviewPosts}`, 'crop preview requires fresh consent')
+  await click('Upload to helper and render native pages')
+  await poll(() => evaluate(`${native}?.textContent.includes('2 native pages') && ${native}?.querySelector('svg[data-native-crop] image') !== null`), 'native cropped and rotated image', 45000)
+  await assert(`(async () => {
+    const node=${native}.querySelector('svg[data-native-crop]'),x=Number(node.getAttribute('x')),y=Number(node.getAttribute('y'));
+    if(node.getAttribute('viewBox')!=='50000 0 50000 100000'||node.getAttribute('overflow')!=='hidden')return false;
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width','8');svg.setAttribute('height','16');svg.setAttribute('viewBox',[x,y,36000,144000].join(' '));svg.appendChild(node.cloneNode(true));
+    const raster=new Image();raster.src='data:image/svg+xml;base64,'+btoa(new XMLSerializer().serializeToString(svg));await raster.decode();const canvas=document.createElement('canvas');canvas.width=8;canvas.height=16;const ctx=canvas.getContext('2d');ctx.drawImage(raster,0,0);
+    return [2,6,10,14].every(y=>{const pixel=ctx.getImageData(4,y,1,1).data;return pixel[2]>pixel[0]+80&&pixel[3]===255});
+  })()`, 'source crop removes red pixels before quarter-turn rotation without escaping the layout box')
+  finalPreviewPosts += 1
+  await assert(`window.__nativeDocxPosts.length===${finalPreviewPosts} && window.__nativeDocxPosts[${finalPreviewPosts-1}].hash===${JSON.stringify(cropHash)} && ${docs}?.dataset.demoDirty !== 'true'`, 'crop preview leaves source bytes unchanged')
+  if (hash(readFileSync(cropFixture)) !== cropHash) throw new Error('Crop source changed')
+  await screenshot('docx-native-cropped-quarter.png')
   // This existing real DOCX has no embedded qualified font assets. It must
   // retain its approximate content view rather than invent native glyphs.
   const unsupported = resolve(scratch, 'unsupported-font.docx')
@@ -187,7 +207,7 @@ try {
   await assert(`${native}.querySelector('svg') === null && document.querySelectorAll('.docx-editable-run').length > 0 && ${docs}?.dataset.demoDirty !== 'true'`, 'refusal retains approximate editable content and original source')
   await screenshot('docx-native-refusal.png')
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('\n')}`)
-  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native PAGE/NUMPAGES in both header and footer, stale cache ignored', 'native font-metric double underline', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'real two-column repeating table across four pages', 'source image flips and half-turn verified in raster pixels', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
+  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native PAGE/NUMPAGES in both header and footer, stale cache ignored', 'native font-metric double underline', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'real two-column repeating table across four pages', 'source image flips and all quarter turns verified in raster pixels', 'source crop before rotation verified in raster pixels', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
 } catch (error) {
   console.error(`Native DOCX screenshots: ${artifacts}\nHelper diagnostics: ${helperLog}`)
   if (cdp) {

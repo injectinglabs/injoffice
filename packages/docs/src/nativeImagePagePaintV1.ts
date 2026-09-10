@@ -2,7 +2,7 @@
  * Exact, bounded media boundary for native DOCX page-paint v1.
  *
  * Embedded inline PNG and baseline JFIF JPEG pictures, with extent-preserving
- * source flips and 0/180-degree rotations,
+ * bounded source crop, source-axis flips and exact quarter-turn rotations,
  * are qualified. The
  * package extractor remains the relationship authority; this module exact-joins
  * its drawing projection to preserved package-part fingerprints and caller-
@@ -58,7 +58,7 @@ export interface NativeDocxQualifiedInlineImageV1 {
   height_emu: number
   width_millipoints: number
   height_millipoints: number
-  source_crop: { left: 0; top: 0; right: 0; bottom: 0; unit: 'one-hundred-thousandth' }
+  source_crop: { left: number; top: number; right: number; bottom: number; unit: 'one-hundred-thousandth' }
   transform: { rotation_degrees: 0 | 90 | 180 | 270; flip_horizontal: boolean; flip_vertical: boolean }
 }
 
@@ -211,6 +211,8 @@ function relationshipPart(ownerPart: string): string {
 }
 
 export function qualifyNativeDocxInlineImageV1(document: NativeDocxDocumentV1, runID: string, drawing: NativeDocxDrawingV1): NativeDocxInlineImageQualificationV1 {
+  const crop = drawing.source_crop ?? { left: 0, top: 0, right: 0, bottom: 0 }
+  if (!['left','top','right','bottom'].every((key) => Number.isSafeInteger(crop[key as keyof typeof crop]) && crop[key as keyof typeof crop] >= 0 && crop[key as keyof typeof crop] <= 99000) || crop.left + crop.right > 99000 || crop.top + crop.bottom > 99000) return { ok: false, code: 'unsupported-image', message: 'Source crop must retain at least one percent per axis in exact integer units' }
   if (drawing.rotation_degrees !== undefined && ![0, 90, 180, 270].includes(drawing.rotation_degrees) || drawing.flip_horizontal !== undefined && typeof drawing.flip_horizontal !== 'boolean' || drawing.flip_vertical !== undefined && typeof drawing.flip_vertical !== 'boolean') return { ok: false, code: 'unsupported-image', message: 'Inline image transform requires explicit booleans and quarter-turn rotation' }
   if (drawing.placement !== 'inline' || drawing.x_emu !== undefined || drawing.y_emu !== undefined || drawing.wrap !== undefined || drawing.horizontal_relative_from !== undefined || drawing.vertical_relative_from !== undefined) {
     return { ok: false, code: 'unsupported-image', message: 'Only bounded inline pictures without anchor, wrap, or floating offsets are supported' }
@@ -245,7 +247,7 @@ export function qualifyNativeDocxInlineImageV1(document: NativeDocxDocumentV1, r
       height_emu: drawing.height_emu,
       width_millipoints: width,
       height_millipoints: height,
-      source_crop: { left: 0, top: 0, right: 0, bottom: 0, unit: 'one-hundred-thousandth' },
+      source_crop: { left: crop.left, top: crop.top, right: crop.right, bottom: crop.bottom, unit: 'one-hundred-thousandth' },
       transform: { rotation_degrees: drawing.rotation_degrees ?? 0, flip_horizontal: drawing.flip_horizontal ?? false, flip_vertical: drawing.flip_vertical ?? false },
     },
   }

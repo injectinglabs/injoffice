@@ -103,6 +103,17 @@
         "hidden": { "type": "boolean" }
       }
     },
+    "DrawingCropV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left", "top", "right", "bottom"],
+      "properties": {
+        "left": { "type": "integer", "minimum": 0, "maximum": 99000 },
+        "top": { "type": "integer", "minimum": 0, "maximum": 99000 },
+        "right": { "type": "integer", "minimum": 0, "maximum": 99000 },
+        "bottom": { "type": "integer", "minimum": 0, "maximum": 99000 }
+      }
+    },
     "DrawingV1": {
       "type": "object",
       "additionalProperties": false,
@@ -121,6 +132,7 @@
         "rotation_degrees": { "type": "integer", "enum": [0, 90, 180, 270] },
         "flip_horizontal": { "type": "boolean" },
         "flip_vertical": { "type": "boolean" },
+        "source_crop": { "$ref": "#/$defs/DrawingCropV1" },
         "x_emu": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
         "y_emu": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
         "horizontal_relative_from": { "type": "string", "minLength": 1, "maxLength": 4096 },

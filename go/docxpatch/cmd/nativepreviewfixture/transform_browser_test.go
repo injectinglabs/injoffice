@@ -41,6 +41,9 @@ func TestNativePreviewTransformedImageBrowserFixture(t *testing.T) {
 			t.Fatal(err)
 		}
 		if entry.Name == "word/document.xml" {
+			if os.Getenv("INJOFFICE_TRANSFORM_CROP") == "left-half" {
+				data = []byte(strings.Replace(string(data), `<pic:blipFill><a:blip`, `<pic:blipFill><a:srcRect l="50000"/><a:blip`, 1))
+			}
 			data = []byte(strings.Replace(string(data), `<a:xfrm/>`, `<a:xfrm rot="10800000" flipH="false" flipV="true"/>`, 1))
 			angle := os.Getenv("INJOFFICE_TRANSFORM_ANGLE")
 			if angle == "90" || angle == "270" {

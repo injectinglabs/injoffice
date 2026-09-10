@@ -332,16 +332,16 @@ and preserved relationship-part digest to one preserved media part, verifies
 caller-supplied bytes against that part's byte length and SHA-256, parses bounded static PNG/JPEG
 dimensions, and carries canonical base64 bytes as an output resource. Inline
 image commands retain the exact DrawingML EMU extent projected through the
-integer-only `10/127` milli-point ratio, an explicit full-source crop, and an
+integer-only `10/127` milli-point ratio, an explicit source crop rectangle, and an
 explicit source-bound orientation transform. Prepared and completed compiler envelopes expose
 canonical hashes for the complete validated request and output.
 
 Images are restricted to embedded static PNG or baseline JFIF JPEG pictures in `wp:inline` with zero
 distances/effect extents, extent-preserving `a:xfrm` (quarter-turn rotation and
-horizontal/vertical flips), full-source crop, exact integer
+horizontal/vertical flips), bounded source crop, exact integer
 milli-point geometry, and bounded bytes/pixels. It refuses anchors/floating
 placement, wrapping, remote or external relationships, vectors and other
-raster formats, animation, crop, arbitrary rotation, effects, mismatched extents, and
+raster formats, animation, negative/extending crop, arbitrary rotation, effects, mismatched extents, and
 media digest drift. JPEG support is deliberately bounded to one baseline 8-bit
 grayscale/YCbCr interleaved scan with internal tables and JFIF APP0, following
 [ITU-T T.871](https://www.itu.int/rec/T-REC-T.871). EXIF, ICC, Adobe transforms,
@@ -352,6 +352,10 @@ Quarter turns require explicit unrotated DrawingML extents whose swapped bounds
 exactly match `wp:extent`; missing or inconsistent extents refuse before painting.
 Reflections apply in source axes before clockwise rotation. Integer SVG matrices
 and original raster pixel fixtures verify all orientations without Office screenshots.
+Source crops use integer one-hundred-thousandths, default omitted sides to zero,
+and must retain at least 1% of the original image on both axes (at most 100×
+scale). The viewer clips this source rectangle before reflecting/rotating into
+the unchanged layout box; it does not rewrite or resample the original media.
 Selected header/footer inline PNG/JPEG runs use the same
 digest-bound asset join and `paint_inline_image` command as body pictures. V1
 also emits RTL/mixed-bidi fragments and bounded U+0020-justified lines in

@@ -67,6 +67,13 @@ describe('native document page viewer', () => {
       }
     }
   })
+  it('clips the original source rectangle before applying image orientation', () => {
+    const markup = renderToStaticMarkup(createElement(NativeDocxImage, { command: { kind: 'paint_inline_image', id: 'image:1', line_id: 'line:1', fragment_id: 'fragment:1', source_id: 'run:1', drawing_id: 'drawing:1', asset_id: 'asset:1', x_millipoints: 10, y_millipoints: 20, width_millipoints: 200, height_millipoints: 100, source_crop: { left: 50000, top: 0, right: 0, bottom: 0, unit: 'one-hundred-thousandth' }, transform: { rotation_degrees: 90, flip_horizontal: false, flip_vertical: false } }, base64: 'AA==' }))
+    expect(markup).toContain('viewBox="50000 0 50000 100000"')
+    expect(markup).toContain('overflow="hidden"')
+    expect(markup).toContain('width="100" height="200"')
+    expect(markup).toContain('<image x="0" y="0" width="100000" height="100000"')
+  })
   it('bounds decoded PNG pixels independently of compressed response bytes', () => {
     expect(nativeDocxImagesWithinBudget([{ width_px: 10000, height_px: 10000 }])).toBe(false)
     expect(nativeDocxImagesWithinBudget(Array.from({ length: 3 }, () => ({ width_px: 4000, height_px: 4000 })))).toBe(false)

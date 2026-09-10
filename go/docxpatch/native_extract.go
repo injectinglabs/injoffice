@@ -2440,8 +2440,9 @@ func (extractor *nativeExtractor) extractDrawing(partName, paragraphID string, n
 		return refuse("AMBIGUOUS_PICTURE", "Only a single native DrawingML picture payload is modeled", graphicData)
 	}
 	picture := pictures[0]
-	if len(nativeDescendants(picture, aNS, "srcRect")) > 0 {
-		return refuse("PICTURE_CROP_PRESERVED", "Cropped pictures remain preserve-only until crop geometry is modeled", picture)
+	crop, cropOK := nativePictureSourceCrop(picture, aNS, picNS)
+	if !cropOK {
+		return refuse("PICTURE_CROP_PRESERVED", "Picture crop must be one exact source rectangle retaining at least one percent per axis", picture)
 	}
 	if !nativeExactPictureNonVisual(picture, aNS, picNS) {
 		return refuse("PICTURE_NONVISUAL_PRESERVED", "Picture nonvisual properties with missing, hidden, or unmodeled semantics remain preserve-only", picture)
@@ -2468,6 +2469,7 @@ func (extractor *nativeExtractor) extractDrawing(partName, paragraphID string, n
 		ID: extractor.objectID("drawing", partName, node, ""), Anchor: extractor.anchor(partName, node),
 		RelationshipID: nativeString(relID), MediaPart: nativeString(mediaPart), ContentType: nativeString(contentType),
 		Placement: "inline", WidthEMU: nativeInt64(width), HeightEMU: nativeInt64(height),
+		SourceCrop: crop,
 		EditPolicy: nativeReadOnlyPolicy("EXTRACT_ONLY", "Native picture extraction does not yet expose guarded drawing replacement"),
 	}
 	xfrm := firstDirectNativeChild(firstDirectNativeChild(picture, picNS, "spPr"), aNS, "xfrm")
@@ -2605,6 +2607,36 @@ func nativeExactPictureNonVisual(picture *nativeXMLNode, aNS, picNS string) bool
 	return true
 }
 
+func nativePictureSourceCrop(picture *nativeXMLNode, aNS, picNS string) (*NativeDrawingCropV1, bool) {
+	crops := nativeDescendants(picture, aNS, "srcRect")
+	if len(crops) == 0 {
+		return nil, true
+	}
+	fill := firstDirectNativeChild(picture, picNS, "blipFill")
+	if fill == nil || len(crops) != 1 {
+		return nil, false
+	}
+	direct := directNativeChildren(fill, aNS, "srcRect")
+	if len(direct) != 1 || direct[0] != crops[0] || !nativeExactLeaf(crops[0], xml.Name{Local: "l"}, xml.Name{Local: "t"}, xml.Name{Local: "r"}, xml.Name{Local: "b"}) {
+		return nil, false
+	}
+	values := [4]int64{}
+	for index, name := range []string{"l", "t", "r", "b"} {
+		if _, present := nativeUnqualifiedAttr(crops[0], name); !present {
+			continue
+		}
+		value, ok := nativeInt64Attr(crops[0], "", name)
+		if !ok || value < 0 || value > 99000 {
+			return nil, false
+		}
+		values[index] = value
+	}
+	if values[0]+values[2] > 99000 || values[1]+values[3] > 99000 {
+		return nil, false
+	}
+	return &NativeDrawingCropV1{Left: nativeInt64(values[0]), Top: nativeInt64(values[1]), Right: nativeInt64(values[2]), Bottom: nativeInt64(values[3])}, true
+}
+
 func nativePictureBoundedTransform(picture *nativeXMLNode, aNS, picNS string, width, height int64) bool {
 	if !nativeExactContainer(picture) || len(picture.Children) != 3 || len(directNativeChildren(picture, picNS, "nvPicPr")) != 1 || len(directNativeChildren(picture, picNS, "blipFill")) != 1 || len(directNativeChildren(picture, picNS, "spPr")) != 1 {
 		return false
@@ -2612,7 +2644,8 @@ func nativePictureBoundedTransform(picture *nativeXMLNode, aNS, picNS string, wi
 	blipFill := firstDirectNativeChild(picture, picNS, "blipFill")
 	blips := directNativeChildren(blipFill, aNS, "blip")
 	stretches := directNativeChildren(blipFill, aNS, "stretch")
-	if !nativeExactContainer(blipFill) || len(blipFill.Children) != 2 || len(blips) != 1 || len(stretches) != 1 || len(blips[0].Children) != 0 || !nativeExactContainer(stretches[0]) || len(stretches[0].Children) != 1 {
+	crops := directNativeChildren(blipFill, aNS, "srcRect")
+	if !nativeExactContainer(blipFill) || len(crops) > 1 || len(blipFill.Children) != 2+len(crops) || len(blips) != 1 || len(stretches) != 1 || len(blips[0].Children) != 0 || !nativeExactContainer(stretches[0]) || len(stretches[0].Children) != 1 {
 		return false
 	}
 	fillRect := firstDirectNativeChild(stretches[0], aNS, "fillRect")

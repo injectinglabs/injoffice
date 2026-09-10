@@ -447,6 +447,7 @@ describe('native DOCX page-paint compiler v1', () => {
       const input = imageFixture()
       const drawing = (input.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs.find((run) => run.drawing)!.drawing!
       Object.assign(drawing, { rotation_degrees, flip_horizontal, flip_vertical })
+      drawing.source_crop = { left: 12345, top: 2500, right: 5000, bottom: 100 }
       const prepared = await prepareNativeDocxPagePaintV1(input)
       const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
       const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map((request) => ({ status: 'outlined' as const, ...request, ...provider.outline(request.glyph_id) })) })
@@ -456,6 +457,9 @@ describe('native DOCX page-paint compiler v1', () => {
       expect(command).toMatchObject({ width_millipoints: 10_000, height_millipoints: 10_000, transform: { rotation_degrees, flip_horizontal, flip_vertical } })
       expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(true)
       if (command.kind !== 'paint_inline_image') throw new Error('missing image')
+      command.source_crop.left += 1
+      expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(false)
+      command.source_crop.left -= 1
       command.transform.flip_horizontal = !flip_horizontal
       expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(false)
     }

@@ -5,6 +5,8 @@ import { DsButton } from '../design-system/primitives'
 
 export function NativeDocxImage({ command, base64, contentType = 'image/png', onError }: { command: NativeDocxPaintInlineImageCommandV1; base64: string; contentType?: 'image/png' | 'image/jpeg'; onError?: () => void }) {
   const geometry = nativeDocxImageOrientation(command)
+  const crop = command.source_crop
+  if (crop.left || crop.top || crop.right || crop.bottom) return <svg data-native-crop="true" x={command.x_millipoints} y={command.y_millipoints} width={geometry.width} height={geometry.height} viewBox={`${crop.left} ${crop.top} ${100000-crop.left-crop.right} ${100000-crop.top-crop.bottom}`} transform={`matrix(${geometry.matrix.join(' ')})`} preserveAspectRatio="none" overflow="hidden"><image x={0} y={0} width={100000} height={100000} preserveAspectRatio="none" href={`data:${contentType};base64,${base64}`} onError={onError} /></svg>
   return <image x={command.x_millipoints} y={command.y_millipoints} width={geometry.width} height={geometry.height} transform={`matrix(${geometry.matrix.join(' ')})`} preserveAspectRatio="none" href={`data:${contentType};base64,${base64}`} onError={onError} />
 }
 
