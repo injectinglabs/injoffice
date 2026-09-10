@@ -5,11 +5,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestDOCXPreviewDisabledAndReadOnly(t *testing.T) {
@@ -29,6 +35,103 @@ func TestDOCXPreviewDisabledAndReadOnly(t *testing.T) {
 func TestDOCXPreviewInputRejectsInvalidPackage(t *testing.T) {
 	if _, err := docxPreviewInput(context.Background(), []byte("not a zip")); err == nil {
 		t.Fatal("accepted malformed package")
+	}
+}
+
+type previewReadProbe struct{ reads int }
+
+func (probe *previewReadProbe) Read([]byte) (int, error) {
+	probe.reads++
+	return 0, io.EOF
+}
+
+func TestDOCXPreviewBusyDoesNotReadRequestAndFailureReleasesGate(t *testing.T) {
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	probe := &previewReadProbe{}
+	response := httptest.NewRecorder()
+	options := DOCXPreviewOptions{WorkerPath: "/operator-configured-worker.js"}
+	handleDOCXPreview(response, httptest.NewRequest(http.MethodPost, DOCXPreviewPath, probe), options, gate)
+	if response.Code != http.StatusServiceUnavailable || probe.reads != 0 || len(gate) != 1 {
+		t.Fatalf("busy request consumed input or slot: status=%d reads=%d slots=%d", response.Code, probe.reads, len(gate))
+	}
+	<-gate
+	for attempt := 0; attempt < 2; attempt++ {
+		response = httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, DOCXPreviewPath, strings.NewReader("not a DOCX"))
+		request.Header.Set("Content-Type", DOCXContentType)
+		handleDOCXPreview(response, request, options, gate)
+		if response.Code != http.StatusUnprocessableEntity || len(gate) != 0 {
+			t.Fatalf("invalid document did not release slot: status=%d slots=%d", response.Code, len(gate))
+		}
+	}
+}
+
+func TestDOCXPreviewOversizeAndCancellation(t *testing.T) {
+	tooLarge := make([]byte, 8*1024*1024+1)
+	if _, err := docxPreviewInput(context.Background(), tooLarge); err == nil || !strings.Contains(err.Error(), "8 MiB") {
+		t.Fatalf("oversize input was not refused before extraction: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := docxPreviewInput(ctx, []byte("invalid")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled input was parsed instead of refused: %v", err)
+	}
+	gate := make(chan struct{}, 1)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, DOCXPreviewPath, bytes.NewReader(tooLarge))
+	request.Header.Set("Content-Type", DOCXContentType)
+	handleDOCXPreview(response, request, DOCXPreviewOptions{WorkerPath: "/operator-configured-worker.js"}, gate)
+	if response.Code != http.StatusRequestEntityTooLarge || len(gate) != 0 {
+		t.Fatalf("oversize HTTP request did not release slot: status=%d slots=%d", response.Code, len(gate))
+	}
+}
+
+// Workers here deliberately exercise only framing/lifecycle failures. They do
+// not produce document paint or replace the separate real-compiler test.
+func previewFixtureWorker(t *testing.T, javascript string) DOCXPreviewOptions {
+	t.Helper()
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("Node is required for preview subprocess lifecycle tests")
+	}
+	path := filepath.Join(t.TempDir(), "worker.cjs")
+	if err := os.WriteFile(path, []byte("process.stdin.resume(); process.stdin.on('end', () => {"+javascript+"});"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return DOCXPreviewOptions{WorkerPath: path}
+}
+
+func TestDOCXPreviewWorkerRejectsMalformedFramesAndEnvelopes(t *testing.T) {
+	for _, test := range []struct{ name, code, errorText string }{
+		{"empty", "", "invalid frame"},
+		{"short-header", "process.stdout.write(Buffer.from([0,0,0]));", "invalid frame"},
+		{"truncated-payload", "process.stdout.write(Buffer.from([0,0,0,10,123]));", "invalid frame"},
+		{"trailing-frame", "process.stdout.write(Buffer.from([0,0,0,0,0]));", "invalid frame"},
+		{"invalid-json", `const data=Buffer.from('{'); const header=Buffer.alloc(4); header.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([header,data]));`, "invalid envelope"},
+		{"wrong-identity", `const data=Buffer.from(JSON.stringify({protocol:'injoffice.docx.page-paint-worker',version:1,id:'other-request',ok:true,result:{}})); const header=Buffer.alloc(4); header.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([header,data]));`, "invalid envelope"},
+		{"nonzero-exit", "process.exitCode=1;", "invalid frame"},
+		{"worker-refusal", `const data=Buffer.from(JSON.stringify({protocol:'injoffice.docx.page-paint-worker',version:1,id:'preview',ok:false,error:{message:'qualified fixture refusal'}})); const header=Buffer.alloc(4); header.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([header,data]));`, "qualified fixture refusal"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := compileDOCXPreview(context.Background(), previewFixtureWorker(t, test.code), map[string]any{})
+			if err == nil || !strings.Contains(err.Error(), test.errorText) || result != nil {
+				t.Fatalf("bad worker output accepted: result=%s error=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestDOCXPreviewWorkerParentDeadlineStopsOpenPipe(t *testing.T) {
+	worker := previewFixtureWorker(t, "setInterval(() => {}, 1000);")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	started := time.Now()
+	result, err := compileDOCXPreview(ctx, worker, map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "time budget") || result != nil || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf("hung worker did not honor parent deadline: result=%s error=%v context=%v", result, err, ctx.Err())
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("worker stdout read outlived parent deadline: %s", elapsed)
 	}
 }
 
