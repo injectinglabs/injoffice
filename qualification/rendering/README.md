@@ -25,7 +25,9 @@ temporary profiles; no running user application or external service is needed.
 - DOCX: a generated embedded-font file passes the actual extract, shape,
   paginate and SVG-display path; unsupported files visibly refuse native paint.
 - PPTX: original quadrant-image cropping has analytical pixel expectations.
-  This case uses a native model; real PPTX parsing/writeback is covered separately.
+  The crop branch uses a native model; the styles branch extracts an original
+  PPTX file and checks authored text styles and bullets in the browser.
+  These layout checks do not establish PowerPoint typography equivalence.
 - XLSX/DOCX/PPTX: bundled real files pass browser-WASM extraction, editing and
   re-extraction with source-bound readback checks.
 
