@@ -3,8 +3,8 @@ import type { NativeDocxPagePaintV1, NativeDocxPaintPathCommandV1, NativeDocxPai
 import { decodeNativeDocxPagePaintV1 } from '../../../../packages/docs/src/nativePagePaintOutputV1'
 import { DsButton } from '../design-system/primitives'
 
-export function NativeDocxImage({ command, base64 }: { command: NativeDocxPaintInlineImageCommandV1; base64: string }) {
-  return <image x={command.x_millipoints} y={command.y_millipoints} width={command.width_millipoints} height={command.height_millipoints} preserveAspectRatio="none" href={`data:image/png;base64,${base64}`} />
+export function NativeDocxImage({ command, base64, contentType = 'image/png' }: { command: NativeDocxPaintInlineImageCommandV1; base64: string; contentType?: 'image/png' | 'image/jpeg' }) {
+  return <image x={command.x_millipoints} y={command.y_millipoints} width={command.width_millipoints} height={command.height_millipoints} preserveAspectRatio="none" href={`data:${contentType};base64,${base64}`} />
 }
 
 export function nativeDocxImagesWithinBudget(resources: readonly { width_px: number; height_px: number }[]): boolean {
@@ -95,7 +95,7 @@ export function NativeDocxPages({ bytes, packageDigest, apiBase }: { bytes: Uint
             case 'fill_glyph_path': return <path key={command.id} d={nativeDocxSVGPath(command.path)} fill={`#${command.fill_rgb}`} fillRule="nonzero" />
             case 'fill_table_cell': return <rect key={command.id} x={command.x_millipoints} y={command.y_millipoints} width={command.width_millipoints} height={command.height_millipoints} fill={`#${command.fill_rgb}`} />
             case 'stroke_table_border': case 'stroke_note_separator': return <line key={command.id} x1={command.x1_millipoints} y1={command.y1_millipoints} x2={command.x2_millipoints} y2={command.y2_millipoints} stroke={`#${command.stroke_rgb}`} strokeWidth={command.width_millipoints} />
-            case 'paint_inline_image': { const asset = paint.resources.find((asset) => asset.id === command.asset_id); return asset ? <NativeDocxImage key={command.id} command={command} base64={asset.bytes_base64} /> : null }
+            case 'paint_inline_image': { const asset = paint.resources.find((asset) => asset.id === command.asset_id); return asset ? <NativeDocxImage key={command.id} command={command} base64={asset.bytes_base64} contentType={asset.content_type} /> : null }
           }
         })}
       </svg><figcaption>Page {page.ordinal + 1}</figcaption>
