@@ -467,9 +467,6 @@ try {
   await screenshot('scroll-chart-mobile')
   // Use a fresh document so the typography workspace really is untouched: a
   // prior edited DOCX agent correctly pins its entire containing workspace.
-  // A compact neighboring section can sit in the observer's 160px prefetch
-  // margin on a tall phone. Use a short viewport to exercise actual release.
-  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 640, deviceScaleFactor: 1, mobile: true })
   origin.hash = '#/docs?feature=font-metrics'
   origin.searchParams.set('scroll-smoke-document', 'retention')
   await send('Page.navigate', { url: origin.href })
@@ -485,6 +482,12 @@ try {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   })()`)
   // Untouched offscreen engines are released; interacted documents stay intact.
+  // Viewport-sized canvases can leave the next section within the 160px preload
+  // margin at any viewport height. Move this untouched test target beyond it.
+  await evaluate(`(() => {
+    const target = document.querySelector('${toolSection('font-metrics')}');
+    target.style.marginTop = Math.max(0, innerHeight + 200 - target.getBoundingClientRect().top) + 'px';
+  })()`)
   assert.ok(await evaluate(`document.querySelector('${toolSection('font-metrics')}').getBoundingClientRect().top > innerHeight + 160`), 'retention target is outside the prefetch margin')
   await until(`document.querySelector('${toolSection('font-metrics')}').dataset.scrollState === 'idle'`, 'offscreen untouched workspace released', 45_000)
   assert.equal(await evaluate(`document.querySelector('${section('charts')} input[aria-label="Jan revenue"]').value`), '999', 'interacted chart is never automatically discarded')
