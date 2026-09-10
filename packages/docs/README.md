@@ -299,13 +299,23 @@ selected static header/footer paragraphs with natural shaped line height, plus
 qualified footnote/endnote paragraphs with natural shaped line height, plus a
 bounded body-table subset:
 explicit fixed dxa width and grid, left alignment/indent, four cell margins,
-indivisible non-repeating rows, direct cell paragraphs, table-level single/RGB
+indivisible rows, direct cell paragraphs, table-level single/RGB
 borders, and clear RGB cell shading. Horizontal `grid_span`, vertical restart/continue
 merges, `atLeast`/`exact` row heights, and simple whole-table styles that project
 onto those same border/fill commands are included. Merged rows paginate as one
 atomic group and shared edges are emitted once in deterministic table-fill →
-line-content → border order. It refuses autofit/percentage/missing widths, repeated
-headers, cell-border conflicts, nested content, numbered cells, conditional
+line-content → border order. A contiguous leading `repeat_header` row prefix
+repeats on each continuation page, with the initial prefix kept together with
+the first body row. Each later page must fit the complete header prefix plus
+the next indivisible row; otherwise the whole preview refuses. Repeating-header
+tables currently refuse vertical merges, rather than splitting ambiguous merge
+groups across the header/body boundary. Source-bound cell IDs distinguish the
+parallel text flows of adjacent cells; repeated line placements have unique
+page-derived IDs and are validated by exact pagination replay, not accepted as
+arbitrary duplicate body content. Generated two-column DOCX browser fixtures
+verify this bounded behavior, not Word pixel equivalence.
+It refuses autofit/percentage/missing widths, non-prefix repeating headers,
+cell-border conflicts, nested content, numbered cells, conditional
 `tblStylePr` effects, and any table-descendant resolution diagnostic. Selected story
 lines must fit between the exact header/footer edge distance and the body box.
 The planner independently inherits reference kinds, keeps parity fillers blank,

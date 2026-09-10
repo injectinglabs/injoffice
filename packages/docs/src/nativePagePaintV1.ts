@@ -744,7 +744,8 @@ function tableCommandsByPage(
           if (cell.vertical_merge === 'continue') continue
           const x = page.body_box.x_millipoints + cell.x_millipoints
           const height = cell.height_millipoints
-          if (cell.shading_rgb) target.fills.push({ kind: 'fill_table_cell', id: `paint:table:${table.table.id}:${rowIndex}:${cellIndex}:fill`, table_id: table.table.id, row_id: row.row_id, cell_id: cell.cell_id, x_millipoints: x, y_millipoints: rowY, width_millipoints: cell.width_millipoints, height_millipoints: height, fill_rgb: cell.shading_rgb })
+          const placementSuffix = placement.line.repeated_table_header ? `:repeat:${page.id}` : ''
+          if (cell.shading_rgb) target.fills.push({ kind: 'fill_table_cell', id: `paint:table:${table.table.id}:${rowIndex}:${cellIndex}:fill${placementSuffix}`, table_id: table.table.id, row_id: row.row_id, cell_id: cell.cell_id, x_millipoints: x, y_millipoints: rowY, width_millipoints: cell.width_millipoints, height_millipoints: height, fill_rgb: cell.shading_rgb })
           const source = table.table.borders
           const lastMergeRow = rowIndex + cell.row_span - 1
           const edges: Array<{ edge: NativeDocxStrokeTableBorderCommandV1['edge']; border?: import('./nativeContract.js').NativeDocxTableBorderV1; x1: number; y1: number; x2: number; y2: number }> = [
@@ -754,7 +755,7 @@ function tableCommandsByPage(
             { edge: 'bottom', border: lastMergeRow === rows.length - 1 ? source?.bottom : source?.inside_horizontal, x1: x, y1: rowY + height, x2: x + cell.width_millipoints, y2: rowY + height },
           ]
           for (const edge of edges) if (edge.border?.style === 'single' && edge.border.color_rgb) target.borders.push({
-            kind: 'stroke_table_border', id: `paint:table:${table.table.id}:${rowIndex}:${cellIndex}:${edge.edge}`, table_id: table.table.id, row_id: row.row_id, cell_id: cell.cell_id, edge: edge.edge,
+            kind: 'stroke_table_border', id: `paint:table:${table.table.id}:${rowIndex}:${cellIndex}:${edge.edge}${placementSuffix}`, table_id: table.table.id, row_id: row.row_id, cell_id: cell.cell_id, edge: edge.edge,
             x1_millipoints: edge.x1, y1_millipoints: edge.y1, x2_millipoints: edge.x2, y2_millipoints: edge.y2,
             width_millipoints: edge.border.size_eighth_points * 125, stroke_rgb: edge.border.color_rgb,
           })

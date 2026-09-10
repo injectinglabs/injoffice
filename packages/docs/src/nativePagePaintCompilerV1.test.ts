@@ -837,6 +837,63 @@ describe('native DOCX page-paint compiler v1', () => {
     expect(completed.page_paint_output.provenance.table_projection.sha256).toMatch(/^sha256:[0-9a-f]{64}$/)
   })
 
+  it('paints source-bound repeated table headings, shading and borders on continuation pages', async () => {
+    const input = tableFixture()
+    const document = input.document as NativeDocxDocumentV1
+    const resolved = input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    const table = document.body.blocks[0]!.table!
+    table.rows[0]!.repeat_header = true
+    for (let index = 2; index <= 4; index += 1) {
+      const row = structuredClone(table.rows[0]!)
+      row.id = `row:${index}`; row.repeat_header = false
+      row.cells[0]!.id = `cell:${index}`
+      const paragraph = row.cells[0]!.paragraphs[0]!
+      const oldParagraph = paragraph.id, oldRun = paragraph.runs[0]!.id
+      paragraph.id = `paragraph:table:${index}`; paragraph.runs[0]!.id = `run:table:${index}`
+      resolved.paragraphs.push({ ...structuredClone(resolved.paragraphs.find((entry) => entry.paragraph_id === oldParagraph)!), paragraph_id: paragraph.id })
+      resolved.runs.push({ ...structuredClone(resolved.runs.find((entry) => entry.run_id === oldRun)!), paragraph_id: paragraph.id, run_id: paragraph.runs[0]!.id })
+      table.rows.push(row)
+      rewriteInventory(input, (inventory) => { inventory.references[0]!.scope_ids.push(paragraph.id, paragraph.runs[0]!.id); inventory.references[0]!.scope_ids.sort() })
+    }
+    // Real adjacent cells overlap vertically but occupy distinct source-bound
+    // cell flows; generic paragraph overlap rejection must not reject a grid.
+    table.grid_widths_twips = [4_680, 4_680]
+    for (const row of table.rows) {
+      row.cells[0]!.width_twips = 4_680
+      const cell = structuredClone(row.cells[0]!)
+      cell.id += ':right'
+      const paragraph = cell.paragraphs[0]!, oldParagraph = paragraph.id, oldRun = paragraph.runs[0]!.id
+      paragraph.id += ':right'; paragraph.runs[0]!.id += ':right'
+      resolved.paragraphs.push({ ...structuredClone(resolved.paragraphs.find((entry) => entry.paragraph_id === oldParagraph)!), paragraph_id: paragraph.id })
+      resolved.runs.push({ ...structuredClone(resolved.runs.find((entry) => entry.run_id === oldRun)!), paragraph_id: paragraph.id, run_id: paragraph.runs[0]!.id })
+      row.cells.push(cell)
+      rewriteInventory(input, (inventory) => { inventory.references[0]!.scope_ids.push(paragraph.id, paragraph.runs[0]!.id); inventory.references[0]!.scope_ids.sort() })
+    }
+    // Natural 10 pt font metrics plus 10 pt margins; 50 pt body fits two rows.
+    document.sections[0]!.page.height_twips = 3_880
+    document.sections[0]!.page.orientation = 'landscape'
+    const prepared = await prepareNativeDocxPagePaintV1(input)
+    const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+    const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map((request) => ({ status: 'outlined' as const, ...request, ...provider.outline(request.glyph_id) })) })
+    expect(completed.page_paint_output.status).toBe('painted')
+    if (completed.page_paint_output.status !== 'painted') throw new Error(JSON.stringify(completed.page_paint_output))
+    const pages = completed.page_paint_output.pages
+    expect(pages.length).toBeGreaterThan(1)
+    const headerParagraph = table.rows[0]!.cells[0]!.paragraphs[0]!.id
+    for (const page of pages) {
+      expect(page.lines[0]!.paragraph_id).toBe(headerParagraph)
+      expect(page.commands.some((command) => command.kind === 'fill_table_cell' && command.row_id === 'row:1')).toBe(true)
+      expect(page.commands.some((command) => command.kind === 'stroke_table_border' && command.row_id === 'row:1')).toBe(true)
+    }
+    const allIDs = pages.flatMap((page) => page.commands.map((command) => command.id))
+    expect(new Set(allIDs).size).toBe(allIDs.length)
+    expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(true)
+    const tampered = structuredClone(completed.page_paint_output)
+    const repeatedFill = tampered.pages[1]!.commands.find((command) => command.kind === 'fill_table_cell')!
+    if (repeatedFill.kind === 'fill_table_cell') repeatedFill.y_millipoints += 1
+    expect(decodeNativeDocxPagePaintForRequestV1(tampered, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(false)
+  })
+
   it('anchors table paint to the first placed line of a multiline cell paragraph', async () => {
     const input = tableFixture()
     const document = input.document as NativeDocxDocumentV1

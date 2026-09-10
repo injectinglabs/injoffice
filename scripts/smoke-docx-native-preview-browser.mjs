@@ -113,19 +113,39 @@ try {
   await assert(`window.__nativeDocxPosts.length === 2 && window.__nativeDocxPosts[1].hash === ${JSON.stringify(pngHash)} && ${docs}?.dataset.demoDirty !== 'true'`, 'PNG preview sends only unchanged original bytes')
   if (hash(readFileSync(pngFixture)) !== pngHash) throw new Error('PNG source fixture changed')
   await screenshot('docx-native-png.png')
+  const tableFixture = resolve(scratch, 'native-repeating-table.docx')
+  const tableExport = spawnSync('go', ['test', '-count=1', '-run', '^TestNativePreviewRepeatingTableBrowserFixture$', '.'], { cwd: resolve(root, 'go/docxpatch/cmd/nativepreviewfixture'), env: { ...process.env, INJOFFICE_TABLE_FIXTURE_OUTPUT: tableFixture, INJOFFICE_TABLE_FIXTURE_FONT: resolve(root, 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf') }, encoding: 'utf8', timeout: 60000 })
+  if (tableExport.status !== 0) throw new Error(`Table fixture export failed: ${tableExport.stderr}\n${tableExport.stdout}`)
+  const tableHash = hash(readFileSync(tableFixture))
+  await upload(tableFixture)
+  await poll(() => evaluate(`${native}?.textContent.includes('Nothing is uploaded') && ${native}?.querySelector('svg') === null`), 'table source replacement clears old pages')
+  await assert(`window.__nativeDocxPosts.length === 2`, 'table preview needs new explicit consent')
+  await click('Upload to helper and render native pages')
+  await poll(() => evaluate(`${native}?.textContent.includes('4 native pages') && ${native}?.querySelector('svg path') !== null`), 'real two-column repeating table native pages', 45000)
+  const tableGeometry = `(() => { const svg = ${native}.querySelector('svg'); const headers=[...svg.querySelectorAll('rect[fill="#DDEEFF"]')]; return headers.length===2 && headers.every(rect=>Number(rect.getAttribute('y'))===72000&&Number(rect.getAttribute('height'))===36000&&Number(rect.getAttribute('width'))===234000) && Number(headers[0].getAttribute('x'))===72000 && Number(headers[1].getAttribute('x'))===306000 && svg.querySelectorAll('path').length>30 && svg.querySelectorAll('line').length>=8 })()`
+  await assert(tableGeometry, 'initial fixed-grid header cells have exact source dimensions and glyphs')
+  await screenshot('docx-native-table-first.png')
+  for (let page = 2; page <= 4; page += 1) {
+    await click('Next native page')
+    await poll(() => evaluate(`${native}?.querySelector('svg[aria-label="Native document page ${page}"]') !== null`), `table continuation page ${page}`)
+    await assert(tableGeometry, `page ${page} repeats both source header cells and preserves body glyphs`)
+  }
+  await screenshot('docx-native-table-last.png')
+  await assert(`window.__nativeDocxPosts.length===3 && window.__nativeDocxPosts[2].hash===${JSON.stringify(tableHash)} && ${docs}?.dataset.demoDirty !== 'true' && ${native}.querySelectorAll('svg').length===1`, 'table navigation retains exact original source and bounded page mounting')
+  if (hash(readFileSync(tableFixture)) !== tableHash) throw new Error('Table source fixture changed')
   // This existing real DOCX has no embedded qualified font assets. It must
   // retain its approximate content view rather than invent native glyphs.
   const unsupported = resolve(scratch, 'unsupported-font.docx')
   writeFileSync(unsupported, Buffer.from(readFileSync(resolve(root, 'apps/playground/public/native-docx/northstar-launch-brief.docx.b64'), 'utf8').trim(), 'base64'))
   await upload(unsupported)
   await poll(() => evaluate(`${native}?.textContent.includes('Nothing is uploaded') && ${native}?.querySelector('svg') === null`), 'source replacement clears stale pages')
-  await assert(`window.__nativeDocxPosts.length === 2`, 'replacement document also requires explicit consent')
+  await assert(`window.__nativeDocxPosts.length === 3`, 'replacement document also requires explicit consent')
   await click('Upload to helper and render native pages')
   await poll(() => evaluate(`${native}?.textContent.includes('original file is unchanged')`), 'unsupported document explicitly refused', 45000)
   await assert(`${native}.querySelector('svg') === null && document.querySelectorAll('.docx-editable-run').length > 0 && ${docs}?.dataset.demoDirty !== 'true'`, 'refusal retains approximate editable content and original source')
   await screenshot('docx-native-refusal.png')
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('\n')}`)
-  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native PAGE/NUMPAGES in both header and footer, stale cache ignored', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
+  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native PAGE/NUMPAGES in both header and footer, stale cache ignored', 'native font-metric double underline', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'real two-column repeating table across four pages', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
 } catch (error) {
   console.error(`Native DOCX screenshots: ${artifacts}\nHelper diagnostics: ${helperLog}`)
   if (cdp) {

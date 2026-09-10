@@ -264,6 +264,7 @@ export function paintNoteSeparatorCommandID(placedLineID: string): string {
 
 export function placedLineIDMatches(placedLineID: string, shapedLineID: string): boolean {
   if (placedLineID === `placed:${shapedLineID}`) return true
+  if (placedLineID.startsWith(`placed:${shapedLineID}:table-header:page:`)) return true
   const suffix = `:${shapedLineID}`
   if (!placedLineID.endsWith(suffix)) return false
   const prefix = placedLineID.slice(0, -suffix.length)
