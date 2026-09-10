@@ -193,9 +193,10 @@ export default function DocsPage() {
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
     const urls: string[] = []
     setPreviewImages(new Map())
-    if (authoritativeBytes && document) void extractDocxPreviewImages(authoritativeBytes, document).then((images) => {
+    if (authoritativeBytes && document) void extractDocxPreviewImages(authoritativeBytes, document, controller.signal).then((images) => {
       if (cancelled) return
       const next = new Map<string, string>()
       for (const [part, image] of images) {
@@ -205,7 +206,7 @@ export default function DocsPage() {
       }
       setPreviewImages(next)
     }).catch(() => { /* Preserve document preview when optional media is unavailable. */ })
-    return () => { cancelled = true; for (const url of urls) URL.revokeObjectURL(url) }
+    return () => { cancelled = true; controller.abort(); for (const url of urls) URL.revokeObjectURL(url) }
   }, [authoritativeBytes, document])
 
   const stats = useMemo(() => document ? nativeDocxPreviewStats(document) : null, [document])

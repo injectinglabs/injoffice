@@ -4,8 +4,12 @@ export const DOCX_PREVIEW_IMAGE_LIMITS = { packageBytes: 64 * 1024 * 1024, image
 export type DocxPreviewImage = { bytes: Uint8Array; mime: 'image/png' | 'image/jpeg'; width: number; height: number }
 type ZipEntry = { method: number; flags: number; size: number; compressedSize: number; offset: number }
 
-async function digest(bytes: Uint8Array): Promise<string> {
-  return `sha256:${Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes).buffer)), (byte) => byte.toString(16).padStart(2, '0')).join('')}`
+async function digest(bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted()
+  // WebCrypto cannot cancel an in-flight digest; do not continue after it ends.
+  const result = await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes).buffer)
+  signal?.throwIfAborted()
+  return `sha256:${Array.from(new Uint8Array(result), (byte) => byte.toString(16).padStart(2, '0')).join('')}`
 }
 
 /** Bounded, single-disk ZIP reader. No path extraction, ZIP64, encryption or
@@ -46,7 +50,8 @@ function zipEntries(bytes: Uint8Array): Map<string, ZipEntry> {
   return entries
 }
 
-async function entryBytes(source: Uint8Array, entry: ZipEntry): Promise<Uint8Array> {
+async function entryBytes(source: Uint8Array, entry: ZipEntry, signal?: AbortSignal): Promise<Uint8Array> {
+  signal?.throwIfAborted()
   if (entry.flags & ~0x808 || entry.size > DOCX_PREVIEW_IMAGE_LIMITS.imageBytes || entry.compressedSize > DOCX_PREVIEW_IMAGE_LIMITS.imageBytes) throw new Error('Image exceeds preview limits')
   const compressed = source.slice(entry.offset, entry.offset + entry.compressedSize)
   if (entry.method === 0) {
@@ -55,17 +60,24 @@ async function entryBytes(source: Uint8Array, entry: ZipEntry): Promise<Uint8Arr
   }
   if (entry.method !== 8) throw new Error('Unsupported image compression')
   const reader = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader()
+  const cancel = () => { void reader.cancel().catch(() => {}) }
+  signal?.addEventListener('abort', cancel, { once: true })
   const chunks: Uint8Array[] = []
   let length = 0
   try {
     while (true) {
+      signal?.throwIfAborted()
       const next = await reader.read()
+      signal?.throwIfAborted()
       if (next.done) break
       length += next.value.length
       if (length > entry.size || length > DOCX_PREVIEW_IMAGE_LIMITS.imageBytes) throw new Error('Inflated image exceeds preview limits')
       chunks.push(next.value)
     }
-  } finally { await reader.cancel().catch(() => {}) }
+  } finally {
+    signal?.removeEventListener('abort', cancel)
+    await reader.cancel().catch(() => {})
+  }
   if (length !== entry.size) throw new Error('Invalid inflated image size')
   const bytes = new Uint8Array(length)
   let offset = 0
@@ -101,29 +113,33 @@ export function docxImageDimensions(bytes: Uint8Array, mime: string): { width: n
   return undefined
 }
 
-export async function extractDocxPreviewImages(source: Uint8Array, document: NativeDocxDocumentV1): Promise<Map<string, DocxPreviewImage>> {
+export async function extractDocxPreviewImages(source: Uint8Array, document: NativeDocxDocumentV1, signal?: AbortSignal): Promise<Map<string, DocxPreviewImage>> {
   const output = new Map<string, DocxPreviewImage>()
-  if (source.length > DOCX_PREVIEW_IMAGE_LIMITS.packageBytes || source.length < 22 || await digest(source) !== document.source.package_sha256) return output
+  if (signal?.aborted || source.length > DOCX_PREVIEW_IMAGE_LIMITS.packageBytes || source.length < 22) return output
+  try { if (await digest(source, signal) !== document.source.package_sha256) return output } catch { return output }
   let entries: Map<string, ZipEntry>
   try { entries = zipEntries(source) } catch { return output }
   let totalBytes = 0
   let totalPixels = 0
   let attempts = 0
   for (const part of document.passthrough_parts) {
+    if (signal?.aborted) return new Map()
     if (output.size >= DOCX_PREVIEW_IMAGE_LIMITS.images) break
     if (part.content_type !== 'image/png' && part.content_type !== 'image/jpeg') continue
     if (++attempts > DOCX_PREVIEW_IMAGE_LIMITS.images) break
     const entry = entries.get(part.part_name)
     if (!entry || entry.size !== part.byte_length || totalBytes + entry.size > DOCX_PREVIEW_IMAGE_LIMITS.totalBytes) continue
+    // Reserve before attempting inflation: corrupt/truncated/forged entries
+    // consume the same work budget as successfully decoded media.
+    totalBytes += entry.size
     try {
-      const bytes = await entryBytes(source, entry)
-      totalBytes += bytes.length
-      if (await digest(bytes) !== part.sha256) continue
+      const bytes = await entryBytes(source, entry, signal)
+      if (await digest(bytes, signal) !== part.sha256) continue
       const size = docxImageDimensions(bytes, part.content_type)
       if (!size || !size.width || !size.height || size.width * size.height > DOCX_PREVIEW_IMAGE_LIMITS.pixels || totalPixels + size.width * size.height > DOCX_PREVIEW_IMAGE_LIMITS.totalPixels) continue
       totalPixels += size.width * size.height
       output.set(part.part_name, { bytes, mime: part.content_type, ...size })
     } catch { /* Unsupported or malformed media stays an explicit placeholder. */ }
   }
-  return output
+  return signal?.aborted ? new Map() : output
 }

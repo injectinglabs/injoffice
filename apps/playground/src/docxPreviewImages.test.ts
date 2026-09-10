@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { deflateRawSync } from 'node:zlib'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { NativeDocxDocumentV1 } from '../../../packages/docs/src/nativeContract'
 import { docxImageDimensions, extractDocxPreviewImages } from './docxPreviewImages'
 
@@ -36,6 +36,43 @@ function fixture(image = png, method = 0) {
 }
 
 describe('source-bound DOCX preview images', () => {
+  it('returns no media when cancelled before or during package hashing', async () => {
+    const { bytes, document } = fixture()
+    const before = new AbortController()
+    before.abort()
+    expect((await extractDocxPreviewImages(bytes, document, before.signal)).size).toBe(0)
+    const during = new AbortController()
+    const pending = extractDocxPreviewImages(bytes, document, during.signal)
+    during.abort()
+    expect((await pending).size).toBe(0)
+  })
+  it('stops cancelled inflation without rejecting a late viewer effect', async () => {
+    const { bytes, document } = fixture(png, 8)
+    const controller = new AbortController()
+    const NativeStream = DecompressionStream
+    vi.stubGlobal('DecompressionStream', class {
+      constructor(format: CompressionFormat) { controller.abort(); return new NativeStream(format) }
+    })
+    try { expect((await extractDocxPreviewImages(bytes, document, controller.signal)).size).toBe(0) }
+    finally { vi.unstubAllGlobals() }
+  })
+  it('reserves cumulative work budget even when every inflation attempt fails', async () => {
+    const { bytes, document } = fixture(png, 8)
+    const view = new DataView(bytes.buffer)
+    const start = view.getUint32(bytes.length - 6, true)
+    view.setUint32(start + 24, 5 * 1024 * 1024, true)
+    document.source.package_sha256 = hash(bytes)
+    const part = { ...document.passthrough_parts[0], byte_length: 5 * 1024 * 1024 }
+    document.passthrough_parts = Array.from({ length: 8 }, () => ({ ...part }))
+    let attempts = 0
+    vi.stubGlobal('DecompressionStream', class {
+      constructor() { attempts++; throw new Error('corrupt compressed stream') }
+    })
+    try {
+      expect((await extractDocxPreviewImages(bytes, document)).size).toBe(0)
+      expect(attempts).toBe(4)
+    } finally { vi.unstubAllGlobals() }
+  })
   it.each([0, 8])('extracts verified embedded PNG using ZIP method %i', async (method) => {
     const { bytes, document } = fixture(png, method)
     const result = await extractDocxPreviewImages(bytes, document)
