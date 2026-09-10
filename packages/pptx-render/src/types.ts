@@ -82,6 +82,7 @@ export type RenderDiagnosticCode =
   | 'text.bidiUnavailable'
   | 'text.verticalUnsupported'
   | 'text.verticalAnchorUnavailable'
+  | 'text.deterministicLayout'
   | 'text.metricsUnavailable'
   | 'text.wrapUnavailable'
   | 'text.paragraphSemanticsUnavailable'
@@ -171,7 +172,9 @@ export interface RenderTextBodyNode {
   readonly kind: 'textBody'
   readonly sourceElementId: string
   readonly bounds: RenderRect
-  readonly fidelity: 'native' | 'nativeUnavailable' | 'legacyUnavailable'
+  readonly fidelity: 'native' | 'deterministicNative' | 'nativeUnavailable' | 'legacyUnavailable'
+  /** Explicit InjOffice line-box policy; does not attest Office visual parity. */
+  readonly lineLayoutPolicy?: 'max-run-natural-v1'
   readonly wrap?: 'square' | 'none'
   readonly verticalAnchor?: 'top' | 'center' | 'bottom'
   readonly autoFit?: 'none'
@@ -330,6 +333,8 @@ export interface NativePptxTextLayout {
 
 export interface CompileSlideOptions {
   readonly textLayout: NativePptxTextLayout
+  /** Opt into measured mixed-run line boxes and anchors, labeled deterministicNative. Omission retains strict qualification. */
+  readonly lineLayoutPolicy?: 'max-run-natural-v1'
   readonly maxDepth?: number
   readonly maxNodes?: number
   readonly maxGlyphs?: number

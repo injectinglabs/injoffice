@@ -74,6 +74,7 @@ interface Budget {
 }
 
 interface CompileState {
+  readonly lineLayoutPolicy?: 'max-run-natural-v1'
   readonly deck: NativePptxDeck
   readonly slide: NativeSlide
   readonly options: CompileSlideOptions
@@ -1508,7 +1509,7 @@ function nativeRunLacksExplicitFont(run: NativeTextRun): boolean {
 }
 
 async function compileParagraphs(paragraphs: readonly NativeParagraph[], context: TextContainerContext, state: CompileState): Promise<readonly RenderParagraphNode[]> {
-  if (context.layout && context.layout.verticalAnchor !== 'top') {
+  if (context.layout && !state.lineLayoutPolicy && context.layout.verticalAnchor !== 'top') {
     throw new TextBodyLayoutRefusal('text.verticalAnchorUnavailable', 'native center/bottom text anchoring requires an Office-qualified line-box rule')
   }
   const result: RenderParagraphNode[] = []
@@ -1572,7 +1573,7 @@ async function compileParagraphs(paragraphs: readonly NativeParagraph[], context
         throw new TextBodyLayoutRefusal('text.metricsUnavailable', 'an empty native paragraph has no digest-bound font metrics for its line box')
       }
       const firstMetric = metricRuns[0]
-      if (context.layout && firstMetric && metricRuns.some((item) =>
+      if (context.layout && !state.lineLayoutPolicy && firstMetric && metricRuns.some((item) =>
         item.ascentMilliPoints !== firstMetric.ascentMilliPoints ||
         item.descentMilliPoints !== firstMetric.descentMilliPoints ||
         item.lineGapMilliPoints !== firstMetric.lineGapMilliPoints
@@ -1582,7 +1583,7 @@ async function compileParagraphs(paragraphs: readonly NativeParagraph[], context
       let ascentMilliPoints = firstMetric?.ascentMilliPoints ?? 0
       let descentMilliPoints = firstMetric?.descentMilliPoints ?? 0
       let lineGapMilliPoints = firstMetric?.lineGapMilliPoints ?? 0
-      if (!context.layout) {
+      if (!context.layout || state.lineLayoutPolicy) {
         for (let metricIndex = 1; metricIndex < metricRuns.length; metricIndex++) {
           const item = metricRuns[metricIndex]!
           if (item.ascentMilliPoints > ascentMilliPoints) ascentMilliPoints = item.ascentMilliPoints
@@ -1650,7 +1651,13 @@ async function compileParagraphs(paragraphs: readonly NativeParagraph[], context
     }
   }
   const offsetX = context.bounds.x
-  const offsetY = context.bounds.y
+  const remainder = context.bounds.cy - y
+  if (!Number.isSafeInteger(remainder)) throw new RenderCompileError('render.textMetric', `$.elements.${context.elementId}.textBody`, 'text anchor remainder exceeds integer precision')
+  // The named policy intentionally specifies floor for half-EMU centers and
+  // signed offsets for overflowing blocks. No browser/Office heuristic enters.
+  const anchorOffset = state.lineLayoutPolicy && context.layout?.verticalAnchor === 'center' ? Math.floor(remainder / 2)
+    : state.lineLayoutPolicy && context.layout?.verticalAnchor === 'bottom' ? remainder : 0
+  const offsetY = context.bounds.y + anchorOffset
   checkCoordinate(offsetX, `$.elements.${context.elementId}.textBody`, state.budget)
   checkCoordinate(offsetY, `$.elements.${context.elementId}.textBody`, state.budget)
   return result.map((paragraph) => {
@@ -1674,9 +1681,12 @@ async function compileTextBody(paragraphs: readonly NativeParagraph[], context: 
   takeNode(state, path)
   try {
     const compiled = await compileParagraphs(paragraphs, context, state)
+    const deterministic = Boolean(context.layout && state.lineLayoutPolicy)
+    if (deterministic) state.diagnostics.push({severity:'warning',code:'text.deterministicLayout',message:'Measured native glyphs use InjOffice max-run-natural-v1 line boxes and anchor offsets; this policy is not an Office visual-equivalence claim.',slideId:state.slide.id,elementId:context.elementId})
     return {
       kind: 'textBody', sourceElementId: context.elementId, bounds: context.bounds,
-      fidelity: context.layout ? 'native' : 'legacyUnavailable',
+      fidelity: deterministic ? 'deterministicNative' : context.layout ? 'native' : 'legacyUnavailable',
+      ...(deterministic ? {lineLayoutPolicy: state.lineLayoutPolicy} : {}),
       wrap: context.layout?.wrap, verticalAnchor: context.layout?.verticalAnchor, autoFit: context.layout?.autoFit,
       horizontalOverflow: context.layout?.horizontalOverflow, verticalOverflow: context.layout?.verticalOverflow,
       status: 'laidOut', paragraphs: compiled,
@@ -1853,6 +1863,8 @@ function canonicalize(value: unknown): unknown {
 
 /** Compile one validated native slide into a deterministic, immutable integer-EMU tree. */
 export async function compileNativePptxSlide(deckInput: NativePptxDeck, slide: number | string, options: CompileSlideOptions): Promise<SlideRenderTree> {
+  const lineLayoutPolicy = options.lineLayoutPolicy
+  if (lineLayoutPolicy !== undefined && lineLayoutPolicy !== 'max-run-natural-v1') throw new RenderCompileError('render.invalidContract', '$.options.lineLayoutPolicy', 'unknown native line layout policy')
   assertNativePptx(deckInput)
   let deck: NativePptxDeck
   try {
@@ -1900,6 +1912,7 @@ export async function compileNativePptxSlide(deckInput: NativePptxDeck, slide: n
   checkCoordinate(deck.size.cx, '$.size.cx', budget, true)
   checkCoordinate(deck.size.cy, '$.size.cy', budget, true)
   const state: CompileState = {
+    lineLayoutPolicy,
     deck,
     slide: nativeSlide,
     options,

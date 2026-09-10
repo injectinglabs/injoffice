@@ -72,6 +72,17 @@ fragments. Mixed metrics visibly refuse as `text.metricsUnavailable`; center/bot
 anchoring likewise refuses as `text.verticalAnchorUnavailable` until an
 Office-qualified leading and text-block-height rule exists. Top anchoring uses the
 validated natural metric box directly.
+Hosts may explicitly select `lineLayoutPolicy: 'max-run-natural-v1'` on
+`compileNativePptxSlide`. This measured, deterministic policy takes each line's
+maximum ascent, minimum descent, and maximum line gap from digest-bound shaped
+fragments, shares the resulting baseline across those fragments, and sums line
+boxes for vertical anchoring. Center offsets floor half-EMU remainders; bottom
+offsets use the full remainder, including negative offsets for overflowing text.
+Outputs carry `fidelity: 'deterministicNative'`, the policy identifier, and an
+explicit warning: these rules do not establish Office pixel equivalence.
+Omitting the option preserves the existing strict refusals. Unknown policies,
+unresolved fonts, unsupported bidi/wrapping, and malformed provider metrics still
+refuse; this option does not authorize font substitution or file mutation.
 Refused native bodies report `fidelity: nativeUnavailable`; only successfully
 qualified layout reports `fidelity: native`.
 

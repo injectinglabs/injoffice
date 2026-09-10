@@ -454,6 +454,37 @@ describe('native PPTX RenderTree', () => {
     expect(shape.textBody?.bounds).toEqual({ x: 10_000, y: 30_000, cx: 470_000, cy: 430_000 })
   })
 
+  it('opts into measured mixed-size lines and integer anchor placement without changing strict defaults', async () => {
+    const elements = (['top','center','bottom'] as const).map(anchor => {
+      const element = nativeTextElement(`mixed-${anchor}`, 'AB', nativeTextBody({wrap:'none',verticalAnchor:anchor}), {x:0,y:0,cx:500000,cy:500001})
+      return {...element, paragraphs:[{align:'left' as const,level:0,bullet:false,runs:[{text:'A',fontSizeHundredthPt:1000},{text:'B',fontSizeHundredthPt:2000}]}]}
+    })
+    const deck=authoredDeck(elements), before=JSON.stringify(deck)
+    const strict=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+    for(const element of elements) expect(findNode(strict,'text',element.id).textBody.status).toBe('refused')
+    const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+    for(const [index,element] of elements.entries()) {
+      const body=findNode(tree,'text',element.id).textBody
+      expect(body).toMatchObject({fidelity:'deterministicNative',lineLayoutPolicy:'max-run-natural-v1',status:'laidOut'})
+      const line=body.paragraphs[0]!
+      expect(line.heightEmu).toBe(304800)
+      expect(line.y).toBe([0,97600,195201][index])
+      expect(line.runs.map(run=>run.baselineY)).toEqual([line.y+203200,line.y+203200])
+    }
+    expect(JSON.stringify(deck)).toBe(before)
+    expect(tree.diagnostics.filter(d=>d.code==='text.deterministicLayout')).toHaveLength(3)
+    await expect(compileNativePptxSlide(deck,0,{textLayout:textLayout(),lineLayoutPolicy:'unknown' as never})).rejects.toMatchObject({path:'$.options.lineLayoutPolicy'})
+  })
+
+  it('anchors the complete multiline block with signed overflow under the named measured policy', async () => {
+    const element=nativeTextElement('overflow-center','A',nativeTextBody({wrap:'none',verticalAnchor:'center'}),{x:0,y:0,cx:500000,cy:100001})
+    element.paragraphs=[...element.paragraphs,...element.paragraphs]
+    const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+    const lines=findNode(tree,'text',element.id).textBody.paragraphs
+    expect(lines.map(line=>line.y)).toEqual([-102400,50000])
+    expect(lines.map(line=>line.runs[0]!.baselineY)).toEqual([-800,151600])
+  })
+
   it('wraps only at modeled shaped-cluster boundaries and leaves native no-wrap text on one overflowing line', async () => {
     const wrapped = nativeTextElement('cluster-wrap', 'AB CD', nativeTextBody(), { x: 0, y: 0, cx: 38_100, cy: 500_000 })
     const noWrap = nativeTextElement('cluster-no-wrap', 'A💡 B', nativeTextBody({ wrap: 'none' }), { x: 0, y: 600_000, cx: 25_400, cy: 500_000 })
