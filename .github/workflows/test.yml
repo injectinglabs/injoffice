@@ -67,6 +67,14 @@ jobs:
         run: |
           node --test scripts/qualify-rendering-corpus.test.mjs
           node scripts/qualify-rendering-corpus.mjs
+      - name: Upload rendering qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rendering-qualification
+          path: artifacts/showcase-browser/rendering-corpus
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload showcase browser diagnostics
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

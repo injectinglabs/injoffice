@@ -9,7 +9,7 @@ const commands = Object.freeze({
   'pdf-geometry': ['scripts/qualify-pdf-pixel-oracle.mjs'],
   'pdf-browser': ['scripts/smoke-demo-ux-browser.mjs', '--built'],
   'docx-native': ['scripts/smoke-docx-native-preview-browser.mjs'],
-  'pptx-crop': ['scripts/smoke-pptx-crop-browser.mjs'],
+  'pptx-crop': ['scripts/smoke-pptx-crop-browser.mjs', '--styles'],
   'office-real-files': ['scripts/smoke-playground-xlsx-wasm-browser.mjs'],
 })
 const formats = { 'pdf-geometry': ['pdf'], 'pdf-browser': ['pdf'], 'docx-native': ['docx'], 'pptx-crop': ['pptx'], 'office-real-files': ['xlsx', 'docx', 'pptx'] }
@@ -32,6 +32,11 @@ async function main() {
   const args = process.argv.slice(2)
   if (args.length && !(args.length === 2 && args[0] === '--case' && Object.hasOwn(commands, args[1]))) throw new Error('Usage: node scripts/qualify-rendering-corpus.mjs [--case CASE_ID]')
   const selected = args.length ? manifest.cases.filter(entry => entry.id === args[1]) : manifest.cases
+  if (selected.some(entry => ['pdf-browser', 'office-real-files'].includes(entry.id))) {
+    let html = ''
+    try { html = readFileSync(resolve(root, 'apps/playground/dist/index.html'), 'utf8') } catch { /* clear prerequisite error below */ }
+    if (!html.includes('/injoffice-smoke/assets/')) throw new Error('First build workspace packages, then: npm run build:renderer -w apps/playground -- --base=/injoffice-smoke/')
+  }
   const output = resolve(process.env.SHOWCASE_OUTPUT || resolve(root, 'artifacts/rendering-corpus'))
   mkdirSync(output, { recursive: true })
   writeFileSync(resolve(output, 'DEJAVU-FONTS-LICENSE.txt'), readFileSync(resolve(root, 'node_modules/dejavu-fonts-ttf/LICENSE')))
