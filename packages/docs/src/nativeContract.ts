@@ -118,6 +118,8 @@ export interface NativeDocxRunV1 {
   anchor: NativeDocxSourceAnchorV1
   properties?: NativeDocxRunPropertiesV1
   text?: string
+  /** Source PAGE/NUMPAGES instruction; cached text is not a rendering authority. */
+  page_field?: 'PAGE' | 'NUMPAGES'
   control?: 'tab' | 'line-break' | 'page-break' | 'column-break' | 'soft-hyphen'
   reference?: NativeDocxReferenceV1
   drawing?: NativeDocxDrawingV1
@@ -362,7 +364,7 @@ export const DOCX_NATIVE_V1_BINDING_FIELDS = {
   RunPropertiesV1: ['character_style_id', 'font_family', 'font_size_half_points', 'bold', 'italic', 'underline', 'color', 'highlight', 'language', 'rtl', 'hidden'],
   DrawingV1: ['id', 'anchor', 'relationship_id', 'media_part', 'content_type', 'name', 'alt_text', 'placement', 'width_emu', 'height_emu', 'x_emu', 'y_emu', 'horizontal_relative_from', 'vertical_relative_from', 'wrap', 'edit_policy'],
   ReferenceV1: ['kind', 'target_id', 'role'],
-  RunV1: ['kind', 'id', 'anchor', 'properties', 'text', 'control', 'reference', 'drawing'],
+  RunV1: ['kind', 'id', 'anchor', 'properties', 'text', 'page_field', 'control', 'reference', 'drawing'],
   NumberingReferenceV1: ['num_id', 'level', 'abstract_num_id'],
   ParagraphPropertiesV1: ['paragraph_style_id', 'numbering', 'alignment', 'keep_next', 'keep_lines', 'page_break_before', 'widow_control'],
   ParagraphV1: ['id', 'anchor', 'edit_policy', 'properties', 'runs'],
@@ -633,6 +635,11 @@ function validateRun(value: unknown, path: string, issues: NativeDocxValidationI
   trackId(entry.id, `${path}/id`, issues, ids)
   const runAnchor = validateAnchor(entry.anchor, `${path}/anchor`, issues, ownerPart, parentAnchor)
   if (entry.properties !== undefined) validateRunProperties(entry.properties, `${path}/properties`, issues)
+  if (entry.page_field !== undefined) {
+    enumValue(entry.page_field, `${path}/page_field`, ['PAGE', 'NUMPAGES'], issues)
+    if (kind !== 'text') add(issues, 'INVALID_UNION', `${path}/page_field`, 'page field requires a text run')
+    if (entry.text !== '') add(issues, 'INVALID_VALUE', `${path}/text`, 'page-field source text must be empty; cached text is not authoritative')
+  }
   const payloads = ['text', 'control', 'reference', 'drawing'].filter((key) => entry[key] !== undefined)
   if (payloads.length !== 1 || payloads[0] !== kind) add(issues, 'INVALID_UNION', path, 'run kind must match exactly one payload')
   if (kind === 'text') {

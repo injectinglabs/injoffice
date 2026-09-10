@@ -108,6 +108,7 @@ type NativeRunV1 struct {
 	Anchor     NativeSourceAnchorV1   `json:"anchor"`
 	Properties *NativeRunPropertiesV1 `json:"properties,omitempty"`
 	Text       *string                `json:"text,omitempty"`
+	PageField  string                 `json:"page_field,omitempty"`
 	Control    string                 `json:"control,omitempty"`
 	Reference  *NativeReferenceV1     `json:"reference,omitempty"`
 	Drawing    *NativeDrawingV1       `json:"drawing,omitempty"`
@@ -926,6 +927,15 @@ func (v *nativeValidator) table(table *NativeTableV1, path string, track bool, o
 }
 
 func (v *nativeValidator) run(run *NativeRunV1, path, ownerPart string, parentAnchor *nativeAnchorBounds) {
+	if run.PageField != "" {
+		v.oneOf(run.PageField, path+"/page_field", "PAGE", "NUMPAGES")
+		if run.Kind != "text" {
+			v.add("INVALID_UNION", path+"/page_field", "page field requires a text run")
+		}
+		if run.Text == nil || *run.Text != "" {
+			v.add("INVALID_VALUE", path+"/text", "page-field source text must be empty; cached text is not authoritative")
+		}
+	}
 	v.id(run.ID, path+"/id")
 	runAnchor := v.anchor(&run.Anchor, path+"/anchor", ownerPart, parentAnchor)
 	payloads := 0

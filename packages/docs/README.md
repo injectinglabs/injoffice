@@ -344,8 +344,8 @@ visual paint order, requiring no paint-time text reversal or measurement. It
 also emits RTL/mixed-bidi fragments, exact list-marker glyphs, and bounded
 U+0020-justified lines in visual paint order, requiring no paint-time text
 reversal or measurement. It refuses distributed-character justification,
-underline paint, header/footer tables, shapes, references, fields
-(including cached PAGE results), and unsupported note content. Native note marker
+underline paint, header/footer tables, shapes, references, fields outside the
+page-number subset below, and unsupported note content. Native note marker
 fragments must exactly equal the paginator-assigned decimal label. It also refuses
 system or unaddressed faces, missing glyphs, invalid/mismatched provider output,
 unclosed or overflowing paths, incomplete pages, and all resource overflows.
@@ -373,6 +373,32 @@ Source/style, fragment, font metrics, placement and command order are checked
 again by the request decoder. Other underline styles and custom underline
 colors remain outside this bounded profile. This is a deterministic metric
 policy, not a claim of Word-pixel parity.
+
+Simple decimal `PAGE` and `NUMPAGES` fields in ordinary header/footer paragraphs
+are resolved from the final native body pagination. The Go extractor recognizes
+only an unlocked `w:fldSimple` with an exact `PAGE` or `NUMPAGES` instruction and
+one supported text result run. It discards the cached result, records
+`page_field`, and keeps the paragraph read-only. The raw story-root XML anchor
+digest covers the instruction and cached bytes; the package digest binds the
+complete source. These are integrity joins within the trusted extraction
+pipeline, not signatures from an external authority.
+
+The compiler re-shapes complete header/footer text for each final page, including
+surrounding text and authored alignment. Optional `page_field_variants` in the
+paint request must exactly cover final page order; their source text is checked
+against deterministic decimal substitution. Their full shaping data is included
+in the shaped-lines integrity digest. Native glyphs paint `Page 1 of 2` and
+`Page 2 of 2` even if the source cache says `999`. No cached value is rendered or
+made editable. Low-level consumers must pass the compiler's variants through
+to header/footer layout and paint, not reuse the empty source field as text.
+
+This bounded profile allows at most 64 pages and 100,000 cumulative variant
+fragments (`DOCX_PAGE_FIELD_LIMITS`). Body/note/comment fields, header/footer
+tables, complex `fldChar` fields, nested fields, switches (including
+`MERGEFORMAT`), locked/dirty fields, section numbering formats/restarts, and all
+other field instructions remain refused. Field-dependent body pagination needs
+a separate convergence contract; this implementation makes no Word-pixel parity
+claim. See the [OOXML simple-field definition](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.simplefield?view=openxml-3.0.1).
 
 Stored output should first pass `decodeNativeDocxPagePaintV1`, then
 `decodeNativeDocxPagePaintForRequestV1` for exact request/page/line/glyph/style

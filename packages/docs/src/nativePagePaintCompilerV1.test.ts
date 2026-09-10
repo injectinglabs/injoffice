@@ -19,7 +19,8 @@ import { encodeNativeDOCXFontInventoryV1, nativeDOCXCanonicalWireSHA256V1, type 
 import { decodeNativeDocxPagePaintResourceListV1 } from './nativeImagePagePaintV1.js'
 import { paginateNativeDocxV1 } from './nativePaginationV1.js'
 import { decodeNativeDocxShapedLines } from './nativeShapedLinesContract.js'
-import { decodeNativeDocxPagePaintForRequestV1 } from './nativePagePaintV1.js'
+import { decodeNativeDocxPagePaintForRequestV1, decodeNativeDocxPagePaintRequestV1, nativeDocxPagePaintShapedLinesSha256V1 } from './nativePagePaintV1.js'
+import { nativeDocxPageFieldDocumentV1 } from './nativePageFieldsV1.js'
 
 const require = createRequire(import.meta.url)
 const FONT_BYTES = new Uint8Array(readFileSync(require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf')))
@@ -390,6 +391,56 @@ describe('native DOCX page-paint compiler v1', () => {
     const missing = structuredClone(completed.page_paint_output)
     missing.pages[0]!.commands.pop(); missing.pages[0]!.lines[0]!.command_ids.pop()
     expect(decodeNativeDocxPagePaintForRequestV1(missing, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(false)
+  })
+  it('derives PAGE/NUMPAGES from final pagination in both repeated header and footer, never cached values', async () => {
+    const input = fixture()
+    const document = input.document as NativeDocxDocumentV1
+    const resolved = input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    const second = structuredClone(document.body.blocks[0]!.paragraph!)
+    second.id = 'paragraph:second'; second.anchor = anchor('/w:document[1]/w:body[1]/w:p[2]', 200, 290)
+    second.properties.page_break_before = true
+    second.runs[0]!.id = 'run:second'; second.runs[0]!.anchor = anchor('/w:document[1]/w:body[1]/w:p[2]/w:r[1]', 210, 280)
+    document.body.blocks.push({ kind: 'paragraph', id: second.id, paragraph: second })
+    resolved.paragraphs.push({ ...structuredClone(resolved.paragraphs[0]!), paragraph_id: second.id, properties: { page_break_before: true } })
+    resolved.runs.push({ ...structuredClone(resolved.runs[0]!), run_id: 'run:second', paragraph_id: second.id })
+    const scopes = [second.id, 'run:second']
+    for (const region of ['header', 'footer'] as const) {
+      const paragraph = structuredClone(document.body.blocks[0]!.paragraph!)
+      const root = region === 'header' ? 'hdr' : 'ftr'
+      paragraph.id = `paragraph:${region}`
+      paragraph.anchor = { ...anchor(`/w:${root}[1]/w:p[1]`, 10, 900), part_name: `word/${region}1.xml` }
+      paragraph.runs = ['PAGE', 'NUMPAGES'].map((instruction, index) => ({ kind: 'text', id: `run:${region}:${index}`, anchor: { ...paragraph.anchor, path: `/w:${root}[1]/w:p[1]/w:fldSimple[${index + 1}]/w:r[1]/w:t[1]`, start_byte: 20 + index * 100, end_byte: 80 + index * 100 }, text: '', page_field: instruction as 'PAGE' | 'NUMPAGES' }))
+      document[region === 'header' ? 'headers' : 'footers'].push({ id: `story:${region}`, kind: region, part_name: `word/${region}1.xml`, anchor: { ...paragraph.anchor, path: `/w:${root}[1]`, start_byte: 1, end_byte: 1000 }, blocks: [{ kind: 'paragraph', id: paragraph.id, paragraph }] })
+      document.sections[0]![region === 'header' ? 'header_refs' : 'footer_refs'].push({ kind: 'default', story_id: `story:${region}`, relationship_id: `rId${region}` })
+      resolved.paragraphs.push({ ...structuredClone(resolved.paragraphs[0]!), paragraph_id: paragraph.id, properties: { alignment: 'right' } })
+      for (const run of paragraph.runs) resolved.runs.push({ ...structuredClone(resolved.runs[0]!), run_id: run.id, paragraph_id: paragraph.id })
+      scopes.push(paragraph.id, ...paragraph.runs.map((run) => run.id))
+    }
+    rewriteInventory(input, (inventory) => { inventory.references[0]!.scope_ids.push(...scopes); inventory.references[0]!.scope_ids.sort() })
+    const prepared = await prepareNativeDocxPagePaintV1(input)
+    expect(prepared.page_paint_request.page_field_variants).toHaveLength(2)
+    for (const [index, variant] of prepared.page_paint_request.page_field_variants!.entries()) for (const region of ['header', 'footer']) {
+      const text = variant.shaped_lines.paragraphs.find((p) => p.story_kind === region)!.lines.flatMap((line) => line.fragments).map((fragment) => fragment.text).join('')
+      expect(text).toBe(`${index + 1}2`)
+    }
+    const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+    const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map((request) => ({ status: 'outlined' as const, ...request, ...provider.outline(request.glyph_id) })) })
+    expect(completed.page_paint_output.status).toBe('painted')
+    expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(true)
+    for (const mutate of [
+      (request: typeof prepared.page_paint_request) => { delete request.page_field_variants },
+      (request: typeof prepared.page_paint_request) => { request.page_field_variants!.reverse() },
+      (request: typeof prepared.page_paint_request) => { request.page_field_variants![0]!.shaped_lines = structuredClone(request.page_field_variants![1]!.shaped_lines) },
+    ]) {
+      const invalid = structuredClone(prepared.page_paint_request); mutate(invalid)
+      invalid.integrity.shaped_lines_sha256 = nativeDocxPagePaintShapedLinesSha256V1(invalid.pagination_request.shaped_lines, invalid.page_field_variants)
+      expect(decodeNativeDocxPagePaintRequestV1(invalid).ok).toBe(false)
+    }
+    const stale = structuredClone(document); stale.headers[0]!.blocks[0]!.paragraph!.runs[0]!.text = '999'
+    expect(() => nativeDocxPageFieldDocumentV1(stale, 0, 2)).toThrow(/cached results/)
+    expect(() => nativeDocxPageFieldDocumentV1(document, 0, 65)).toThrow(/bounded/)
+    const bodyField = structuredClone(document); bodyField.body.blocks[0]!.paragraph!.runs[0]!.page_field = 'PAGE'
+    expect(() => nativeDocxPageFieldDocumentV1(bodyField, 0, 2)).toThrow(/only in header/)
   })
   it('paints text highlight behind real glyphs and rejects color/geometry/coverage tampering', async () => {
     const input = fixture()

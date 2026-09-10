@@ -2147,6 +2147,31 @@ func (extractor *nativeExtractor) extractParagraphRuns(partName, paragraphID str
 			}
 			runs = append(runs, extracted...)
 			unsafe = unsafe || runUnsafe
+		case child.Name == (xml.Name{Space: extractor.wordNS, Local: "fldSimple"}):
+			unsafe = true // Field results are never editable text.
+			instruction, present := nativeAttr(child, extractor.wordNS, "instr")
+			instruction = strings.Trim(instruction, " \t\r\n")
+			instructionAttrs := 0
+			for _, attr := range child.Attrs {
+				if attr.Name == (xml.Name{Space: extractor.wordNS, Local: "instr"}) {
+					instructionAttrs++
+				}
+			}
+			if !present || instructionAttrs != 1 || (instruction != "PAGE" && instruction != "NUMPAGES") || !nativeExactContainer(child, xml.Name{Space: extractor.wordNS, Local: "instr"}) || len(child.Children) != 1 || child.Children[0].Name != (xml.Name{Space: extractor.wordNS, Local: "r"}) {
+				extractor.addUnsupported("FIELD_SEMANTICS", "fields", paragraphID, partName, child, "Only an unlocked simple decimal PAGE or NUMPAGES field with one text result run is modeled")
+				continue
+			}
+			extracted, runUnsafe, err := extractor.extractRunNode(partName, paragraphID, child.Children[0])
+			if err != nil {
+				return nil, false, err
+			}
+			if runUnsafe || len(extracted) != 1 || extracted[0].Kind != "text" || !nativeExactContainer(child.Children[0]) || len(directNativeChildren(child.Children[0], extractor.wordNS, "rPr")) > 1 {
+				extractor.addUnsupported("FIELD_SEMANTICS", "fields", paragraphID, partName, child, "Page-field result must be one exact text run; nested fields and controls are refused")
+				continue
+			}
+			extracted[0].PageField = instruction
+			extracted[0].Text = nativeString("") // Ignore stale cache, including nonnumeric values.
+			runs = append(runs, extracted[0])
 		case child.Name == (xml.Name{Space: extractor.wordNS, Local: "hyperlink"}):
 			unsafe = true
 			extractor.addUnsupported("HYPERLINK_SEMANTICS", "hyperlinks", paragraphID, partName, child, "Visible hyperlink text is exposed, while relationship and field semantics remain preserve-only")

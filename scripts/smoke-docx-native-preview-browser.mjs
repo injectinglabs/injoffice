@@ -26,7 +26,7 @@ try {
   const worker = resolve(root, 'apps/docx-page-paint-worker/dist/worker.js')
   if (!existsSync(worker)) throw new Error('Build the workspace packages and DOCX page-paint worker before running this smoke.')
   const fixture = resolve(scratch, 'native-two-pages.docx')
-  await command('go', ['run', './cmd/nativepreviewfixture', '-font', resolve(root, 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf'), '-out', fixture, '-jpeg', '-underline', 'double'], resolve(root, 'go/docxpatch'))
+  await command('go', ['run', './cmd/nativepreviewfixture', '-font', resolve(root, 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf'), '-out', fixture, '-jpeg', '-page-fields', '-underline', 'double'], resolve(root, 'go/docxpatch'))
   const originalHash = hash(readFileSync(fixture))
   const binary = resolve(scratch, process.platform === 'win32' ? 'injoffice-server.exe' : 'injoffice-server')
   await command('go', ['build', '-o', binary, './cmd/injoffice-server'], resolve(root, 'go/injoffice-server'))
@@ -56,7 +56,9 @@ try {
         const digest = await crypto.subtle.digest('SHA-256', bytes);
         window.__nativeDocxPosts.push({ url: String(input), hash: [...new Uint8Array(digest)].map(n => n.toString(16).padStart(2, '0')).join('') });
       }
-      return originalFetch(input, init);
+      const response = await originalFetch(input, init);
+      if (init?.method === 'POST' && String(input).endsWith('/v1/docx/page-preview')) window.__nativeDocxPaint = (await response.clone().json()).page_paint_output;
+      return response;
     };
   }` })
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
@@ -69,15 +71,23 @@ try {
   await poll(() => evaluate(`${native}?.querySelector('svg[aria-label="Native document page 1"] path') !== null && ${native}?.textContent.includes('2 native pages')`), 'real font-shaped native pages', 45000)
   await assert(`window.__nativeDocxPosts.length === 1 && window.__nativeDocxPosts[0].hash === ${JSON.stringify(originalHash)}`, 'preview uploads exact original bytes only after consent')
   await assert(`${native}.querySelectorAll('svg').length === 1 && ${native}.querySelector('svg').getBoundingClientRect().height > 100`, 'one bounded native page is mounted')
+  // DejaVu Sans maps decimal 1/2/9 to glyphs 20/21/28. The generated source
+  // caches 999; its actual native header/footer must instead paint 1 of 2 / 2 of 2.
+  await assert(`window.__nativeDocxPaint.pages.every((page, index) => ['header','footer'].every(region => { const ids=page.lines.filter(line=>line.region===region).flatMap(line=>line.command_ids); const digits=page.commands.filter(command=>ids.includes(command.id)&&command.kind==='fill_glyph_path'&&[20,21,28].includes(command.glyph_id)).map(command=>command.glyph_id); return JSON.stringify(digits)===JSON.stringify([20+index,21]); }))`, 'PAGE/NUMPAGES derive per-page glyphs, never stale 999 cache')
+  await assert(`${native}.querySelectorAll('svg path').length === window.__nativeDocxPaint.pages[0].commands.filter(command=>command.kind==='fill_glyph_path').length`, 'all native field glyph paths mount on page one')
   await poll(async () => await evaluate(`(() => { const image = ${native}?.querySelector('svg image'); return !!image && image.getAttribute('href')?.startsWith('data:image/jpeg;base64,') && image.getAttribute('preserveAspectRatio') === 'none' })()`), 'native JPEG image and source-defined aspect ratio')
   await assert(`(() => { const lines = [...${native}.querySelectorAll('line[data-native-underline]')]; return lines.length > 0 && lines.length % 2 === 0 && lines.every(line => Number(line.getAttribute('x2')) > Number(line.getAttribute('x1')) && Number(line.getAttribute('stroke-width')) > 0 && line.getAttribute('y1') === line.getAttribute('y2')) })()`, 'native double underline uses bounded font-metric strokes')
   await assert(`(async () => { const image = new Image(); image.src = ${native}.querySelector('svg image').getAttribute('href'); await image.decode(); const canvas = document.createElement('canvas'); canvas.width=16; canvas.height=8; const context=canvas.getContext('2d'); context.drawImage(image,0,0); const left=context.getImageData(2,4,1,1).data; const right=context.getImageData(13,4,1,1).data; return image.naturalWidth===16 && image.naturalHeight===8 && left[0]>left[2]+80 && right[2]>right[0]+80 })()`, 'JPEG pixels decode to the generated red/blue pattern')
   await screenshot('docx-native-page-one.png')
-  await assert(`(() => { const svg = ${native}.querySelector('svg'); const background = svg.querySelector('rect[data-native-highlight]'); const glyph = svg.querySelector('path'); return background?.getAttribute('fill') === '#FFFF00' && Number(background.getAttribute('width')) > 0 && Number(background.getAttribute('height')) > 0 && (background.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 })()`, 'source-bound native highlight precedes glyph painting')
+  await assert(`(() => { const svg = ${native}.querySelector('svg'); const background = svg.querySelector('rect[data-native-highlight]'); const glyph = [...svg.querySelectorAll('path')].find(node => background && (background.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)); return background?.getAttribute('fill') === '#FFFF00' && Number(background.getAttribute('width')) > 0 && Number(background.getAttribute('height')) > 0 && !!glyph })()`, 'source-bound native highlight precedes its body glyph painting after the header')
   await click('Next native page')
   await poll(() => evaluate(`${native}?.querySelector('svg[aria-label="Native document page 2"] path') !== null`), 'next native page')
   await assert(`${native}.querySelectorAll('svg').length === 1`, 'navigation keeps a single mounted SVG')
+  await assert(`${native}.querySelectorAll('svg path').length === window.__nativeDocxPaint.pages[1].commands.filter(command=>command.kind==='fill_glyph_path').length`, 'all native field glyph paths mount on page two')
   await screenshot('docx-native-page-two.png')
+  await evaluate(`${native}.querySelector('svg').lastElementChild.scrollIntoView({ block: 'center' })`)
+  await screenshot('docx-native-page-two-footer.png')
+  await evaluate(`${native}.querySelector('h3').scrollIntoView({ block: 'start' })`)
   await click('Previous native page')
   await poll(() => evaluate(`${native}?.querySelector('svg[aria-label="Native document page 1"] path') !== null`), 'previous native page')
   await assert(`${docs}?.dataset.demoDirty !== 'true' && window.__nativeDocxPosts.every(request => request.url.endsWith('/v1/docx/page-preview'))`, 'preview never mutates the document')
@@ -115,7 +125,7 @@ try {
   await assert(`${native}.querySelector('svg') === null && document.querySelectorAll('.docx-editable-run').length > 0 && ${docs}?.dataset.demoDirty !== 'true'`, 'refusal retains approximate editable content and original source')
   await screenshot('docx-native-refusal.png')
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('\n')}`)
-  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
+  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native PAGE/NUMPAGES in both header and footer, stale cache ignored', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
 } catch (error) {
   console.error(`Native DOCX screenshots: ${artifacts}\nHelper diagnostics: ${helperLog}`)
   if (cdp) {

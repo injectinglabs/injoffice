@@ -3301,6 +3301,11 @@
               "signature": "export declare const DOCX_NATIVE_VERSION: 1"
             },
             {
+              "name": "DOCX_PAGE_FIELD_LIMITS",
+              "kind": "const",
+              "signature": "export declare const DOCX_PAGE_FIELD_LIMITS:"
+            },
+            {
               "name": "DOCX_PAGE_PAINT_COMPILER_PROTOCOL",
               "kind": "const",
               "signature": "export declare const DOCX_PAGE_PAINT_COMPILER_PROTOCOL = \"injoffice.docx.page-paint-compiler\""
@@ -3776,6 +3781,11 @@
               "signature": "export interface NativeDocxPageColumnV1"
             },
             {
+              "name": "NativeDocxPageFieldVariantV1",
+              "kind": "type",
+              "signature": "NativeDocxPageFieldVariantV1"
+            },
+            {
               "name": "NativeDocxPageGeometryV1",
               "kind": "interface",
               "signature": "export interface NativeDocxPageGeometryV1"
@@ -3868,7 +3878,7 @@
             {
               "name": "nativeDocxPagePaintShapedLinesSha256V1",
               "kind": "function",
-              "signature": "export declare function nativeDocxPagePaintShapedLinesSha256V1(shapedLines: NativeDocxShapedLinesV1): string"
+              "signature": "export declare function nativeDocxPagePaintShapedLinesSha256V1(shapedLines: NativeDocxShapedLinesV1, pageFieldVariants?: NativeDocxPageFieldVariantV1[]): string"
             },
             {
               "name": "NativeDocxPagePaintSuccessV1",
