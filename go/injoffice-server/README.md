@@ -105,3 +105,10 @@ the subprocess to 30 seconds, and the request context to 45 seconds. Missing
 fonts and unsupported paint stay explicit; a deterministic native layout policy
 is not evidence of PowerPoint pixel equivalence. Keep this unauthenticated
 helper on loopback behind the same deployment restrictions as DOCX preview.
+
+Only image assets referenced by the selected slide (including nested groups)
+are read from the uploaded ZIP, with exact part-name, length, source-anchor and
+SHA-256 checks. No part name is used as a filesystem path or external URL.
+The bridge permits at most 256 PNG/JPEG assets, 32 nesting levels and 8 MiB of
+cumulative uncompressed image bytes. Worker raster validation and browser
+decode/pixel budgets apply in addition; original package bytes stay unchanged.
