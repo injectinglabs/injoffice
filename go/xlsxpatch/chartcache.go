@@ -74,7 +74,6 @@ func chartReferenceCache(read func(string) (string, bool), ref string, numeric, 
 	type cell struct {
 		Ref     string `xml:"r,attr"`
 		Type    string `xml:"t,attr"`
-		Style   string `xml:"s,attr"`
 		Formula *struct {
 			Ref string `xml:"ref,attr"`
 		} `xml:"f"`
@@ -146,8 +145,10 @@ func chartReferenceCache(read func(string) (string, bool), ref string, numeric, 
 			if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
 				return ""
 			}
-			// Formatted dates/numbers are not display strings without a formatter.
-			if !numeric && item.Style != "" && item.Style != "0" {
+			// Even omitted style or style 0 can have a custom number format or
+			// inherit a row/column style. Without full effective-style formatting,
+			// raw numbers are not proven display strings for category/name caches.
+			if !numeric {
 				return ""
 			}
 		case "inlineStr":
@@ -160,7 +161,7 @@ func chartReferenceCache(read func(string) (string, bool), ref string, numeric, 
 				return ""
 			}
 			if !sharedLoaded {
-				raw, ok := read("xl/sharedStrings.xml")
+				raw, ok := chartSharedStringsPart(read)
 				if !ok || len(raw) > 32*1024*1024 || xml.Unmarshal([]byte(raw), &shared) != nil {
 					return ""
 				}
@@ -181,4 +182,33 @@ func chartReferenceCache(read func(string) (string, bool), ref string, numeric, 
 		tag, format = "numCache", "<c:formatCode>General</c:formatCode>"
 	}
 	return fmt.Sprintf(`<c:%s>%s<c:ptCount val="%d"/>%s</c:%s>`, tag, format, count, points.String(), tag)
+}
+
+func chartSharedStringsPart(read func(string) (string, bool)) (string, bool) {
+	rels, ok := read("xl/_rels/workbook.xml.rels")
+	if !ok || len(rels) > 32*1024*1024 {
+		return "", false
+	}
+	routes, err := parseRoutingRelationships([]byte(rels))
+	if err != nil {
+		return "", false
+	}
+	id := ""
+	for _, route := range routes {
+		if route.relType != relTypeSharedStringsTransitional && route.relType != relTypeSharedStringsStrict {
+			continue
+		}
+		if id != "" {
+			return "", false
+		}
+		id = route.id
+	}
+	if id == "" {
+		return "", false
+	}
+	part, err := relTargetOfType(rels, id, "xl", relTypeSharedStringsTransitional, relTypeSharedStringsStrict)
+	if err != nil {
+		return "", false
+	}
+	return read(part)
 }

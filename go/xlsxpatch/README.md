@@ -33,13 +33,16 @@ The module can read and write charts and shapes, hydrate/add/update/remove nativ
 caches from the current workbook's literal cells. Supported references are
 single-sheet, single-row or single-column ranges of up to 10,000 cells; inline
 and shared strings are supported, including rich-text string concatenation.
+Shared strings resolve through the workbook relationship, never a guessed part path.
 Blank points retain their range index. Scatter categories use numeric caches.
 
 Unsupported references, errors, formula cells (even with cached results),
-shared/array-formula dependents, and formatted numeric category labels omit the
+shared/array-formula dependents, and numeric category/name labels omit the
 affected cache rather than inventing values. The original range reference is
 retained so a capable consumer can calculate it. An unresolved `NameRef` no
-longer receives a guessed cache from the caller's `Name` field.
+longer receives a guessed cache from the caller's `Name` field. Numeric labels
+are conservative omissions until effective-style formatting is available: even
+style 0 or an omitted cell style can display a date instead of its raw number.
 
 These are creation/update-time snapshots, not a recalculation engine. Later
 cell edits preserve unrelated chart parts; hosts must call `UpdateChart` for

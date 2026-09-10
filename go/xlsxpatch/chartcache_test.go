@@ -9,6 +9,7 @@ func TestChartReferenceCachesLiteralRanges(t *testing.T) {
 	entries := fixtureWorkbook(false)
 	entries["xl/worksheets/sheet1.xml"] = `<worksheet><sheetData><row r="1"><c r="B1" t="inlineStr"><is><t>Actual &amp; planned</t></is></c></row><row r="2"><c r="A2" t="s"><v>0</v></c><c r="B2"><v>1200.5</v></c></row><row r="4"><c r="A4" t="inlineStr"><is><r><t>Food</t></r><r><t> &amp; drink</t></r></is></c><c r="B4"><v>-25</v></c></row></sheetData></worksheet>`
 	entries["xl/sharedStrings.xml"] = `<sst><si><t>Rent</t></si></sst>`
+	entries["xl/_rels/workbook.xml.rels"] = strings.Replace(entries["xl/_rels/workbook.xml.rels"], "</Relationships>", `<Relationship Id="rShared" Type="`+relTypeSharedStringsTransitional+`" Target="sharedStrings.xml"/></Relationships>`, 1)
 	spec := writeSpec("column")
 	spec.Series = spec.Series[:1]
 	spec.Series[0].Name = "Wrong caller label"
@@ -86,5 +87,51 @@ func TestChartCacheReferenceFormsAndNameRefWithoutInventedLabel(t *testing.T) {
 	}
 	if strings.Contains(serTxXML(WriteSeries{Name: "guess", NameRef: "Data!A1"}, 0), "strCache") {
 		t.Fatal("guessed series cache")
+	}
+}
+
+func TestChartCachesResolveActualSharedStringRelationship(t *testing.T) {
+	entries := fixtureWorkbook(false)
+	entries["xl/worksheets/sheet1.xml"] = `<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>`
+	entries["xl/sharedStrings.xml"] = `<sst><si><t>Decoy</t></si></sst>`
+	entries["xl/strings/actual.xml"] = `<sst><si><t>Actual label</t></si></sst>`
+	base := entries["xl/_rels/workbook.xml.rels"]
+	read := func(name string) (string, bool) { value, ok := entries[name]; return value, ok }
+	if got := chartReferenceCache(read, "Data!A1", false, false); got != "" {
+		t.Fatal("used unrelated decoy", got)
+	}
+	for _, relationship := range []string{
+		`<Relationship Id="rShared" Type="` + relTypeSharedStringsTransitional + `" Target="strings/actual.xml"/>`,
+		`<Relationship Id="rShared" Type="` + relTypeSharedStringsStrict + `" Target="/xl/strings/actual.xml"/>`,
+	} {
+		entries["xl/_rels/workbook.xml.rels"] = strings.Replace(base, "</Relationships>", relationship+"</Relationships>", 1)
+		if got := chartReferenceCache(read, "Data!A1", false, false); !strings.Contains(got, "Actual label") || strings.Contains(got, "Decoy") {
+			t.Fatal(got)
+		}
+	}
+	for _, relationships := range []string{
+		`<Relationship Id="rShared" Type="` + relTypeSharedStringsTransitional + `" Target="sharedStrings.xml" TargetMode="External"/>`,
+		`<Relationship Id="rShared" Type="` + relTypeSharedStringsTransitional + `" Target="sharedStrings.xml"/><Relationship Id="rOther" Type="` + relTypeSharedStringsTransitional + `" Target="strings/actual.xml"/>`,
+	} {
+		entries["xl/_rels/workbook.xml.rels"] = strings.Replace(base, "</Relationships>", relationships+"</Relationships>", 1)
+		if got := chartReferenceCache(read, "Data!A1", false, false); got != "" {
+			t.Fatal("ambiguous/external relation", got)
+		}
+	}
+}
+
+func TestChartNumericCategoryOmitsCustomStyleZero(t *testing.T) {
+	for _, style := range []string{"", ` s="0"`} {
+		entries := fixtureWorkbook(false)
+		entries["xl/worksheets/sheet1.xml"] = `<worksheet><sheetData><row r="1"><c r="A1"` + style + `><v>45000</v></c></row></sheetData></worksheet>`
+		entries["xl/styles.xml"] = `<styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/></numFmts><cellXfs count="1"><xf numFmtId="164" applyNumberFormat="1"/></cellXfs></styleSheet>`
+		entries["xl/_rels/workbook.xml.rels"] = strings.Replace(entries["xl/_rels/workbook.xml.rels"], "</Relationships>", `<Relationship Id="rStyle" Type="`+relTypeStylesTransitional+`" Target="styles.xml"/></Relationships>`, 1)
+		read := func(name string) (string, bool) { value, ok := entries[name]; return value, ok }
+		if got := chartReferenceCache(read, "Data!A1", false, false); got != "" {
+			t.Fatal("cached serial number as date label", got)
+		}
+		if got := chartReferenceCache(read, "Data!A1", true, false); !strings.Contains(got, "45000") {
+			t.Fatal("numeric series value unexpectedly lost", got)
+		}
 	}
 }
