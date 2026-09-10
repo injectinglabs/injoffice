@@ -3,7 +3,7 @@ import {readFileSync,writeFileSync,mkdtempSync,rmSync} from 'node:fs'
 import {resolve} from 'node:path'
 import {tmpdir} from 'node:os'
 import {createHash} from 'node:crypto'
-import {compilePptxPreview} from './compile.js'
+import {compilePptxPreview,previewStroke} from './compile.js'
 import {decodePptxPreview} from './contract.js'
 import {prepareNativeRasterResourceV1} from '@injoffice/docs/native-raster'
 const root=resolve(import.meta.dirname,'../../..'),scratch=mkdtempSync(resolve(tmpdir(),'pptx-preview-worker-'))
@@ -19,6 +19,7 @@ function input(){
  return {deck,slide_index:0,package_sha256:'a'.repeat(64),font_manifest_path:manifest}
 }
 describe('actual source-font native PPTX worker',()=>{
+ it('converts source miter thousandths-percent to SVG ratio without silently clamping',()=>{expect(previewStroke({color:'123456',widthEmu:12700,cap:'flat',join:'miter',miterLimit:800000})).toEqual({stroke:'123456',strokeWidth:12700,strokeLinecap:'butt',strokeLinejoin:'miter',strokeMiterlimit:8});expect(()=>previewStroke({color:'123456',widthEmu:12700,join:'miter',miterLimit:0})).toThrow('outside SVG replay range')})
  it('validates owned raster bytes and joins cropped nodes only to admitted resources',async()=>{
   const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64'),before=Buffer.from(bytes)
   const resource=prepareNativeRasterResourceV1('ppt/media/image.png','image/png',bytes)

@@ -2,14 +2,19 @@ import {readFileSync,statSync} from 'node:fs'
 import {isAbsolute} from 'node:path'
 import {createHash} from 'node:crypto'
 import {assertNativePptx,type NativePptxDeck,type NativeElement,type NativeParagraph} from '@injoffice/pptx-native'
-import {compileNativePptxSlide,createRecordingPaintSurface,paintSlideRenderTree,type RenderPathCommand} from '@injoffice/pptx-render'
+import {compileNativePptxSlide,createRecordingPaintSurface,paintSlideRenderTree,type RenderPathCommand,type RenderStroke} from '@injoffice/pptx-render'
 import {createHarfBuzzTextShaperV1,createHarfBuzzOutlineProviderV1,inspectHarfBuzzFontMetricsV1} from '@injoffice/font-metrics/harfbuzz'
 import type {NativeFontManifest,NativeFontResolver,ResolvedFontFace,FontResource} from '@injoffice/font-metrics/layout'
-import {decodePptxPreview,type PreviewNode,type PptxPreview} from './contract.js'
+import {decodePptxPreview,type PreviewNode,type PptxPreview,type PreviewStroke} from './contract.js'
 import {prepareNativeRasterResourceV1,type NativeDocxPagePaintMediaAssetV1} from '@injoffice/docs/native-raster'
 
 const hash=(bytes:Uint8Array)=>`sha256:${createHash('sha256').update(bytes).digest('hex')}` as const
 const object=(v:unknown):Record<string,unknown>=>{if(!v||typeof v!=='object'||Array.isArray(v))throw new TypeError('Expected bounded object');return v as Record<string,unknown>}
+export function previewStroke(stroke:RenderStroke):PreviewStroke {
+ const ratio=stroke.miterLimit===undefined?undefined:stroke.miterLimit/100000
+ if(ratio!==undefined&&(!Number.isFinite(ratio)||ratio<1))throw new Error('DrawingML miter limit is outside SVG replay range')
+ return {stroke:stroke.color,strokeWidth:stroke.widthEmu,strokeLinecap:stroke.cap==='flat'?'butt':stroke.cap,strokeLinejoin:stroke.join,strokeMiterlimit:ratio}
+}
 function fontProviders(path:string){
  if(!isAbsolute(path)||statSync(path).size>65536)throw new Error('Operator font manifest must be an absolute bounded local file')
  const config=object(JSON.parse(readFileSync(path,'utf8')))
@@ -65,7 +70,7 @@ export async function compilePptxPreview(input:unknown):Promise<PptxPreview>{
    case 'path':{
     if(command.headArrow||command.tailArrow){diagnostics.push('Arrowhead replay is not available in this native vector view');current.children.push({kind:'placeholder',rect:{x:0,y:0,cx:300000,cy:100000},label:'Arrowhead unavailable'});break}
     const stroke=command.stroke
-    const paint={fill:command.fill??'none',...(stroke?{stroke:stroke.color,strokeWidth:stroke.widthEmu,strokeLinecap:stroke.cap==='flat'?'butt' as const:stroke.cap,strokeLinejoin:stroke.join,strokeMiterlimit:stroke.miterLimit}:{})}
+    const paint={fill:command.fill??'none',...(stroke?previewStroke(stroke):{})}
     const first=command.path[0]
     if(first?.kind==='rect'||first?.kind==='roundRect')current.children.push({kind:'rect',rect:first.rect,radius:first.kind==='roundRect'?first.radiusEmu:0,...paint})
     else if(first?.kind==='ellipse')current.children.push({kind:'ellipse',rect:first.rect,...paint})
