@@ -578,7 +578,7 @@ export function decodeNativeDocxPagePaintV1(value: unknown): DecodeNativeDocxPag
         const crop = exactObject(command.source_crop, `${commandPath}/source_crop`, DOCX_PAGE_PAINT_V1_BINDING_FIELDS.ImageCropV1, issues)
         if (crop && (crop.left !== 0 || crop.top !== 0 || crop.right !== 0 || crop.bottom !== 0 || crop.unit !== 'one-hundred-thousandth')) add(issues, 'INVALID_VALUE', `${commandPath}/source_crop`, 'v1 image crop must be the explicit full source rectangle')
         const transform = exactObject(command.transform, `${commandPath}/transform`, DOCX_PAGE_PAINT_V1_BINDING_FIELDS.ImageTransformV1, issues)
-        if (transform && (transform.rotation_degrees !== 0 || transform.flip_horizontal !== false || transform.flip_vertical !== false)) add(issues, 'INVALID_VALUE', `${commandPath}/transform`, 'v1 image transform must be explicit identity')
+        if (transform && (transform.rotation_degrees !== 0 && transform.rotation_degrees !== 180 || typeof transform.flip_horizontal !== 'boolean' || typeof transform.flip_vertical !== 'boolean')) add(issues, 'INVALID_VALUE', `${commandPath}/transform`, 'image transform must specify 0/180-degree rotation and explicit flip booleans')
       }
     })
     if (commands.length > DOCX_PAGE_PAINT_LIMITS.maxGlyphs) add(issues, 'LIMIT_EXCEEDED', `${path}/commands`, `commands exceed ${DOCX_PAGE_PAINT_LIMITS.maxGlyphs}`)

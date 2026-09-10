@@ -1,7 +1,8 @@
 /**
  * Exact, bounded media boundary for native DOCX page-paint v1.
  *
- * Embedded, identity-transformed inline PNG and baseline JFIF JPEG pictures
+ * Embedded inline PNG and baseline JFIF JPEG pictures, with extent-preserving
+ * source flips and 0/180-degree rotations,
  * are qualified. The
  * package extractor remains the relationship authority; this module exact-joins
  * its drawing projection to preserved package-part fingerprints and caller-
@@ -58,7 +59,7 @@ export interface NativeDocxQualifiedInlineImageV1 {
   width_millipoints: number
   height_millipoints: number
   source_crop: { left: 0; top: 0; right: 0; bottom: 0; unit: 'one-hundred-thousandth' }
-  transform: { rotation_degrees: 0; flip_horizontal: false; flip_vertical: false }
+  transform: { rotation_degrees: 0 | 180; flip_horizontal: boolean; flip_vertical: boolean }
 }
 
 export type NativeDocxInlineImageQualificationV1 =
@@ -210,6 +211,7 @@ function relationshipPart(ownerPart: string): string {
 }
 
 export function qualifyNativeDocxInlineImageV1(document: NativeDocxDocumentV1, runID: string, drawing: NativeDocxDrawingV1): NativeDocxInlineImageQualificationV1 {
+  if (drawing.rotation_degrees !== undefined && drawing.rotation_degrees !== 0 && drawing.rotation_degrees !== 180 || drawing.flip_horizontal !== undefined && typeof drawing.flip_horizontal !== 'boolean' || drawing.flip_vertical !== undefined && typeof drawing.flip_vertical !== 'boolean') return { ok: false, code: 'unsupported-image', message: 'Inline image transform requires explicit booleans and 0 or 180 degree rotation' }
   if (drawing.placement !== 'inline' || drawing.x_emu !== undefined || drawing.y_emu !== undefined || drawing.wrap !== undefined || drawing.horizontal_relative_from !== undefined || drawing.vertical_relative_from !== undefined) {
     return { ok: false, code: 'unsupported-image', message: 'Only bounded inline pictures without anchor, wrap, or floating offsets are supported' }
   }
@@ -244,7 +246,7 @@ export function qualifyNativeDocxInlineImageV1(document: NativeDocxDocumentV1, r
       width_millipoints: width,
       height_millipoints: height,
       source_crop: { left: 0, top: 0, right: 0, bottom: 0, unit: 'one-hundred-thousandth' },
-      transform: { rotation_degrees: 0, flip_horizontal: false, flip_vertical: false },
+      transform: { rotation_degrees: drawing.rotation_degrees ?? 0, flip_horizontal: drawing.flip_horizontal ?? false, flip_vertical: drawing.flip_vertical ?? false },
     },
   }
 }

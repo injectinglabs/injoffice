@@ -88,6 +88,9 @@ type NativeDrawingV1 struct {
 	Placement              string               `json:"placement"`
 	WidthEMU               *int64               `json:"width_emu"`
 	HeightEMU              *int64               `json:"height_emu"`
+	RotationDegrees        *int64               `json:"rotation_degrees,omitempty"`
+	FlipHorizontal         *bool                `json:"flip_horizontal,omitempty"`
+	FlipVertical           *bool                `json:"flip_vertical,omitempty"`
 	XEMU                   *int64               `json:"x_emu,omitempty"`
 	YEMU                   *int64               `json:"y_emu,omitempty"`
 	HorizontalRelativeFrom *string              `json:"horizontal_relative_from,omitempty"`
@@ -1015,6 +1018,9 @@ func (v *nativeValidator) drawing(drawing *NativeDrawingV1, path, ownerPart stri
 	v.oneOf(drawing.Placement, path+"/placement", "inline", "floating")
 	v.positive(drawing.WidthEMU, path+"/width_emu")
 	v.positive(drawing.HeightEMU, path+"/height_emu")
+	if drawing.RotationDegrees != nil && *drawing.RotationDegrees != 0 && *drawing.RotationDegrees != 180 {
+		v.add("INVALID_VALUE", path+"/rotation_degrees", "bounded inline transforms support only 0 or 180 degrees")
+	}
 	v.optionalSafe(drawing.XEMU, path+"/x_emu")
 	v.optionalSafe(drawing.YEMU, path+"/y_emu")
 	if drawing.Wrap != nil {

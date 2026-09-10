@@ -46,6 +46,15 @@ describe('native document page viewer', () => {
     expect(markup).toContain('preserveAspectRatio="none"')
     expect(markup).toContain('width="200" height="100"')
   })
+  it('replays all source flips and half-turns as exact box-preserving matrices', () => {
+    for (const rotation_degrees of [0, 180] as const) for (const flip_horizontal of [false, true]) for (const flip_vertical of [false, true]) {
+      const sx = flip_horizontal !== (rotation_degrees === 180) ? -1 : 1
+      const sy = flip_vertical !== (rotation_degrees === 180) ? -1 : 1
+      const markup = renderToStaticMarkup(createElement(NativeDocxImage, { command: { kind: 'paint_inline_image', id: 'image:1', line_id: 'line:1', fragment_id: 'fragment:1', source_id: 'run:1', drawing_id: 'drawing:1', asset_id: 'asset:1', x_millipoints: 10, y_millipoints: 20, width_millipoints: 200, height_millipoints: 100, source_crop: { left: 0, top: 0, right: 0, bottom: 0, unit: 'one-hundred-thousandth' }, transform: { rotation_degrees, flip_horizontal, flip_vertical } }, base64: 'AA==' }))
+      expect(markup).toContain(`transform="matrix(${sx} 0 0 ${sy} ${sx < 0 ? 220 : 0} ${sy < 0 ? 140 : 0})"`)
+      expect(markup).toContain('width="200" height="100"')
+    }
+  })
   it('bounds decoded PNG pixels independently of compressed response bytes', () => {
     expect(nativeDocxImagesWithinBudget([{ width_px: 10000, height_px: 10000 }])).toBe(false)
     expect(nativeDocxImagesWithinBudget(Array.from({ length: 3 }, () => ({ width_px: 4000, height_px: 4000 })))).toBe(false)

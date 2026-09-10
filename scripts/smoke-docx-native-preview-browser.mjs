@@ -133,19 +133,39 @@ try {
   await screenshot('docx-native-table-last.png')
   await assert(`window.__nativeDocxPosts.length===3 && window.__nativeDocxPosts[2].hash===${JSON.stringify(tableHash)} && ${docs}?.dataset.demoDirty !== 'true' && ${native}.querySelectorAll('svg').length===1`, 'table navigation retains exact original source and bounded page mounting')
   if (hash(readFileSync(tableFixture)) !== tableHash) throw new Error('Table source fixture changed')
+  const transformedFixture = resolve(scratch, 'native-transformed-image.docx')
+  const transformExport = spawnSync('go', ['test', '-count=1', '-run', '^TestNativePreviewTransformedImageBrowserFixture$', '.'], { cwd: resolve(root, 'go/docxpatch/cmd/nativepreviewfixture'), env: { ...process.env, INJOFFICE_TRANSFORM_FIXTURE_OUTPUT: transformedFixture, INJOFFICE_TRANSFORM_FIXTURE_FONT: resolve(root, 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf') }, encoding: 'utf8', timeout: 60000 })
+  if (transformExport.status !== 0) throw new Error(`Transform fixture export failed: ${transformExport.stderr}\n${transformExport.stdout}`)
+  const transformedHash = hash(readFileSync(transformedFixture))
+  await upload(transformedFixture)
+  await poll(() => evaluate(`${native}?.textContent.includes('Nothing is uploaded') && ${native}?.querySelector('svg') === null`), 'image transform source replacement clears old pages')
+  await assert(`window.__nativeDocxPosts.length === 3`, 'transformed image preview needs explicit consent')
+  await click('Upload to helper and render native pages')
+  await poll(() => evaluate(`${native}?.textContent.includes('2 native pages') && ${native}?.querySelector('svg image') !== null`), 'source-transformed native image', 45000)
+  await assert(`(async () => {
+    const node=${native}.querySelector('svg image'); const x=Number(node.getAttribute('x')), y=Number(node.getAttribute('y')), w=Number(node.getAttribute('width')), h=Number(node.getAttribute('height'));
+    if(node.getAttribute('transform')!==('matrix(-1 0 0 1 '+(2*x+w)+' 0)'))return false;
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width','16');svg.setAttribute('height','8');svg.setAttribute('viewBox',[x,y,w,h].join(' '));svg.appendChild(node.cloneNode(true));
+    const raster=new Image();raster.src='data:image/svg+xml;base64,'+btoa(new XMLSerializer().serializeToString(svg));await raster.decode();
+    const canvas=document.createElement('canvas');canvas.width=16;canvas.height=8;const ctx=canvas.getContext('2d');ctx.drawImage(raster,0,0);const left=ctx.getImageData(2,4,1,1).data,right=ctx.getImageData(13,4,1,1).data;
+    return left[2]>left[0]+80&&right[0]>right[2]+80&&left[3]===255&&right[3]===255;
+  })()`, 'actual SVG raster pixels apply source half-turn plus vertical flip inside the unchanged box')
+  await assert(`window.__nativeDocxPosts.length===4 && window.__nativeDocxPosts[3].hash===${JSON.stringify(transformedHash)} && ${docs}?.dataset.demoDirty !== 'true'`, 'orientation preview sends only unchanged source bytes')
+  if (hash(readFileSync(transformedFixture)) !== transformedHash) throw new Error('Transformed image source changed')
+  await screenshot('docx-native-transformed-image.png')
   // This existing real DOCX has no embedded qualified font assets. It must
   // retain its approximate content view rather than invent native glyphs.
   const unsupported = resolve(scratch, 'unsupported-font.docx')
   writeFileSync(unsupported, Buffer.from(readFileSync(resolve(root, 'apps/playground/public/native-docx/northstar-launch-brief.docx.b64'), 'utf8').trim(), 'base64'))
   await upload(unsupported)
   await poll(() => evaluate(`${native}?.textContent.includes('Nothing is uploaded') && ${native}?.querySelector('svg') === null`), 'source replacement clears stale pages')
-  await assert(`window.__nativeDocxPosts.length === 3`, 'replacement document also requires explicit consent')
+  await assert(`window.__nativeDocxPosts.length === 4`, 'replacement document also requires explicit consent')
   await click('Upload to helper and render native pages')
   await poll(() => evaluate(`${native}?.textContent.includes('original file is unchanged')`), 'unsupported document explicitly refused', 45000)
   await assert(`${native}.querySelector('svg') === null && document.querySelectorAll('.docx-editable-run').length > 0 && ${docs}?.dataset.demoDirty !== 'true'`, 'refusal retains approximate editable content and original source')
   await screenshot('docx-native-refusal.png')
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('\n')}`)
-  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native PAGE/NUMPAGES in both header and footer, stale cache ignored', 'native font-metric double underline', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'real two-column repeating table across four pages', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
+  console.log(JSON.stringify({ result: 'PASS', checks: ['explicit upload consent', 'real embedded-font shaping and pagination', 'paragraph-mark formatting and empty paragraph', 'native SVG glyphs', 'native PAGE/NUMPAGES in both header and footer, stale cache ignored', 'native font-metric double underline', 'native text highlight behind glyphs', 'native JPEG pixels and source extents', 'native PNG pixels and source extents', 'real two-column repeating table across four pages', 'source image flips and half-turn verified in raster pixels', 'image decode failure clears native success', 'bounded page navigation', 'original source unchanged', 'source replacement clears stale output', 'unsupported rendering refusal'], screenshots: artifacts }, null, 2))
 } catch (error) {
   console.error(`Native DOCX screenshots: ${artifacts}\nHelper diagnostics: ${helperLog}`)
   if (cdp) {

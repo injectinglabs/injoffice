@@ -4,7 +4,14 @@ import { decodeNativeDocxPagePaintV1 } from '../../../../packages/docs/src/nativ
 import { DsButton } from '../design-system/primitives'
 
 export function NativeDocxImage({ command, base64, contentType = 'image/png', onError }: { command: NativeDocxPaintInlineImageCommandV1; base64: string; contentType?: 'image/png' | 'image/jpeg'; onError?: () => void }) {
-  return <image x={command.x_millipoints} y={command.y_millipoints} width={command.width_millipoints} height={command.height_millipoints} preserveAspectRatio="none" href={`data:${contentType};base64,${base64}`} onError={onError} />
+  // Reflections and a half-turn commute and retain the exact inline box.
+  // Integer translation avoids browser transform-origin or angle rounding.
+  const rotated = command.transform.rotation_degrees === 180
+  const sx = command.transform.flip_horizontal !== rotated ? -1 : 1
+  const sy = command.transform.flip_vertical !== rotated ? -1 : 1
+  const tx = sx < 0 ? 2 * command.x_millipoints + command.width_millipoints : 0
+  const ty = sy < 0 ? 2 * command.y_millipoints + command.height_millipoints : 0
+  return <image x={command.x_millipoints} y={command.y_millipoints} width={command.width_millipoints} height={command.height_millipoints} transform={`matrix(${sx} 0 0 ${sy} ${tx} ${ty})`} preserveAspectRatio="none" href={`data:${contentType};base64,${base64}`} onError={onError} />
 }
 
 /** Marker admission is not pixel decoding. Check every bounded asset before

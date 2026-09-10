@@ -97,6 +97,9 @@ export interface NativeDocxDrawingV1 {
   placement: 'inline' | 'floating'
   width_emu: number
   height_emu: number
+  rotation_degrees?: 0 | 180
+  flip_horizontal?: boolean
+  flip_vertical?: boolean
   x_emu?: number
   y_emu?: number
   horizontal_relative_from?: string
@@ -362,7 +365,7 @@ export const DOCX_NATIVE_V1_BINDING_FIELDS = {
   CapabilityV1: ['name', 'level', 'detail'],
   PassthroughPartV1: ['part_name', 'content_type', 'byte_length', 'sha256', 'policy'],
   RunPropertiesV1: ['character_style_id', 'font_family', 'font_size_half_points', 'bold', 'italic', 'underline', 'color', 'highlight', 'language', 'rtl', 'hidden'],
-  DrawingV1: ['id', 'anchor', 'relationship_id', 'media_part', 'content_type', 'name', 'alt_text', 'placement', 'width_emu', 'height_emu', 'x_emu', 'y_emu', 'horizontal_relative_from', 'vertical_relative_from', 'wrap', 'edit_policy'],
+  DrawingV1: ['id', 'anchor', 'relationship_id', 'media_part', 'content_type', 'name', 'alt_text', 'placement', 'width_emu', 'height_emu', 'x_emu', 'y_emu', 'horizontal_relative_from', 'vertical_relative_from', 'wrap', 'edit_policy', 'rotation_degrees', 'flip_horizontal', 'flip_vertical'],
   ReferenceV1: ['kind', 'target_id', 'role'],
   RunV1: ['kind', 'id', 'anchor', 'properties', 'text', 'page_field', 'control', 'reference', 'drawing'],
   NumberingReferenceV1: ['num_id', 'level', 'abstract_num_id'],
@@ -618,6 +621,9 @@ function validateDrawing(value: unknown, path: string, issues: NativeDocxValidat
   const placement = enumValue(entry.placement, `${path}/placement`, ['inline', 'floating'], issues)
   integer(entry.width_emu, `${path}/width_emu`, issues, 1)
   integer(entry.height_emu, `${path}/height_emu`, issues, 1)
+  if (entry.rotation_degrees !== undefined && entry.rotation_degrees !== 0 && entry.rotation_degrees !== 180) add(issues, 'INVALID_VALUE', `${path}/rotation_degrees`, 'must equal 0 or 180')
+  booleanValue(entry.flip_horizontal, `${path}/flip_horizontal`, issues, false)
+  booleanValue(entry.flip_vertical, `${path}/flip_vertical`, issues, false)
   integer(entry.x_emu, `${path}/x_emu`, issues, Number.MIN_SAFE_INTEGER, false)
   integer(entry.y_emu, `${path}/y_emu`, issues, Number.MIN_SAFE_INTEGER, false)
   optionalString(entry.horizontal_relative_from, `${path}/horizontal_relative_from`, issues)

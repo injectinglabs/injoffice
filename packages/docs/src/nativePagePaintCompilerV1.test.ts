@@ -442,6 +442,24 @@ describe('native DOCX page-paint compiler v1', () => {
     const bodyField = structuredClone(document); bodyField.body.blocks[0]!.paragraph!.runs[0]!.page_field = 'PAGE'
     expect(() => nativeDocxPageFieldDocumentV1(bodyField, 0, 2)).toThrow(/only in header/)
   })
+  it('exact-joins source-attested inline image flips and half-turns without changing layout extents', async () => {
+    for (const rotation_degrees of [0, 180] as const) for (const flip_horizontal of [false, true]) for (const flip_vertical of [false, true]) {
+      const input = imageFixture()
+      const drawing = (input.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs.find((run) => run.drawing)!.drawing!
+      Object.assign(drawing, { rotation_degrees, flip_horizontal, flip_vertical })
+      const prepared = await prepareNativeDocxPagePaintV1(input)
+      const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+      const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map((request) => ({ status: 'outlined' as const, ...request, ...provider.outline(request.glyph_id) })) })
+      expect(completed.page_paint_output.status).toBe('painted')
+      if (completed.page_paint_output.status !== 'painted') throw new Error('image refused')
+      const command = completed.page_paint_output.pages[0]!.commands.find((command) => command.kind === 'paint_inline_image')!
+      expect(command).toMatchObject({ width_millipoints: 10_000, height_millipoints: 10_000, transform: { rotation_degrees, flip_horizontal, flip_vertical } })
+      expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(true)
+      if (command.kind !== 'paint_inline_image') throw new Error('missing image')
+      command.transform.flip_horizontal = !flip_horizontal
+      expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output, completed.page_paint_request, completed.page_paint_request.outline_provider).ok).toBe(false)
+    }
+  })
   it('paints text highlight behind real glyphs and rejects color/geometry/coverage tampering', async () => {
     const input = fixture()
     ;(input.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs[0]!.properties = { highlight: 'yellow' }

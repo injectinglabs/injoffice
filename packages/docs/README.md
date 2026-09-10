@@ -333,14 +333,15 @@ caller-supplied bytes against that part's byte length and SHA-256, parses bounde
 dimensions, and carries canonical base64 bytes as an output resource. Inline
 image commands retain the exact DrawingML EMU extent projected through the
 integer-only `10/127` milli-point ratio, an explicit full-source crop, and an
-explicit identity transform. Prepared and completed compiler envelopes expose
+explicit source-bound orientation transform. Prepared and completed compiler envelopes expose
 canonical hashes for the complete validated request and output.
 
 Images are restricted to embedded static PNG or baseline JFIF JPEG pictures in `wp:inline` with zero
-distances/effect extents, identity `a:xfrm`, full-source crop, exact integer
+distances/effect extents, extent-preserving `a:xfrm` (0/180-degree rotation and
+horizontal/vertical flips), full-source crop, exact integer
 milli-point geometry, and bounded bytes/pixels. It refuses anchors/floating
 placement, wrapping, remote or external relationships, vectors and other
-raster formats, animation, crop/rotation/flip/effects, mismatched extents, and
+raster formats, animation, crop, quarter-turn/arbitrary rotation, effects, mismatched extents, and
 media digest drift. JPEG support is deliberately bounded to one baseline 8-bit
 grayscale/YCbCr interleaved scan with internal tables and JFIF APP0, following
 [ITU-T T.871](https://www.itu.int/rec/T-REC-T.871). EXIF, ICC, Adobe transforms,

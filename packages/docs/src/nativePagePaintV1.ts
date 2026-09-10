@@ -203,7 +203,7 @@ export interface NativeDocxPaintInlineImageCommandV1 {
   width_millipoints: number
   height_millipoints: number
   source_crop: { left: 0; top: 0; right: 0; bottom: 0; unit: 'one-hundred-thousandth' }
-  transform: { rotation_degrees: 0; flip_horizontal: false; flip_vertical: false }
+  transform: { rotation_degrees: 0 | 180; flip_horizontal: boolean; flip_vertical: boolean }
 }
 
 export interface NativeDocxFillTextHighlightCommandV1 {
@@ -1133,7 +1133,7 @@ export function decodeNativeDocxPagePaintForRequestV1(value: unknown, requestVal
       const resolvedParagraphs = new Map(request.value.pagination_request.resolved_layout.paragraphs.map((paragraph) => [paragraph.paragraph_id, paragraph]))
       const manifestFaces = new Map(request.value.font_manifest.faces.map((face) => [face.faceId, face]))
       const expectedGlyphs: Array<{ pageIndex: number; pageID: string; placedLineID: string; lineID: string; fragmentID: string; sourceID: string; glyphIndex: number; glyphID: number; face?: NativeDocxContentAddressedFaceV1; fontSize?: number; fill: string }> = []
-      const expectedImages: Array<{ pageIndex: number; pageID: string; placedLineID: string; lineID: string; fragmentID: string; sourceID: string; drawingID: string; assetID: string; x: number; y: number; width: number; height: number }> = []
+      const expectedImages: Array<{ pageIndex: number; pageID: string; placedLineID: string; lineID: string; fragmentID: string; sourceID: string; drawingID: string; assetID: string; x: number; y: number; width: number; height: number; transform: NativeDocxPaintInlineImageCommandV1['transform'] }> = []
       const expectedSeparators: Array<{ pageIndex: number; command: NativeDocxStrokeNoteSeparatorCommandV1 }> = []
       const expectedHighlights: Array<{ pageIndex: number; command: NativeDocxFillTextHighlightCommandV1 }> = []
       const highlightIDsByPlacement = new Map<string, string[]>()
@@ -1184,7 +1184,7 @@ export function decodeNativeDocxPagePaintForRequestV1(value: unknown, requestVal
             if (fragment.source_kind === 'image') {
               const run = nativeRuns.get(fragment.source_id)
               const qualified = run?.drawing ? qualifyNativeDocxInlineImageV1(request.value.pagination_request.document, run.id, run.drawing) : undefined
-              if (qualified?.ok) expectedImages.push({ pageIndex, pageID: page.id, placedLineID: placed.id, lineID: line.id, fragmentID: fragment.id, sourceID: fragment.source_id, drawingID: qualified.value.drawing_id, assetID: qualified.value.asset_id, x: fragmentX, y: placed.y_millipoints + line.ascent_millipoints - qualified.value.height_millipoints, width: qualified.value.width_millipoints, height: qualified.value.height_millipoints })
+              if (qualified?.ok) expectedImages.push({ pageIndex, pageID: page.id, placedLineID: placed.id, lineID: line.id, fragmentID: fragment.id, sourceID: fragment.source_id, drawingID: qualified.value.drawing_id, assetID: qualified.value.asset_id, x: fragmentX, y: placed.y_millipoints + line.ascent_millipoints - qualified.value.height_millipoints, width: qualified.value.width_millipoints, height: qualified.value.height_millipoints, transform: qualified.value.transform })
             }
             fragmentX += fragment.advance_inline_millipoints
           })
@@ -1236,6 +1236,7 @@ export function decodeNativeDocxPagePaintForRequestV1(value: unknown, requestVal
       })
       actualImages.forEach((actual, index) => {
         const expected = expectedImages[index]
+        if (expected && !sameWire(actual.command.transform, expected.transform)) add(issues, 'BROKEN_REFERENCE', `/output/pages/${actual.pageIndex}/commands/${actual.commandIndex}/transform`, 'image orientation must exactly match the source drawing transform')
         if (!expected || actual.pageIndex !== expected.pageIndex || actual.page.id !== expected.pageID || actual.command.line_id !== expected.lineID || actual.command.fragment_id !== expected.fragmentID || actual.command.source_id !== expected.sourceID || actual.command.drawing_id !== expected.drawingID || actual.command.asset_id !== expected.assetID || actual.command.x_millipoints !== expected.x || actual.command.y_millipoints !== expected.y || actual.command.width_millipoints !== expected.width || actual.command.height_millipoints !== expected.height || actual.command.id !== paintImageCommandID(expected.placedLineID, expected.fragmentID)) add(issues, 'BROKEN_REFERENCE', `/output/pages/${actual.pageIndex}/commands/${actual.commandIndex}`, 'image command must exact-join its page, line, fragment, drawing, media digest identity, and exact geometry')
       })
     }

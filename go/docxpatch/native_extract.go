@@ -2446,8 +2446,8 @@ func (extractor *nativeExtractor) extractDrawing(partName, paragraphID string, n
 	if !nativeExactPictureNonVisual(picture, aNS, picNS) {
 		return refuse("PICTURE_NONVISUAL_PRESERVED", "Picture nonvisual properties with missing, hidden, or unmodeled semantics remain preserve-only", picture)
 	}
-	if !nativePictureIdentityTransform(picture, aNS, picNS, width, height) {
-		return refuse("PICTURE_TRANSFORM_PRESERVED", "Only identity picture transforms whose DrawingML extent matches the inline extent are projected", picture)
+	if !nativePictureBoundedTransform(picture, aNS, picNS, width, height) {
+		return refuse("PICTURE_TRANSFORM_PRESERVED", "Only flips and 0/180-degree transforms with exact matching DrawingML and inline extents are projected", picture)
 	}
 	blips := nativeDescendants(picture, aNS, "blip")
 	if len(blips) != 1 || !nativeExactLeaf(blips[0], xml.Name{Space: extractor.relNS, Local: "embed"}, xml.Name{Local: "cstate"}) {
@@ -2469,6 +2469,22 @@ func (extractor *nativeExtractor) extractDrawing(partName, paragraphID string, n
 		RelationshipID: nativeString(relID), MediaPart: nativeString(mediaPart), ContentType: nativeString(contentType),
 		Placement: "inline", WidthEMU: nativeInt64(width), HeightEMU: nativeInt64(height),
 		EditPolicy: nativeReadOnlyPolicy("EXTRACT_ONLY", "Native picture extraction does not yet expose guarded drawing replacement"),
+	}
+	xfrm := firstDirectNativeChild(firstDirectNativeChild(picture, picNS, "spPr"), aNS, "xfrm")
+	if rotation, ok := nativeUnqualifiedAttr(xfrm, "rot"); ok {
+		degrees := int64(0)
+		if rotation == "10800000" {
+			degrees = 180
+		}
+		drawing.RotationDegrees = nativeInt64(degrees)
+	}
+	if flip, ok := nativeUnqualifiedAttr(xfrm, "flipH"); ok {
+		value := flip == "1" || flip == "true"
+		drawing.FlipHorizontal = &value
+	}
+	if flip, ok := nativeUnqualifiedAttr(xfrm, "flipV"); ok {
+		value := flip == "1" || flip == "true"
+		drawing.FlipVertical = &value
 	}
 	if value, ok := nativeUnqualifiedAttr(docPr, "name"); ok && value != "" {
 		drawing.Name = nativeString(value)
@@ -2591,7 +2607,7 @@ func nativeExactPictureNonVisual(picture *nativeXMLNode, aNS, picNS string) bool
 	return true
 }
 
-func nativePictureIdentityTransform(picture *nativeXMLNode, aNS, picNS string, width, height int64) bool {
+func nativePictureBoundedTransform(picture *nativeXMLNode, aNS, picNS string, width, height int64) bool {
 	if !nativeExactContainer(picture) || len(picture.Children) != 3 || len(directNativeChildren(picture, picNS, "nvPicPr")) != 1 || len(directNativeChildren(picture, picNS, "blipFill")) != 1 || len(directNativeChildren(picture, picNS, "spPr")) != 1 {
 		return false
 	}
@@ -2619,11 +2635,16 @@ func nativePictureIdentityTransform(picture *nativeXMLNode, aNS, picNS string, w
 		return false
 	}
 	xfrm := xfrms[0]
+	seenTransformAttrs := map[string]bool{}
 	for _, attr := range xfrm.Attrs {
 		if attr.Name.Space != "" || (attr.Name.Local != "rot" && attr.Name.Local != "flipH" && attr.Name.Local != "flipV") {
 			return false
 		}
-		if attr.Name.Local == "rot" && attr.Value != "0" || (attr.Name.Local == "flipH" || attr.Name.Local == "flipV") && attr.Value != "0" && attr.Value != "false" {
+		if seenTransformAttrs[attr.Name.Local] {
+			return false
+		}
+		seenTransformAttrs[attr.Name.Local] = true
+		if attr.Name.Local == "rot" && attr.Value != "0" && attr.Value != "10800000" || (attr.Name.Local == "flipH" || attr.Name.Local == "flipV") && attr.Value != "0" && attr.Value != "false" && attr.Value != "1" && attr.Value != "true" {
 			return false
 		}
 	}
