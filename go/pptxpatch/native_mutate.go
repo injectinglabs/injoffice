@@ -545,6 +545,11 @@ func resolveNativePPTXMutations(deck NativePPTXDeck, operations []NativePPTXMuta
 		if element.Transform.QuarterTurns != nil {
 			return nil, fmt.Errorf("%s: source quarter-turn transforms are preview-only", prefix)
 		}
+		for _, diagnostic := range element.Compatibility.Diagnostics {
+			if diagnostic.Code == "pptx.presentation-text-style-preview" {
+				return nil, fmt.Errorf("%s: presentation level style projection is preview-only", prefix)
+			}
+		}
 		// These flags are omitted from native paragraphs. Equal compatibility
 		// summaries after rewriting cannot prove that local metadata survived.
 		if operation.Kind == NativePPTXReplaceText {
