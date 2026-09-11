@@ -13,6 +13,13 @@ func TestTableFillHLSTint(t *testing.T) {
 	}
 }
 
+func TestTableStyleIDProjectionBudget(t *testing.T) {
+	table := NativeTablePreviewV1{FillPreview: &NativeTableFillPreviewV1{FillStyleIDs: make([]int, 4096), HeaderFontStyleIDs: make([]int, 4096)}}
+	if !nativeTableStyleIDsWithinBudget([]NativeTablePreviewV1{table, table}) || nativeTableStyleIDsWithinBudget([]NativeTablePreviewV1{table, table, table}) {
+		t.Fatal("cumulative style-ID budget not enforced at 16384")
+	}
+}
+
 func TestNativeTableFillQualification(t *testing.T) {
 	for _, blocked := range []string{"", "conditional", "custom", "dxf", "transformed-theme", "missing-theme", "nondefault-fill-zero", "invalid-boolean", "unknown-option", "option-child", "option-text", "explicit-no-fill", "ignored-direct-fill", "named-base-fill"} {
 		parts := nativeWorkbookFixture(false)

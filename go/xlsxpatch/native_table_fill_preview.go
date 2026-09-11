@@ -7,6 +7,19 @@ import (
 	"strings"
 )
 
+func nativeTableStyleIDsWithinBudget(tables []NativeTablePreviewV1) bool {
+	total := 0
+	for _, table := range tables {
+		if p := table.FillPreview; p != nil {
+			total += len(p.FillStyleIDs) + len(p.HeaderFontStyleIDs)
+			if total > 16384 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // Only a measured Medium2 fill subset is qualified. Other table formatting is
 // deliberately not projected into the mutation model or inferred from labels.
 func qualifyNativeTableFillPreview(pkg *nativeWorkbookPackage, tableXML *previewXML, table *NativeTablePreviewV1) {

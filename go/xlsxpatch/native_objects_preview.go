@@ -255,14 +255,8 @@ func InspectNativeWorkbookObjectsV1(data []byte) (*NativeWorkbookObjectsV1, erro
 			return nil, fmt.Errorf("unexpected chart/table root in %s", actual)
 		}
 	}
-	styleIDs := 0
-	for _, table := range result.Tables {
-		if table.FillPreview != nil {
-			styleIDs += len(table.FillPreview.HeaderFontStyleIDs) + len(table.FillPreview.FillStyleIDs)
-			if styleIDs > 16384 {
-				return nil, fmt.Errorf("table preview style IDs exceed cumulative limit 16384")
-			}
-		}
+	if !nativeTableStyleIDsWithinBudget(result.Tables) {
+		return nil, fmt.Errorf("table preview style IDs exceed cumulative limit 16384")
 	}
 	points := 0
 	for _, chart := range result.Charts {

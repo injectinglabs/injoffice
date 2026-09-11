@@ -7,6 +7,12 @@ const objects:NativeWorkbookObjectsV1={protocol:'injoffice.xlsx.preview-objects'
 const fill={origin:'implicit-default' as const}
 const paint=(row:number,column=1,input=objects)=>nativeTableFillPreview(input,revision,'xl/worksheets/sheet1.xml',row,column,fill,0)
 describe('native table fill preview',()=>{
+ it('bounds source-qualified style IDs cumulatively across table palettes',()=>{
+  const ids=Array.from({length:4096},(_,i)=>i)
+  const tables=Array.from({length:3},(_,i)=>({...objects.tables[0]!,part:`xl/tables/t${i}.xml`,fill_preview:{...objects.tables[0]!.fill_preview!,header_font_style_ids:ids,fill_style_ids:ids}}))
+  expect(()=>decodeNativeWorkbookObjectsV1({...objects,tables:tables.slice(0,2)},revision)).not.toThrow()
+  expect(()=>decodeNativeWorkbookObjectsV1({...objects,tables},revision)).toThrow()
+ })
  it('uses white bold headers only for the matched table and default-font styles',()=>{
   expect(nativeTableHeaderTextPreview(objects,revision,'xl/worksheets/sheet1.xml',1,1,fill,0)).toBe(true)
   expect(nativeTableHeaderTextPreview(objects,revision,'xl/worksheets/sheet1.xml',1,1,fill,1)).toBe(false)
