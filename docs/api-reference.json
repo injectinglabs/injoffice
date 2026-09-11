@@ -11725,7 +11725,7 @@
             {
               "name": "nativeTableFillPreview",
               "kind": "function",
-              "signature": "export declare function nativeTableFillPreview(objects: NativeWorkbookObjectsV1, revision: string, sheetPart: string, row: number, column: number, fill: NativeWorkbookFillV2 | undefined): string | undefined"
+              "signature": "export declare function nativeTableFillPreview(objects: NativeWorkbookObjectsV1, revision: string, sheetPart: string, row: number, column: number, fill: NativeWorkbookFillV2 | undefined, styleID: number): string | undefined"
             },
             {
               "name": "nativeTableHeaderTextPreview",
@@ -12306,7 +12306,7 @@
             {
               "name": "nativeTableFillPreview",
               "kind": "function",
-              "signature": "export declare function nativeTableFillPreview(objects: NativeWorkbookObjectsV1, revision: string, sheetPart: string, row: number, column: number, fill: NativeWorkbookFillV2 | undefined): string | undefined"
+              "signature": "export declare function nativeTableFillPreview(objects: NativeWorkbookObjectsV1, revision: string, sheetPart: string, row: number, column: number, fill: NativeWorkbookFillV2 | undefined, styleID: number): string | undefined"
             },
             {
               "name": "nativeTableHeaderTextPreview",

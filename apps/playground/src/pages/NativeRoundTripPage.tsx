@@ -402,7 +402,7 @@ export default function NativeRoundTripPage() {
                           const candidate = activeSheet ? editableMap.get(targetKey({ sheetId: activeSheet.id, row, column })) : undefined
                           const active = candidate && targetKey(candidate) === targetKey(target ?? candidate)
                           const preview = nativeCellPreview(workbook, cell)
-                          const tableFill=objects?nativeTableFillPreview(objects,workbook.source.package_sha256,activeSheet.part_name,row,column,cell?workbook.styles[cell.style_id]?.effective.fill:undefined):undefined
+                          const tableFill=objects?nativeTableFillPreview(objects,workbook.source.package_sha256,activeSheet.part_name,row,column,cell?workbook.styles[cell.style_id]?.effective.fill:undefined,cell?.style_id??-1):undefined
                           const tableHeader=objects&&cell?nativeTableHeaderTextPreview(objects,workbook.source.package_sha256,activeSheet.part_name,row,column,workbook.styles[cell.style_id]?.effective.fill,cell.style_id):false
                           return (
                             <td key={column} className={active ? 'native-cell-active' : undefined} style={{...previewCellStyle(workbook, cell),...(tableFill?{backgroundColor:tableFill}:{}),...(tableHeader?{color:'#FFFFFF',fontWeight:700}:{})}} title={preview.warning ?? (preview.cached ? 'Saved formula result; not recalculated.' : undefined)}>

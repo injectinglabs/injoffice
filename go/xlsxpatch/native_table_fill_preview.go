@@ -85,18 +85,22 @@ func qualifyNativeTableFillPreview(pkg *nativeWorkbookPackage, tableXML *preview
 		return
 	}
 	headerFonts := []int{}
+	defaultFills := []int{}
+	if stylesPart == "" {
+		return
+	}
 	if stylesPart != "" {
 		registry, e := newStyleRegistry(pkg.files[stylesPart])
 		if e != nil || len(registry.fills) == 0 || !registry.fills[0].supported || registry.fills[0].color != nil {
 			return
 		}
 		for id, xf := range registry.cellXfs {
-			if len(headerFonts) >= 4096 {
-				break
-			}
 			base := effectiveCellStyleXF(registry.styleXfs[xf.xfID])
-			if effectiveStyleComponent(xf.fontID, base.fontID, xf.applyFont) == 0 && (xf.applyFont == nil || !*xf.applyFont) {
+			if len(headerFonts) < 4096 && effectiveStyleComponent(xf.fontID, base.fontID, xf.applyFont) == 0 && (xf.applyFont == nil || !*xf.applyFont) {
 				headerFonts = append(headerFonts, id)
+			}
+			if len(defaultFills) < 4096 && effectiveStyleComponent(xf.fillID, base.fillID, xf.applyFill) == 0 && (xf.applyFill == nil || !*xf.applyFill) {
+				defaultFills = append(defaultFills, id)
 			}
 		}
 		styles, e := parsePreviewXML(pkg.files[stylesPart])
@@ -131,7 +135,7 @@ func qualifyNativeTableFillPreview(pkg *nativeWorkbookPackage, tableXML *preview
 	if !ok || len(accent) != 7 {
 		return
 	}
-	table.FillPreview = &NativeTableFillPreviewV1{Header: accent, Stripe: tableLightenHLS(accent, 0.8), Body: "#FFFFFF", HeaderFontStyleIDs: headerFonts}
+	table.FillPreview = &NativeTableFillPreviewV1{Header: accent, Stripe: tableLightenHLS(accent, 0.8), Body: "#FFFFFF", HeaderFontStyleIDs: headerFonts, FillStyleIDs: defaultFills}
 	table.Warnings = []string{"Medium2 header and alternating body fills are previewed from the source theme. Default-font header cells use white bold text; explicit cell formatting retains precedence.", "Table borders, totals-row formatting, differential styles and missing-cell backgrounds are not reproduced by this partial preview."}
 }
 

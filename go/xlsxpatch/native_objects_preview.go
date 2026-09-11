@@ -42,6 +42,7 @@ type NativeTableFillPreviewV1 struct {
 	Stripe             string `json:"stripe"`
 	Body               string `json:"body"`
 	HeaderFontStyleIDs []int  `json:"header_font_style_ids"`
+	FillStyleIDs       []int  `json:"fill_style_ids"`
 }
 type NativeChartPreviewV1 struct {
 	Part     string                       `json:"part"`
@@ -252,6 +253,15 @@ func InspectNativeWorkbookObjectsV1(data []byte) (*NativeWorkbookObjectsV1, erro
 			result.Charts = append(result.Charts, previewChart(root, actual))
 		default:
 			return nil, fmt.Errorf("unexpected chart/table root in %s", actual)
+		}
+	}
+	styleIDs := 0
+	for _, table := range result.Tables {
+		if table.FillPreview != nil {
+			styleIDs += len(table.FillPreview.HeaderFontStyleIDs) + len(table.FillPreview.FillStyleIDs)
+			if styleIDs > 16384 {
+				return nil, fmt.Errorf("table preview style IDs exceed cumulative limit 16384")
+			}
 		}
 	}
 	points := 0

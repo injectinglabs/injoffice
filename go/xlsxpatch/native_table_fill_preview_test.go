@@ -14,7 +14,7 @@ func TestTableFillHLSTint(t *testing.T) {
 }
 
 func TestNativeTableFillQualification(t *testing.T) {
-	for _, blocked := range []string{"", "conditional", "custom", "dxf", "transformed-theme", "missing-theme", "nondefault-fill-zero", "invalid-boolean", "unknown-option", "option-child", "option-text"} {
+	for _, blocked := range []string{"", "conditional", "custom", "dxf", "transformed-theme", "missing-theme", "nondefault-fill-zero", "invalid-boolean", "unknown-option", "option-child", "option-text", "explicit-no-fill", "ignored-direct-fill", "named-base-fill"} {
 		parts := nativeWorkbookFixture(false)
 		parts["Charts/chart1.xml"] = previewChartFixture()
 		parts["Sheets/s1.xml"] = `<worksheet xmlns="` + spreadsheetMLTransitional + `" xmlns:r="` + officeRelNamespaceTransitional + `"><sheetData/><tableParts count="1"><tablePart r:id="table1"/></tableParts></worksheet>`
@@ -24,6 +24,13 @@ func TestNativeTableFillQualification(t *testing.T) {
 		parts["Book/_rels/Workbook.xml.rels"] = strings.Replace(parts["Book/_rels/Workbook.xml.rels"], `</Relationships>`, `<Relationship Id="theme" Type="`+relTypeThemeTransitional+`" Target="../theme/theme1.xml"/></Relationships>`, 1)
 		parts["theme/theme1.xml"] = `<a:theme xmlns:a="` + drawingMLNamespace + `"><a:themeElements><a:clrScheme><a:accent1><a:srgbClr val="156082"/></a:accent1></a:clrScheme></a:themeElements></a:theme>`
 		switch blocked {
+		case "explicit-no-fill":
+			parts["Meta/Styles.style"] = strings.Replace(parts["Meta/Styles.style"], `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>`, `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyFill="1"/>`, 1)
+		case "ignored-direct-fill":
+			parts["Meta/Styles.style"] = strings.Replace(parts["Meta/Styles.style"], `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>`, `<xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="0"/>`, 1)
+		case "named-base-fill":
+			parts["Meta/Styles.style"] = strings.Replace(parts["Meta/Styles.style"], `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>`, `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="2" borderId="0"/>`, 1)
+			parts["Meta/Styles.style"] = strings.Replace(parts["Meta/Styles.style"], `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>`, `<xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0"/>`, 1)
 		case "invalid-boolean":
 			parts["Tables/table.xml"] = strings.Replace(parts["Tables/table.xml"], `showRowStripes="1"`, `showRowStripes="yes"`, 1)
 		case "unknown-option":
@@ -46,10 +53,22 @@ func TestNativeTableFillQualification(t *testing.T) {
 			parts["Meta/Styles.style"] = strings.Replace(parts["Meta/Styles.style"], `<patternFill patternType="none"/>`, `<patternFill patternType="solid"><fgColor rgb="FFAABBCC"/></patternFill>`, 1)
 		}
 		got, err := InspectNativeWorkbookObjectsV1(buildZip(t, parts))
+		if blocked == "ignored-direct-fill" {
+			if err == nil || !strings.Contains(err.Error(), "apply flag is false or absent") {
+				t.Fatalf("existing mismatched apply-flag refusal changed: %v", err)
+			}
+			continue
+		}
 		if err != nil {
 			t.Fatalf("%s: %v", blocked, err)
 		}
 		palette := got.Tables[0].FillPreview
+		if blocked == "explicit-no-fill" || blocked == "named-base-fill" {
+			if palette == nil || len(palette.FillStyleIDs) != 0 {
+				t.Fatalf("%s overwrote direct/inherited fill: %+v", blocked, palette)
+			}
+			continue
+		}
 		if blocked != "" {
 			if palette != nil {
 				t.Fatalf("%s falsely qualified: %+v", blocked, palette)
