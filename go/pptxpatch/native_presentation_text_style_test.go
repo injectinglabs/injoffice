@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func nativeLevelTextFixture(t *testing.T, strict bool, localLevel bool, ambiguous bool) []byte {
+func nativeLevelTextFixture(t *testing.T, strict bool, localLevel bool, ambiguous bool, customize ...func(map[string]string)) []byte {
 	t.Helper()
 	return nativeExtractFixture(t, nativeExtractFixtureOptions{strict: strict, mutate: func(parts map[string]string) {
 		drawing := nsDrawingTransitional
@@ -32,7 +32,33 @@ func nativeLevelTextFixture(t *testing.T, strict bool, localLevel bool, ambiguou
 		}
 		list += `</a:lstStyle>`
 		parts[part] = strings.Replace(slide, `<a:lstStyle/>`, list, 1)
+		for _, update := range customize {
+			update(parts)
+		}
 	}})
+}
+
+func TestNativePresentationLevelMetadataRemainsStrict(t *testing.T) {
+	for _, item := range []struct{ name, from, to string }{
+		{"direct text", `<a:lvl1pPr algn="l"`, `unmodeled<a:lvl1pPr algn="l"`},
+		{"malformed inherited size", `sz="2000"`, `sz="bad"`},
+		{"duplicate level", `</p:defaultTextStyle>`, `<a:lvl1pPr/></p:defaultTextStyle>`},
+		{"unmodeled unused level", `</p:defaultTextStyle>`, `<a:lvl2pPr unsupported="1"/></p:defaultTextStyle>`},
+		{"presentation defPPr", `</p:defaultTextStyle>`, `<a:defPPr><a:defRPr sz="2600"/></a:defPPr></p:defaultTextStyle>`},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			original := nativeLevelTextFixture(t, false, true, false, func(parts map[string]string) {
+				parts["relocated/deck.xml"] = strings.Replace(parts["relocated/deck.xml"], item.from, item.to, 1)
+			})
+			deck, err := ExtractNativePPTX(original, nativeTestExtractOptions())
+			if err == nil {
+				e := deck.Slides[0].Elements[0]
+				if e.Compatibility.Status != NativeCompatibilityStatusRefused || len(*e.Paragraphs) != 0 {
+					t.Fatal("unqualified or malformed default markup painted")
+				}
+			}
+		})
+	}
 }
 
 func TestNativePresentationMatchingLevelStyles(t *testing.T) {

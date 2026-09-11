@@ -53,6 +53,14 @@ is passed to shaping ahead of host language defaults. An explicit host
 presentation-default cascade rules, autofit, vertical flow, or bullet font
 substitution; those remain separate rendering boundaries.
 
+The extractor can resolve self-contained `defaultTextStyle` level entries before
+matching shape-local level entries and direct paragraph/run formatting. Every
+source layer is checked before precedence is applied, and projected targets
+remain read-only. Ambiguous `defPPr` fallback is deliberately not composed into
+this projection: local PowerPoint probes showed it did not behave like an
+ordinary nearer-layer override. Missing formatting, other text inheritance,
+unqualified metadata, and autofit remain unsupported.
+
 Resolver, load, and shaper results are untrusted runtime inputs. The compiler
 normalizes exact known fields into fresh bounded objects, validates face identity,
 digests, decisions, attempted face IDs, metrics, glyphs, and clusters, and refuses
