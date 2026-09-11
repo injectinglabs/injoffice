@@ -383,6 +383,7 @@ function validateParagraph(value: unknown, path: string, issues: NativeDocxValid
   let lineHeightSum = 0
   lines.forEach((line, index) => {
     const lineObject = isObject(line) ? line : null
+    if (lineObject?.exclusion_start_millipoints !== undefined && entry.story_kind !== 'body') add(issues, 'INVALID_VALUE', `${path}/lines/${index}/exclusion_start_millipoints`, 'square-wrap exclusions are supported only in the body story')
     const lineID = lineObject ? stringValue(lineObject.id, `${path}/lines/${index}/id`, [], { pattern: ID, max: 1024 }) : null
     if (lineID && lineIDs.has(lineID)) add(issues, 'DUPLICATE_ID', `${path}/lines/${index}/id`, 'line id is duplicated')
     if (lineID) lineIDs.add(lineID)

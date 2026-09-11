@@ -568,7 +568,7 @@ describe('native DOCX page-paint compiler v1', () => {
       for(const line of overlap){expect(line.x_millipoints).toBe(edge==='left'?172000:72000);expect(line.width_millipoints).toBeLessThanOrEqual(368000)}
       for(const line of below)expect(line.x_millipoints).toBe(72000)
       expect(decodeNativeDocxPagePaintRequestV1(request).ok).toBe(true)
-      const provider=createHarfBuzzOutlineProviderV1({bytes:FONT_BYTES,contentDigest:FONT_DIGEST}),completed=await completeNativeDocxPagePaintV1({prepared,outline_results:prepared.outline_requests.map(request=>({status:'outlined' as const,...request,...provider.outline(request.glyph_id)}))})
+      const provider=createHarfBuzzOutlineProviderV1({bytes:FONT_BYTES,contentDigest:FONT_DIGEST}),completed=await completeNativeDocxPagePaintV1({prepared,outline_results:prepared.outline_requests.map(request=>{const outline=provider.outline(request.glyph_id);return outline.path.length?{status:'outlined' as const,...request,...outline}:{status:'empty' as const,...request,units_per_em:outline.units_per_em}})})
       expect(completed.page_paint_output.status).toBe('painted')
       const tampered=structuredClone(request);tampered.pagination_request.document.body.blocks[0]!.paragraph!.runs[0]!.drawing!.width_emu=1397000
       expect(decodeNativeDocxPagePaintRequestV1(tampered).ok).toBe(false)

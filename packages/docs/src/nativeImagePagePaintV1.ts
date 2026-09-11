@@ -218,6 +218,7 @@ export function qualifyNativeDocxInlineImageV1(document: NativeDocxDocumentV1, r
   if (drawing.rotation_degrees !== undefined && ![0, 90, 180, 270].includes(drawing.rotation_degrees) || drawing.flip_horizontal !== undefined && typeof drawing.flip_horizontal !== 'boolean' || drawing.flip_vertical !== undefined && typeof drawing.flip_vertical !== 'boolean') return { ok: false, code: 'unsupported-image', message: 'Inline image transform requires explicit booleans and quarter-turn rotation' }
   let floating: NativeDocxQualifiedInlineImageV1['floating']
   if (drawing.placement === 'floating') {
+    if (drawing.wrap === 'square' && drawing.rotation_degrees !== undefined && drawing.rotation_degrees !== 0) return { ok: false, code: 'unsupported-image', message: 'Square wrapping requires an unrotated source extent; rotated exclusion bounds are unqualified' }
     let bodyParagraph = false, floatingCount = 0, sameOrder = 0
     for (const block of document.body.blocks) for (const run of block.paragraph?.runs ?? []) {
       if (run.drawing?.placement !== 'floating') continue
