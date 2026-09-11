@@ -133,6 +133,30 @@ func TestNativeTextCheckingFlagsRemainStrict(t *testing.T) {
 	}
 }
 
+func TestNativeTextCheckingLocalFlagsCannotBeLostBehindDefaults(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		input := nativeStyledTextFixture(t, strict, "", func(parts map[string]string) {
+			part := "relocated/slides/slide-a.xml"
+			parts[part] = strings.Replace(parts[part], `<a:defRPr b="0"`, `<a:defRPr dirty="0" b="0"`, 1)
+			parts[part] = strings.Replace(parts[part], `<a:rPr b="1"/>`, `<a:rPr b="1" smtClean="0"/>`, 1)
+		})
+		before := bytes.Clone(input)
+		deck, err := ExtractNativePPTX(input, nativeMutationExtractOptions())
+		if err != nil {
+			t.Fatal(err)
+		}
+		element := deck.Slides[0].Elements[0]
+		paragraphs := nativeMutationParagraphs("Replacement")
+		_, err = ApplyNativePPTXMutations(input, NativePPTXMutationRequest{ExpectedSourceRevision: *deck.SourceRevision, Operations: []NativePPTXMutation{{OperationID: "replace", Kind: NativePPTXReplaceText, ElementID: element.ID, ExpectedFingerprintSHA256: element.Source.FingerprintSHA256, Paragraphs: &paragraphs}}})
+		if err == nil || !strings.Contains(err.Error(), "text checking metadata is preserve-only") {
+			t.Fatalf("expected explicit prewrite checking flag refusal, got %v", err)
+		}
+		if !bytes.Equal(input, before) {
+			t.Fatal("refused mutation changed source bytes")
+		}
+	}
+}
+
 func TestNativeTextCheckingFlagsInShapesAndTablesRemainPreserveOnly(t *testing.T) {
 	for _, strict := range []bool{false, true} {
 		cell := strings.Replace(nativeExactTableCellXML("Checking flags", "l", "FFFFFF"), `<a:rPr `, `<a:rPr dirty="0" smtClean="1" `, 1)

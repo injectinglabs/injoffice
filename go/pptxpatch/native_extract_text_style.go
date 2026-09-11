@@ -231,7 +231,7 @@ func nativeHasTextCheckingMetadata(node *nativeXMLNode, dialect nativeExtractDia
 }
 
 func nativePreserveTextCheckingMetadata(element *NativeElement, node *nativeXMLNode, dialect nativeExtractDialect) {
-	if element.Compatibility.Status != NativeCompatibilityStatusEditable || !nativeHasTextCheckingMetadata(node, dialect) {
+	if element.Compatibility.Status == NativeCompatibilityStatusRefused || !nativeHasTextCheckingMetadata(node, dialect) {
 		return
 	}
 	element.Compatibility.Status = NativeCompatibilityStatusPreserveOnly
