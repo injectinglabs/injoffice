@@ -77,6 +77,7 @@ export function decodeNativeDocxApproximatePagePreviewV1(value: unknown): { ok: 
     const paint = decodeNativeDocxPagePaintV1({ protocol: DOCX_PAGE_PAINT_PROTOCOL, version: DOCX_PAGE_PAINT_VERSION, status: input.status, provenance: input.rendering_provenance, diagnostics: input.diagnostics, resources: input.resources, pages: input.pages })
     if (!paint.ok) return paint
     const settings = paint.value.provenance.pagination_settings
+    if (paint.value.provenance.document_id !== settings.document_id || paint.value.provenance.revision !== settings.revision || paint.value.provenance.package_sha256 !== settings.package_sha256) return invalid('approximate rendering identity does not match retained source settings')
     if (!input.source || Object.keys(input.source).sort().join(',') !== 'document_id,package_sha256,revision,settings_sha256' || input.source.document_id !== settings.document_id || input.source.revision !== settings.revision || input.source.package_sha256 !== settings.package_sha256 || input.source.settings_sha256 !== (settings.settings_sha256 ?? null) || JSON.stringify(input.source_settings_diagnostics) !== JSON.stringify(settings.diagnostics)) return invalid('approximate source facts and retained settings diagnostics do not exact-join')
     return { ok: true, value: input }
   } catch { return invalid('approximate output could not be safely inspected') }

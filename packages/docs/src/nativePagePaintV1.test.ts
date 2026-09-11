@@ -294,6 +294,7 @@ describe('native DOCX page-paint v1', () => {
     expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, reasons: [''] }).ok).toBe(false)
     expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, reasons: ['Everything is exact'] }).ok).toBe(false)
     expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, fidelity: 'exact' }).ok).toBe(false)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, rendering_provenance: { ...approximate.rendering_provenance, package_sha256: `sha256:${'f'.repeat(64)}` } }).ok).toBe(false)
     await expect(compileNativeDocxApproximatePagePreviewV1(request, { ...eligibility, package_sha256: 'wrong' }, new FixtureProvider())).rejects.toThrow('exact-join')
     const ineligible = await compileNativeDocxApproximatePagePreviewV1(request, { ...eligibility, status: 'ineligible', legacy_compatibility_mode: null }, new FixtureProvider())
     expect(ineligible).toMatchObject({ fidelity: 'approximate', status: 'refused', pages: [] })
