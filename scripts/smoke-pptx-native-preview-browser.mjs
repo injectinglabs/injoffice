@@ -81,7 +81,7 @@ try{
  await poll(()=>evaluate(`${section}?.textContent.includes('Exact operator font unavailable')`),'missing exact font refusal',45000)
  await assert(`${section}.querySelector('svg')===null`,'missing font never substitutes browser glyphs')
  if(errors.length)throw new Error(errors.join('\n'))
- console.log(`PPTX real upload → source-bound helper → measured HarfBuzz glyphs/anchors and wrapped hanging bullets → missing-font refusal: PASS (${artifacts})`)
+ console.log(JSON.stringify({result:'PASS',checks:['explicit upload consent and source SHA','measured HarfBuzz glyphs and vertical anchors','wrapped hanging bullets','source crop pixels and image-decode refusal','master defaults without prompt-text leakage','five typed arrow shapes and visible geometry policy','grouped chart-only cached raster preview','missing exact font refusal'],screenshots:artifacts},null,2))
 }finally{cdp?.close();if(chrome)await terminateProcess(chrome.child);await server?.close();if(helper)await terminateProcess(helper);for(const profile of profiles)rmSync(profile,{recursive:true,force:true,maxRetries:10,retryDelay:100});rmSync(scratch,{recursive:true,force:true})}
 async function unusedPort(){const server=createServer();await new Promise(done=>server.listen(0,'127.0.0.1',done));const port=server.address().port;await new Promise(done=>server.close(done));return port}
 async function evaluate(expression){const r=await cdp.send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value}
