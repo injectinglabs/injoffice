@@ -47,7 +47,11 @@ func TestNativePreviewSquareWrapBrowserFixture(t *testing.T) {
 				t.Fatal("floating source missing")
 			}
 			start := strings.LastIndex(xml[:at], "<w:p>")
-			end := at + strings.Index(xml[at:], "</w:p>") + len("</w:p>")
+			endOffset := strings.Index(xml[at:], "</w:p>")
+			if start < 0 || endOffset < 0 {
+				t.Fatal("source paragraph missing")
+			}
+			end := at + endOffset + len("</w:p>")
 			paragraph := xml[start:end]
 			paragraph = strings.Replace(paragraph, "<wp:wrapNone/>", `<wp:wrapSquare wrapText="bothSides"/>`, 1)
 			paragraph = strings.Replace(paragraph, ">3657600<", ">914400<", 1)

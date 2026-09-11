@@ -268,6 +268,7 @@ await assert(`window.__nativeDocxPaint.pages.every((page, index) => ['header','f
   finalPreviewPosts+=1
   await assert(`window.__nativeDocxPosts.length===${finalPreviewPosts}&&window.__nativeDocxPosts[${finalPreviewPosts-1}].hash===${JSON.stringify(squareHash)}&&${docs}?.dataset.demoDirty!=='true'`,'square wrapping leaves source bytes unchanged')
   await screenshot('docx-native-square-wrap.png')
+  console.log('PASS: native source-bound square wrapping excludes the image and restores full line width below it')
   // This existing real DOCX has no embedded qualified font assets. It must
   // retain its approximate content view rather than invent native glyphs.
   const unsupported = resolve(scratch, 'unsupported-font.docx')

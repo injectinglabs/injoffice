@@ -1776,6 +1776,10 @@ function wrapEventGroup(context: NativeShapingContext, paragraphID: string, atom
     const ordinaryStart = direction === 'ltr' ? start + (first ? firstDelta : 0) : end
     const ordinaryWidth = first && firstLineStart !== undefined ? baseWidth - firstLineStart - end : baseWidth - start - end - (first ? firstDelta : 0)
     const { start: startOffset, width } = offeredLineInterval(context, paragraphID, lines.length, first && firstLineStart !== undefined ? firstLineStart : ordinaryStart, ordinaryWidth)
+    if (context.lineIntervals?.[paragraphID]?.[lines.length] && width <= 0) {
+      addDiagnostic(context, { code: 'cluster-overflow', severity: 'unsupported', scope_id: paragraphID, message: 'Source exclusion and paragraph indents leave no positive inline width' })
+      return
+    }
     const line = materializeLine(context, paragraphID, lines.length, [], Math.max(0, width), startOffset, alignment, direction, paragraphMarkMetrics, hardBreakRunID)
     if (line && startOffset !== ordinaryStart && firstLineStart === undefined) line.exclusion_start_millipoints = startOffset
     if (line) lines.push(line)

@@ -38,6 +38,8 @@ import {
 } from './nativeContract.js'
 import { decodeNativeDocxResolvedLayout, type NativeDocxResolvedLayoutInputV1 } from './nativeResolvedLayout.js'
 import { shapeNativeDocxLinesWithParagraphWidthsV1 } from './nativeShapingLines.js'
+import type { NativeDocxLineIntervalPlanV1 } from './nativeShapingLines.js'
+import { hasNativeSquareWrapV1, deriveNativeSquareWrapPlanV1 } from './nativeSquareWrapV1.js'
 import { qualifyNativeDocxTablesV1, nativeDocxTableProjectionSha256V1 } from './nativeTablePagePaintV1.js'
 import { asciiLowerNative, compareNativeCodeUnits } from './nativeDeterminism.js'
 import { decodeNativeDOCXFontInventoryV1, type NativeDOCXFontInventoryV1 } from './nativeFontInventoryV1.js'
@@ -489,16 +491,17 @@ export async function prepareNativeDocxPagePaintV1(input: NativeDocxPagePaintPre
     throw new TypeError('native page-paint compiler refuses table content when any section uses multi-column flow')
   }
   const paragraphWidths = shapingParagraphWidths(document.value, qualifiedTables.paragraph_widths)
-  const solved = await solveNativeDocxLayoutFixedPointV1({ bodyFieldValues: initialBodyFieldValues }, async state => {
+  const squareWrapPresent = hasNativeSquareWrapV1(document.value)
+  const solved = await solveNativeDocxLayoutFixedPointV1({ bodyFieldValues: initialBodyFieldValues, wrapPlan: {} as NativeDocxLineIntervalPlanV1 }, async state => {
   const fieldDocument = bodyFields.length ? nativeDocxBodyPageFieldDocumentV1(document.value,state.bodyFieldValues) : document.value
   const shaped = await shapeNativeDocxLinesWithParagraphWidthsV1({
     protocol: 'injoffice.docx.shaping-request', version: 1,
     document: fieldDocument, resolved_layout: resolved.value, font_manifest: manifest.value,
     available_width_millipoints: dimensions.width, tab_interval_millipoints: dimensions.tab,
-  }, { resolver, shaper }, paragraphWidths)
+  }, { resolver, shaper }, paragraphWidths, state.wrapPlan)
   if (!shaped.ok) failIssues('native shaping failed validation', shaped.issues)
   layoutFragmentWork += shaped.value.paragraphs.reduce((n, paragraph) => n + paragraph.lines.reduce((m, line) => m + line.fragments.length, 0), 0)
-  if (bodyFields.length && layoutFragmentWork > DOCX_PAGE_FIELD_LIMITS.maxFragments) throw new RangeError('Body-field layout solve exceeds cumulative shaping fragment budget')
+  if ((bodyFields.length || squareWrapPresent) && layoutFragmentWork > DOCX_PAGE_FIELD_LIMITS.maxFragments) throw new RangeError('Field/wrap layout solve exceeds cumulative shaping fragment budget')
   const paginationRequest: NativeDocxPaginationRequestV1 = {
     protocol: DOCX_PAGINATION_REQUEST_PROTOCOL,
     version: DOCX_PAGINATION_REQUEST_VERSION,
@@ -513,7 +516,8 @@ export async function prepareNativeDocxPagePaintV1(input: NativeDocxPagePaintPre
   if (!paginated.ok) failIssues('native pagination failed validation', paginated.issues)
   const paginationIssues = validateNativeDocxPaginatedLayoutSourceV1(paginated.value, decodedPagination.value)
   if (paginationIssues.length > 0) failIssues('native pagination source join failed', paginationIssues)
-  return { next: { bodyFieldValues: bodyFields.length ? nativeDocxBodyPageFieldValuesV1(document.value,decodedPagination.value,paginated.value) : {} }, result: { shaped, decodedPagination, paginated } }
+  const wrapPlan = squareWrapPresent ? deriveNativeSquareWrapPlanV1(fieldDocument, resolved.value, shaped.value, paginated.value) : {}
+  return { next: { bodyFieldValues: bodyFields.length ? nativeDocxBodyPageFieldValuesV1(document.value,decodedPagination.value,paginated.value) : {}, wrapPlan }, result: { shaped, decodedPagination, paginated } }
   })
   const { shaped, decodedPagination, paginated } = solved.result
   const hasPageFields = hasNativeDocxPageFieldsV1(decodedPagination.value.document)
@@ -524,7 +528,7 @@ export async function prepareNativeDocxPagePaintV1(input: NativeDocxPagePaintPre
     let fragments = layoutFragmentWork
     for (const page of paginated.value.pages) {
       const fieldDocument = nativeDocxPageFieldDocumentV1(decodedPagination.value.document, page.ordinal, paginated.value.pages.length, nativeDocxPageNumberV1(decodedPagination.value.document, paginated.value, page.ordinal))
-      const variant = await shapeNativeDocxLinesWithParagraphWidthsV1({ protocol: 'injoffice.docx.shaping-request', version: 1, document: fieldDocument, resolved_layout: resolved.value, font_manifest: manifest.value, available_width_millipoints: dimensions.width, tab_interval_millipoints: dimensions.tab }, { resolver, shaper }, paragraphWidths)
+      const variant = await shapeNativeDocxLinesWithParagraphWidthsV1({ protocol: 'injoffice.docx.shaping-request', version: 1, document: fieldDocument, resolved_layout: resolved.value, font_manifest: manifest.value, available_width_millipoints: dimensions.width, tab_interval_millipoints: dimensions.tab }, { resolver, shaper }, paragraphWidths, solved.state.wrapPlan)
       if (!variant.ok) failIssues('page-field shaping failed', variant.issues)
       fragments += variant.value.paragraphs.reduce((n, paragraph) => n + paragraph.lines.reduce((m, line) => m + line.fragments.length, 0), 0)
       if (fragments > DOCX_PAGE_FIELD_LIMITS.maxFragments) throw new RangeError('Page-field expansion exceeds cumulative fragment budget')

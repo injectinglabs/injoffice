@@ -452,7 +452,7 @@ export function decodeNativeDocxPagePaintRequestV1(value: unknown): DecodeNative
   if (!pagination.ok) issues.push(...pagination.issues.map((entry) => ({ ...entry, path: `/pagination_request${entry.path}` })))
   const paginated = decodeNativeDocxPaginatedLayoutForRequest(root.paginated_layout, root.pagination_request)
   if (!paginated.ok) issues.push(...paginated.issues.map((entry) => ({ ...entry, path: `/paginated_layout${entry.path}` })))
-  if (pagination.ok && paginated.ok) {
+  if (pagination.ok && paginated.ok && paginated.value.status === 'paginated') {
     try { deriveNativeSquareWrapPlanV1(pagination.value.document, pagination.value.resolved_layout, pagination.value.shaped_lines, paginated.value, true) }
     catch (error) { add(issues, 'BROKEN_REFERENCE', '/paginated_layout', error instanceof Error ? error.message : 'Square-wrap source placement failed') }
   }

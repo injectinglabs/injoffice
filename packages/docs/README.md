@@ -386,7 +386,7 @@ validator checks marker structure, not entropy decoding; the viewer decodes the
 preserved bytes and the browser smoke verifies generated red/blue JPEG pixels.
 
 Body-paragraph `wp:anchor` pictures also qualify with explicit page-relative
-non-negative offsets, `wrapNone`, zero distances/effects, disabled `simplePos`
+non-negative offsets, `wrapNone` or explicit `wrapSquare wrapText="bothSides"`, zero distances/effects, disabled `simplePos`
 and `locked`, and enabled `allowOverlap`/`layoutInCell`. Their source
 `behindDoc` and `relativeHeight` become `floating_layer` and `stacking_order`.
 The anchor consumes no inline width or image-height line space; its actual
@@ -396,7 +396,15 @@ must handle this additive command and respect global page replay order rather
 than concatenating line-owned commands. At most 128 floating pictures qualify;
 orders must be unique per layer, and images
 must fit wholly inside the page. Header/footer/table anchors, alignment-based
-positions, relative sizing, text wrapping and collision avoidance remain refused.
+positions, relative sizing and collision avoidance remain refused.
+Square wrapping is bounded to unrotated page-edge rectangles leaving one text
+interval in single-column body paragraphs with left/start-aligned LTR text and no
+numbering, tables or notes. Source-derived intervals shape complete lines beside
+the image and restore paragraph width below it. Interior islands, fully blocked
+lines, tight/through wrapping and vertical displacement remain refused. Wrapping
+and body page fields share one eight-pass, cycle-detecting pagination solve;
+final paint validation independently replays the exact source exclusions. Neither
+the original package nor its native source text is modified.
 This is a source-contract implementation, not independently established Word
 pixel parity.
 Quarter turns require explicit unrotated DrawingML extents whose swapped bounds
