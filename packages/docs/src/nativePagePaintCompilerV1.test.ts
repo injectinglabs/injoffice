@@ -1017,6 +1017,25 @@ describe('native DOCX page-paint compiler v1', () => {
       expect(automatic.tables[0]!.grid_widths_millipoints[0]).toBeLessThan(automatic.tables[0]!.grid_widths_millipoints[1]!)
     }
   })
+  it('composes content autofit with a pagination-dependent body field without changing either source', async () => {
+    const input = tableFixture(), document = input.document as NativeDocxDocumentV1, resolved = input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    const table = document.body.blocks[0]!.table!
+    table.layout = 'autofit'
+    const paragraph = structuredClone(table.rows[0]!.cells[0]!.paragraphs[0]!), oldParagraph = paragraph.id, oldRun = paragraph.runs[0]!.id
+    paragraph.id = 'paragraph:after-autofit'; paragraph.runs[0]!.id = 'run:after-autofit'
+    paragraph.properties.page_break_before = true
+    paragraph.runs[0]!.text = ''; paragraph.runs[0]!.page_field = 'PAGE'
+    document.body.blocks.push({kind:'paragraph',id:paragraph.id,paragraph})
+    resolved.paragraphs.push({...structuredClone(resolved.paragraphs.find(p=>p.paragraph_id===oldParagraph)!),paragraph_id:paragraph.id,properties:{page_break_before:true}})
+    resolved.runs.push({...structuredClone(resolved.runs.find(r=>r.run_id===oldRun)!),paragraph_id:paragraph.id,run_id:paragraph.runs[0]!.id})
+    rewriteInventory(input,inventory=>{inventory.references[0]!.scope_ids.push(paragraph.id,paragraph.runs[0]!.id);inventory.references[0]!.scope_ids.sort()})
+    const before=JSON.stringify(document),prepared=await prepareNativeDocxPagePaintV1(input),request=prepared.page_paint_request
+    expect(JSON.stringify(document)).toBe(before)
+    expect(request.body_field_source).toEqual(document)
+    expect(request.pagination_request.document.body.blocks[1]!.paragraph!.runs[0]!.text).toBe('2')
+    expect(request.paginated_layout.status).toBe('paginated')
+    expect(decodeNativeDocxPagePaintRequestV1(request).ok).toBe(true)
+  })
   it('refuses unsatisfied content minima and unsupported autofit spacing/merge policies atomically', async () => {
     for (const mode of ['wide-word', 'indent', 'merge', 'percent'] as const) {
       const input=tableFixture(), document=input.document as NativeDocxDocumentV1, resolved=input.resolved_layout as NativeDocxResolvedLayoutInputV1
