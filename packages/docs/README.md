@@ -359,8 +359,8 @@ and content-addresses its complete selection/placement plan in page-paint
 provenance. Exact left-to-right list-marker fragments are replayed from their
 already-shaped glyphs and numbering provenance.
 
-`vertAlign` remains preserved OOXML only. Native shaping and page paint refuse
-it atomically because v1 has no qualified scale, baseline, and advance metric.
+Text-run `vertAlign` subscript/superscript uses the explicit font-metric profile
+described below; unsupported script metrics or source forms still refuse.
 
 The qualified native-image slice is equally renderer-neutral and
 self-contained: the compiler exact-joins each drawing's internal relationship
@@ -372,11 +372,11 @@ integer-only `10/127` milli-point ratio, an explicit source crop rectangle, and 
 explicit source-bound orientation transform. Prepared and completed compiler envelopes expose
 canonical hashes for the complete validated request and output.
 
-Images are restricted to embedded static PNG or baseline JFIF JPEG pictures in `wp:inline` with zero
+Inline images qualify as embedded static PNG or baseline JFIF JPEG pictures in `wp:inline` with zero
 distances/effect extents, extent-preserving `a:xfrm` (quarter-turn rotation and
 horizontal/vertical flips), bounded source crop, exact integer
-milli-point geometry, and bounded bytes/pixels. It refuses text-wrapping anchors,
-remote or external relationships, vectors and other
+milli-point geometry, and bounded bytes/pixels. Both inline and qualified floating
+images refuse remote or external relationships, vectors and other
 raster formats, animation, negative/extending crop, arbitrary rotation, effects, mismatched extents, and
 media digest drift. JPEG support is deliberately bounded to one baseline 8-bit
 grayscale/YCbCr interleaved scan with internal tables and JFIF APP0, following
@@ -417,12 +417,11 @@ scale). The viewer clips this source rectangle before reflecting/rotating into
 the unchanged layout box; it does not rewrite or resample the original media.
 Selected header/footer inline PNG/JPEG runs use the same
 digest-bound asset join and `paint_inline_image` command as body pictures. V1
-also emits RTL/mixed-bidi fragments and bounded U+0020-justified lines in
-visual paint order, requiring no paint-time text reversal or measurement. It
 also emits RTL/mixed-bidi fragments, exact list-marker glyphs, and bounded
 U+0020-justified lines in visual paint order, requiring no paint-time text
 reversal or measurement. It refuses distributed-character justification,
-underline paint, header/footer tables, shapes, references, fields outside the
+underline styles outside the metric-bound subset below, header/footer tables,
+shapes, references, fields outside the
 page-number subset below, and unsupported note content. Native note marker
 fragments must exactly equal the paginator-assigned decimal label. It also refuses
 system or unaddressed faces, missing glyphs, invalid/mismatched provider output,
