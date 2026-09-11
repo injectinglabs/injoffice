@@ -3142,6 +3142,11 @@
               "signature": "CommentThread"
             },
             {
+              "name": "compileNativeDocxApproximatePagePreviewV1",
+              "kind": "function",
+              "signature": "export declare function compileNativeDocxApproximatePagePreviewV1(value: unknown, eligibilityValue: unknown, outlineProvider: NativeDocxGlyphOutlineProviderV1): Promise<NativeDocxApproximatePagePreviewV1>"
+            },
+            {
               "name": "compileNativeDocxPagePaintV1",
               "kind": "function",
               "signature": "export declare function compileNativeDocxPagePaintV1(value: unknown, outlineProvider: NativeDocxGlyphOutlineProviderV1): Promise<CompileNativeDocxPagePaintV1Result>"
@@ -3175,6 +3180,11 @@
               "name": "CSS_PX_PER_INCH",
               "kind": "const",
               "signature": "export declare const CSS_PX_PER_INCH = 96"
+            },
+            {
+              "name": "decodeNativeDocxApproximatePagePreviewV1",
+              "kind": "export",
+              "signature": "decodeNativeDocxApproximatePagePreviewV1"
             },
             {
               "name": "decodeNativeDocxDocument",
@@ -3310,6 +3320,16 @@
               "name": "DEFAULT_PAGINATION_OPTIONS",
               "kind": "const",
               "signature": "export declare const DEFAULT_PAGINATION_OPTIONS: PaginationOptions"
+            },
+            {
+              "name": "DOCX_APPROXIMATE_PREVIEW_POLICY",
+              "kind": "export",
+              "signature": "DOCX_APPROXIMATE_PREVIEW_POLICY"
+            },
+            {
+              "name": "DOCX_APPROXIMATE_PREVIEW_PROTOCOL",
+              "kind": "export",
+              "signature": "DOCX_APPROXIMATE_PREVIEW_PROTOCOL"
             },
             {
               "name": "DOCX_DEFAULT_TAB_STOP_TWIPS",
@@ -3610,6 +3630,16 @@
               "name": "NATIVE_DOCX_FONT_INVENTORY_VERSION",
               "kind": "const",
               "signature": "export declare const NATIVE_DOCX_FONT_INVENTORY_VERSION: 1"
+            },
+            {
+              "name": "NativeDocxApproximatePagePreviewV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxApproximatePagePreviewV1"
+            },
+            {
+              "name": "NativeDocxApproximationEligibilityV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxApproximationEligibilityV1"
             },
             {
               "name": "NativeDocxAuthoritativeFontAssetV1",
@@ -4487,6 +4517,11 @@
               "signature": "export declare function paginate(blocks: BlockBox[], opts: PaginationOptions): PageLayout"
             },
             {
+              "name": "paginateNativeDocxApproximateLegacyV1",
+              "kind": "function",
+              "signature": "export declare function paginateNativeDocxApproximateLegacyV1(value: unknown, eligibilityValue: unknown):"
+            },
+            {
               "name": "paginateNativeDocxV1",
               "kind": "function",
               "signature": "export declare function paginateNativeDocxV1(value: unknown): PaginateNativeDocxV1Result"
@@ -4545,6 +4580,11 @@
               "name": "renderHeaderFooterTemplate",
               "kind": "function",
               "signature": "export declare function renderHeaderFooterTemplate(template: string, ctx: HeaderFooterContext): string"
+            },
+            {
+              "name": "renderNativeDocxApproximatePagePreviewV1",
+              "kind": "function",
+              "signature": "export declare function renderNativeDocxApproximatePagePreviewV1(input: NativeDocxPagePaintPrepareInputV1, eligibility: unknown, outlineProvider: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineProviderV1, runtime?: { createShaper?: (sourceRevision: string) => HarfBuzzTextShaperV1; fonts?: NativeDocxHostFontsV1; }): Promise<import('./nativeApproximationV1.js').NativeDocxApproximatePagePreviewV1>"
             },
             {
               "name": "ShapeNativeDocxLinesResult",
@@ -4939,9 +4979,24 @@
               "signature": "export declare function createNativeDocxEmbeddedFontResolverV1(inventory: NativeDOCXFontInventoryV1, assetsValue: readonly NativeDocxAuthoritativeFontAssetV1[]): NativeFontResolver"
             },
             {
+              "name": "decodeNativeDocxApproximatePagePreviewV1",
+              "kind": "export",
+              "signature": "decodeNativeDocxApproximatePagePreviewV1"
+            },
+            {
               "name": "decodeNativeDOCXFontInventoryV1",
               "kind": "function",
               "signature": "export declare function decodeNativeDOCXFontInventoryV1(json: string): NativeDOCXFontInventoryV1"
+            },
+            {
+              "name": "DOCX_APPROXIMATE_PREVIEW_POLICY",
+              "kind": "export",
+              "signature": "DOCX_APPROXIMATE_PREVIEW_POLICY"
+            },
+            {
+              "name": "DOCX_APPROXIMATE_PREVIEW_PROTOCOL",
+              "kind": "export",
+              "signature": "DOCX_APPROXIMATE_PREVIEW_PROTOCOL"
             },
             {
               "name": "DOCX_EMBEDDED_FONT_RESOLVER_ID",
@@ -4962,6 +5017,16 @@
               "name": "DOCX_PAGE_PAINT_COMPILER_VERSION",
               "kind": "const",
               "signature": "export declare const DOCX_PAGE_PAINT_COMPILER_VERSION: 1"
+            },
+            {
+              "name": "NativeDocxApproximatePagePreviewV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxApproximatePagePreviewV1"
+            },
+            {
+              "name": "NativeDocxApproximationEligibilityV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxApproximationEligibilityV1"
             },
             {
               "name": "NativeDocxAuthoritativeFontAssetV1",
@@ -5002,6 +5067,11 @@
               "name": "prepareNativeDocxPagePaintV1",
               "kind": "function",
               "signature": "export declare function prepareNativeDocxPagePaintV1(input: NativeDocxPagePaintPrepareInputV1, runtime?: { createShaper?: (sourceRevision: string) => HarfBuzzTextShaperV1; fonts?: NativeDocxHostFontsV1; }): Promise<NativeDocxPagePaintPreparedV1>"
+            },
+            {
+              "name": "renderNativeDocxApproximatePagePreviewV1",
+              "kind": "function",
+              "signature": "export declare function renderNativeDocxApproximatePagePreviewV1(input: NativeDocxPagePaintPrepareInputV1, eligibility: unknown, outlineProvider: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineProviderV1, runtime?: { createShaper?: (sourceRevision: string) => HarfBuzzTextShaperV1; fonts?: NativeDocxHostFontsV1; }): Promise<import('./nativeApproximationV1.js').NativeDocxApproximatePagePreviewV1>"
             }
           ]
         },
@@ -5009,6 +5079,11 @@
           "subpath": "./native-page-paint-output",
           "file": "nativePagePaintOutputV1.d.ts",
           "symbols": [
+            {
+              "name": "decodeNativeDocxApproximatePagePreviewV1",
+              "kind": "function",
+              "signature": "export declare function decodeNativeDocxApproximatePagePreviewV1(value: unknown):"
+            },
             {
               "name": "decodeNativeDocxPagePaintV1",
               "kind": "function",
@@ -5018,6 +5093,21 @@
               "name": "DecodeNativeDocxPagePaintV1Result",
               "kind": "type",
               "signature": "export type DecodeNativeDocxPagePaintV1Result ="
+            },
+            {
+              "name": "DOCX_APPROXIMATE_PREVIEW_POLICY",
+              "kind": "const",
+              "signature": "export declare const DOCX_APPROXIMATE_PREVIEW_POLICY: 'current-layout-approximate-v1'"
+            },
+            {
+              "name": "DOCX_APPROXIMATE_PREVIEW_PROTOCOL",
+              "kind": "const",
+              "signature": "export declare const DOCX_APPROXIMATE_PREVIEW_PROTOCOL: 'injoffice.docx.approximate-page-preview'"
+            },
+            {
+              "name": "DOCX_APPROXIMATE_PREVIEW_WARNING",
+              "kind": "const",
+              "signature": "export declare const DOCX_APPROXIMATE_PREVIEW_WARNING: 'Approximate read-only preview: current InjOffice layout, not Microsoft Word compatibility-mode fidelity.'"
             },
             {
               "name": "DOCX_PAGE_PAINT_LIMITS",
@@ -5033,6 +5123,11 @@
               "name": "DOCX_PAGE_PAINT_VERSION",
               "kind": "const",
               "signature": "export declare const DOCX_PAGE_PAINT_VERSION: 1"
+            },
+            {
+              "name": "NativeDocxApproximatePagePreviewV1",
+              "kind": "type",
+              "signature": "NativeDocxApproximatePagePreviewV1"
             },
             {
               "name": "NativeDocxFillTextHighlightCommandV1",
@@ -7058,7 +7153,7 @@
             {
               "name": "NativeWasmOperation",
               "kind": "type",
-              "signature": "export type NativeWasmOperation = 'init' | 'extract' | 'apply'"
+              "signature": "export type NativeWasmOperation = 'init' | 'extract' | 'inspect' | 'apply'"
             },
             {
               "name": "NativeWasmOperationOptions",
@@ -8057,6 +8152,11 @@
               "signature": "export interface PdfDocumentInfo"
             },
             {
+              "name": "PdfLoadOptions",
+              "kind": "type",
+              "signature": "export interface PdfLoadOptions"
+            },
+            {
               "name": "PdfOutlineItem",
               "kind": "type",
               "signature": "export interface PdfOutlineItem"
@@ -8341,6 +8441,11 @@
               "name": "PdfDocumentInfo",
               "kind": "interface",
               "signature": "export interface PdfDocumentInfo"
+            },
+            {
+              "name": "PdfLoadOptions",
+              "kind": "type",
+              "signature": "export interface PdfLoadOptions"
             },
             {
               "name": "PdfOutlineItem",
@@ -9357,7 +9462,7 @@
             {
               "name": "PPTX_NATIVE_SCHEMA_SHA256",
               "kind": "const",
-              "signature": "export declare const PPTX_NATIVE_SCHEMA_SHA256: \"5fec15ba9b3d68a110d3a8ef386bf9d75b39fd2516dabef8a7fb69eeb80af3ec\""
+              "signature": "export declare const PPTX_NATIVE_SCHEMA_SHA256: \"a8187e6611a2b3230534407f133501ebbcce3533e1326580dfa17da4b5d2890a\""
             },
             {
               "name": "provenanceValues",
@@ -10988,6 +11093,11 @@
               "signature": "export declare function createNativeSheetGeometryRecordingSurfaceV2(maxCommands?: number): NativeSheetGeometryRecordingSurfaceV2"
             },
             {
+              "name": "decodeNativeWorkbookObjectsV1",
+              "kind": "function",
+              "signature": "export declare function decodeNativeWorkbookObjectsV1(input: unknown, packageSHA256: string): NativeWorkbookObjectsV1"
+            },
+            {
               "name": "DecodeNativeWorkbookResult",
               "kind": "type",
               "signature": "DecodeNativeWorkbookResult"
@@ -11086,6 +11196,11 @@
               "name": "isNativeMaximumDigitWidthAuthorityV2",
               "kind": "function",
               "signature": "export declare function isNativeMaximumDigitWidthAuthorityV2(value: unknown): value is NativeMaximumDigitWidthAuthorityV2"
+            },
+            {
+              "name": "layoutNativeCachedChartV1",
+              "kind": "function",
+              "signature": "export declare function layoutNativeCachedChartV1(chart: NativeChartPreviewV1):"
             },
             {
               "name": "MAX_WORKBOOK_MUTATIONS",
@@ -11241,6 +11356,21 @@
               "name": "NativeBorderStyleV2",
               "kind": "type",
               "signature": "NativeBorderStyleV2"
+            },
+            {
+              "name": "NativeCachedChartMarkV1",
+              "kind": "type",
+              "signature": "NativeCachedChartMarkV1"
+            },
+            {
+              "name": "NativeChartPreviewV1",
+              "kind": "type",
+              "signature": "NativeChartPreviewV1"
+            },
+            {
+              "name": "NativeChartSeriesPreviewV1",
+              "kind": "type",
+              "signature": "NativeChartSeriesPreviewV1"
             },
             {
               "name": "NativeFormulaType",
@@ -11688,6 +11818,11 @@
               "signature": "NativeStyleUnsupportedCodeV2"
             },
             {
+              "name": "NativeTablePreviewV1",
+              "kind": "type",
+              "signature": "NativeTablePreviewV1"
+            },
+            {
               "name": "NativeValueKind",
               "kind": "type",
               "signature": "NativeValueKind"
@@ -11826,6 +11961,11 @@
               "name": "NativeWorkbookNormalStyleV2",
               "kind": "type",
               "signature": "NativeWorkbookNormalStyleV2"
+            },
+            {
+              "name": "NativeWorkbookObjectsV1",
+              "kind": "type",
+              "signature": "NativeWorkbookObjectsV1"
             },
             {
               "name": "NativeWorkbookPassthroughPartV1",
@@ -12204,6 +12344,11 @@
               "signature": "export declare function assertNativeWorkbookV2(input: unknown): asserts input is NativeWorkbookV2"
             },
             {
+              "name": "decodeNativeWorkbookObjectsV1",
+              "kind": "function",
+              "signature": "export declare function decodeNativeWorkbookObjectsV1(input: unknown, packageSHA256: string): NativeWorkbookObjectsV1"
+            },
+            {
               "name": "decodeNativeWorkbookV2",
               "kind": "function",
               "signature": "export declare function decodeNativeWorkbookV2(source: string): DecodeNativeWorkbookV2Result"
@@ -12219,14 +12364,44 @@
               "signature": "export declare function formatNativeSheetCellDisplayV2(kind: 'number' | 'date', lexical: string, numberFormat: string | undefined, date1904?: boolean): NativeSheetCellDisplayFormatResultV2"
             },
             {
+              "name": "layoutNativeCachedChartV1",
+              "kind": "function",
+              "signature": "export declare function layoutNativeCachedChartV1(chart: NativeChartPreviewV1):"
+            },
+            {
+              "name": "NativeCachedChartMarkV1",
+              "kind": "type",
+              "signature": "NativeCachedChartMarkV1"
+            },
+            {
+              "name": "NativeChartPreviewV1",
+              "kind": "type",
+              "signature": "NativeChartPreviewV1"
+            },
+            {
+              "name": "NativeChartSeriesPreviewV1",
+              "kind": "type",
+              "signature": "NativeChartSeriesPreviewV1"
+            },
+            {
               "name": "NativeSheetCellDisplayFormatResultV2",
               "kind": "type",
               "signature": "NativeSheetCellDisplayFormatResultV2"
             },
             {
+              "name": "NativeTablePreviewV1",
+              "kind": "type",
+              "signature": "NativeTablePreviewV1"
+            },
+            {
               "name": "NativeWorkbookCellV2",
               "kind": "type",
               "signature": "export interface NativeWorkbookCellV2"
+            },
+            {
+              "name": "NativeWorkbookObjectsV1",
+              "kind": "type",
+              "signature": "NativeWorkbookObjectsV1"
             },
             {
               "name": "NativeWorkbookSheetV2",
