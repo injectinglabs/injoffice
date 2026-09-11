@@ -18,6 +18,7 @@ import {
 } from './nativePagePaintWireV1.js'
 import { validateNativeDocxBodyPageFieldSourceV1 } from './nativeBodyPageFieldsV1.js'
 import { nativeDocxPageNumberV1 } from './nativePageNumbersV1.js'
+import {deriveNativeSquareWrapPlanV1} from './nativeSquareWrapV1.js'
 export {
   DOCX_PAGE_PAINT_REQUEST_PROTOCOL, DOCX_PAGE_PAINT_REQUEST_VERSION,
   DOCX_PAGE_PAINT_PROTOCOL, DOCX_PAGE_PAINT_VERSION, DOCX_PAGE_PAINT_LIMITS,
@@ -451,6 +452,10 @@ export function decodeNativeDocxPagePaintRequestV1(value: unknown): DecodeNative
   if (!pagination.ok) issues.push(...pagination.issues.map((entry) => ({ ...entry, path: `/pagination_request${entry.path}` })))
   const paginated = decodeNativeDocxPaginatedLayoutForRequest(root.paginated_layout, root.pagination_request)
   if (!paginated.ok) issues.push(...paginated.issues.map((entry) => ({ ...entry, path: `/paginated_layout${entry.path}` })))
+  if (pagination.ok && paginated.ok) {
+    try { deriveNativeSquareWrapPlanV1(pagination.value.document, pagination.value.resolved_layout, pagination.value.shaped_lines, paginated.value, true) }
+    catch (error) { add(issues, 'BROKEN_REFERENCE', '/paginated_layout', error instanceof Error ? error.message : 'Square-wrap source placement failed') }
+  }
   const manifest = validateFontManifest(root.font_manifest)
   if (!manifest.ok) issues.push(...manifest.issues.slice(0, DOCX_NATIVE_LIMITS.maxIssues).map((entry) => issue(entry.code === 'unknown-field' ? 'UNKNOWN_FIELD' : entry.code === 'reference' ? 'BROKEN_REFERENCE' : 'INVALID_VALUE', `/font_manifest${entry.path === '$' ? '' : entry.path.slice(1).replace(/\./g, '/')}`, entry.message)))
   if (pagination.ok && manifest.ok) {

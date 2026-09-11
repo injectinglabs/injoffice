@@ -258,6 +258,16 @@ await assert(`window.__nativeDocxPaint.pages.every((page, index) => ['header','f
   await assert(`window.__nativeDocxPosts.length===${finalPreviewPosts} && window.__nativeDocxPosts[${finalPreviewPosts-1}].hash===${JSON.stringify(cropHash)} && ${docs}?.dataset.demoDirty !== 'true'`, 'crop preview leaves source bytes unchanged')
   if (hash(readFileSync(cropFixture)) !== cropHash) throw new Error('Crop source changed')
   await screenshot('docx-native-cropped-quarter.png')
+  const squareFixture=resolve(scratch,'native-square-wrapped-image.docx')
+  const squareExport=spawnSync('go',['test','-count=1','-run','^TestNativePreviewSquareWrapBrowserFixture$','.'],{cwd:resolve(root,'go/docxpatch/cmd/nativepreviewfixture'),env:{...process.env,INJOFFICE_SQUARE_FIXTURE_OUTPUT:squareFixture,INJOFFICE_SQUARE_FIXTURE_FONT:resolve(root,'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf')},encoding:'utf8',timeout:60000})
+  if(squareExport.status!==0)throw new Error(`Square-wrap fixture: ${squareExport.stderr}\n${squareExport.stdout}`)
+  const squareHash=hash(readFileSync(squareFixture));await upload(squareFixture)
+  await poll(()=>evaluate(`${native}?.textContent.includes('Nothing is uploaded')&&${native}?.querySelector('svg')===null`),'square-wrap source replacement');await click('Upload to helper and render native pages')
+  await poll(()=>evaluate(`window.__nativeDocxPaint?.status==='painted'&&${native}?.querySelector('svg image')!==null`),'source-bound square-wrapped page',45000)
+  await assert(`(()=>{const p=window.__nativeDocxPaint.pages[0],image=p.commands.find(c=>c.kind==='paint_floating_image');if(!image||image.x_millipoints!==72000||image.y_millipoints!==72000)return false;const paths=p.commands.filter(c=>c.kind==='fill_glyph_path'&&c.path.length);const points=c=>c.path.filter(p=>'x_millipoints'in p);const beside=paths.filter(c=>points(c).some(p=>p.y_millipoints<172000)),below=paths.filter(c=>points(c).every(p=>p.y_millipoints>=172000));return beside.length>10&&below.length>10&&beside.every(c=>points(c).every(p=>p.x_millipoints>=216000))&&below.some(c=>points(c).some(p=>p.x_millipoints<216000));})()`,'glyphs exclude the square image and return to full width below it')
+  finalPreviewPosts+=1
+  await assert(`window.__nativeDocxPosts.length===${finalPreviewPosts}&&window.__nativeDocxPosts[${finalPreviewPosts-1}].hash===${JSON.stringify(squareHash)}&&${docs}?.dataset.demoDirty!=='true'`,'square wrapping leaves source bytes unchanged')
+  await screenshot('docx-native-square-wrap.png')
   // This existing real DOCX has no embedded qualified font assets. It must
   // retain its approximate content view rather than invent native glyphs.
   const unsupported = resolve(scratch, 'unsupported-font.docx')

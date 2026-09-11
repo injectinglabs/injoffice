@@ -2406,7 +2406,7 @@ func (extractor *nativeExtractor) extractDrawing(partName, paragraphID string, n
 	}
 	container := containers[0]
 	if container.Name.Local == "anchor" && !nativeExactPageAnchor(container, wpNS, aNS) {
-		return refuse("FLOATING_DRAWING_SEMANTICS_PRESERVED", "Only exact page-relative wrapNone anchors with explicit layering and overlap are projected", container)
+		return refuse("FLOATING_DRAWING_SEMANTICS_PRESERVED", "Only exact page-relative wrapNone or bothSides wrapSquare anchors with explicit layering and overlap are projected", container)
 	}
 	if container.Name.Local == "inline" && !nativeExactInlinePictureContainer(container, wpNS, aNS) {
 		return refuse("INLINE_DRAWING_SEMANTICS_PRESERVED", "Inline pictures with unmodeled container attributes or children remain preserve-only", container)
@@ -2805,7 +2805,7 @@ func nativeExactPageAnchor(node *nativeXMLNode, wpNS, aNS string) bool {
 	projection.Children = nil
 	seen := map[string]bool{}
 	for _, child := range node.Children {
-		if child.Name.Space == wpNS && (child.Name.Local == "simplePos" || child.Name.Local == "positionH" || child.Name.Local == "positionV" || child.Name.Local == "wrapNone") {
+		if child.Name.Space == wpNS && (child.Name.Local == "simplePos" || child.Name.Local == "positionH" || child.Name.Local == "positionV" || child.Name.Local == "wrapNone" || child.Name.Local == "wrapSquare") {
 			if seen[child.Name.Local] {
 				return false
 			}
@@ -2827,6 +2827,14 @@ func nativeExactPageAnchor(node *nativeXMLNode, wpNS, aNS string) bool {
 				}
 			case "wrapNone":
 				if !nativeExactLeaf(child) {
+					return false
+				}
+			case "wrapSquare":
+				if !nativeExactLeaf(child, xml.Name{Local: "wrapText"}) {
+					return false
+				}
+				value, present := nativeUnqualifiedAttr(child, "wrapText")
+				if !present || value != "bothSides" {
 					return false
 				}
 			}
