@@ -18,11 +18,12 @@ describe('document-first presentation', () => {
     expect(page).toContain('hidden={!receipt && state !== \'committing\'}')
   })
 
-  it('removes redundant shell labels and makes runtime details opt-in', () => {
+  it('keeps the header free of demo disclosures and retains workspace options', () => {
     const shell = read('./App.tsx')
     for (const retired of ['demo-breadcrumb', 'demo-chips', 'demo-preview__bar', 'RuntimePill', 'Browser engines ready']) expect(shell).not.toContain(retired)
-    expect(shell).toContain('<summary>About this demo</summary>')
-    expect(shell).toContain('Checking optional server connection')
+    expect(shell).not.toContain('About this demo')
+    expect(shell).not.toContain('runtime-information')
+    expect(shell).not.toContain('Checking optional server connection')
     expect(shell).not.toContain('sidecar-status--')
     expect(shell).toContain('<summary>Options</summary>')
   })
