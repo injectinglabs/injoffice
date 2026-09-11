@@ -147,6 +147,53 @@ function nativeTextBody(overrides: Partial<NativeTextBodyLayout> = {}): NativeTe
   }
 }
 
+it('applies native shape-frame quarter turns to glyph paint without reshaping horizontal text', async()=>{
+ for(const quarterTurns of [1,2,3] as const){
+  const element=nativeTextElement('rotated-text','AB',nativeTextBody(),{x:100,y:200,cx:500000,cy:500000})
+  element.transform.quarterTurns=quarterTurns
+  const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout()})
+  const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+  const commands=surface.finish()
+  expect(commands.some(command=>command.kind==='glyphRun')).toBe(true)
+  expect(commands.some(command=>command.kind==='placeholder')).toBe(false)
+  expect(commands.some(command=>command.kind==='transform'&&(command.transform.aPpm!==1000000||command.transform.dPpm!==1000000))).toBe(true)
+ }
+})
+
+it('retains source quarter-turn shape paths through native paint and checks rotated world bounds',async()=>{
+ for(const quarterTurns of [1,2,3] as const){
+  const shape:NativeElement={kind:'shape',id:'rotated',provenance:'authored',transform:{x:100,y:200,cx:400,cy:200,quarterTurns},preset:'triangle',fill:'123456',paragraphs:[],passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+  const tree=await compileNativePptxSlide(authoredDeck([shape]),0,{textLayout:textLayout()})
+  const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+  expect(surface.finish().some(command=>command.kind==='path'&&command.fill==='123456')).toBe(true)
+  expect(surface.finish().some(command=>command.kind==='placeholder')).toBe(false)
+  shape.transform={x:0,y:900,cx:1000,cy:100,quarterTurns:1}
+  const outside=authoredDeck([shape]);outside.size={cx:1000,cy:1000}
+  await expect(compileNativePptxSlide(outside,0,{textLayout:textLayout(),maxCoordinateEmu:1000})).rejects.toMatchObject({code:'render.worldTransform'})
+ }
+})
+
+it('composes scaled group coordinates with a rotated child and bounds every world corner',async()=>{
+ const child:NativeElement={kind:'shape',id:'child-turn',provenance:'authored',transform:{x:100,y:200,cx:400,cy:200,quarterTurns:1},preset:'triangle',fill:'123456',paragraphs:[],passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+ const group:NativeElement={kind:'group',id:'scaled-parent',provenance:'authored',transform:{x:0,y:0,cx:2000,cy:3000},childTransform:{x:0,y:0,cx:1000,cy:1000},children:[child],passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+ const input=authoredDeck([group]);input.size={cx:4000,cy:4000}
+ const tree=await compileNativePptxSlide(input,0,{textLayout:textLayout(),maxCoordinateEmu:4000})
+ const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+ let matrix=[1,0,0,1,0,0];const stack:number[][]=[];let painted:number[]|undefined
+ for(const command of surface.finish()){
+  if(command.kind==='save')stack.push([...matrix])
+  if(command.kind==='restore')matrix=stack.pop()!
+  if(command.kind==='transform'){
+   const t=command.transform,[a,b,c,d,x,y]=matrix as [number,number,number,number,number,number]
+   matrix=[(a*t.aPpm+c*t.bPpm)/1e6,(b*t.aPpm+d*t.bPpm)/1e6,(a*t.cPpm+c*t.dPpm)/1e6,(b*t.cPpm+d*t.dPpm)/1e6,a*t.txEmu+c*t.tyEmu+x,b*t.txEmu+d*t.tyEmu+y]
+  }
+  if(command.kind==='path'&&command.fill==='123456')painted=[...matrix]
+ }
+ expect(painted).toEqual([0,3,-2,0,800,300])
+ child.transform={x:0,y:900,cx:1000,cy:100,quarterTurns:1}
+ await expect(compileNativePptxSlide(input,0,{textLayout:textLayout(),maxCoordinateEmu:4000})).rejects.toMatchObject({code:'render.worldTransform'})
+})
+
 function nativeTextElement(id: string, text: string, body: NativeTextBodyLayout, transform = { x: 100, y: 0, cx: 500_000, cy: 500_000 }): Extract<NativeElement, { kind: 'text' }> {
   return {
     kind: 'text', id, provenance: 'authored', transform, textBody: body,
@@ -877,6 +924,32 @@ describe('native PPTX RenderTree', () => {
       expect(first.length).toBeLessThanOrEqual(11)
       expect(JSON.stringify(first)).not.toMatch(/\.\d/)
     }
+  })
+
+  it('uses DrawingML default pentagon guides instead of an inscribed polygon', () => {
+    expect(presetPath('pentagon', 1_000_000, 1_000_000)).toEqual([
+      {kind:'moveTo',x:1,y:381965},{kind:'lineTo',x:500000,y:0},
+      {kind:'lineTo',x:999999,y:381965},{kind:'lineTo',x:809016,y:999997},
+      {kind:'lineTo',x:190984,y:999997},{kind:'close'},
+    ])
+    expect(presetPath('pentagon', 1417740, 1317072)).toEqual([
+      {kind:'moveTo',x:1,y:503075},{kind:'lineTo',x:708870,y:0},
+      {kind:'lineTo',x:1417739,y:503075},{kind:'lineTo',x:1146975,y:1317069},
+      {kind:'lineTo',x:270765,y:1317069},{kind:'close'},
+    ])
+  })
+
+  it('paints preserved geometry with explicit omitted-text diagnostics and no invented glyphs', async () => {
+    const shape:NativeElement={kind:'shape',id:'partial-pentagon',provenance:'authored',
+      transform:{x:100000,y:100000,cx:1000000,cy:800000,quarterTurns:2},preset:'pentagon',fill:'123456',paragraphs:[],passthrough:[],
+      compatibility:{status:'preserveOnly',diagnostics:[{severity:'warning',code:'pptx.autoshape-text-layout-unavailable',message:'Vertical text omitted'}]}}
+    const deck=authoredDeck([shape]);deck.compatibility=shape.compatibility;deck.slides[0]!.compatibility=shape.compatibility
+    const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+    const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+    const commands=surface.finish()
+    expect(commands).toContainEqual(expect.objectContaining({kind:'path',fill:'123456'}))
+    expect(commands.some(command=>command.kind==='glyphRun'||command.kind==='placeholder')).toBe(false)
+    expect(tree.diagnostics).toContainEqual(expect.objectContaining({sourceCode:'pptx.autoshape-text-layout-unavailable'}))
   })
 
   it('preserves native AutoShape stroke semantics and placeholders refused custom geometry', async () => {
