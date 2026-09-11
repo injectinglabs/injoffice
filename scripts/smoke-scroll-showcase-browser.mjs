@@ -122,13 +122,13 @@ async function assertNavigationSelection(viewport) {
       // Exercise real keyboard navigation back to the selected link so that
       // removing its selection stripe cannot silently remove its focus ring.
       await new Promise(resolve => setTimeout(resolve, 750))
-      await evaluate(`document.querySelector('.app-sidebar a[aria-current="location"]').focus({ preventScroll: true })`)
+      await evaluate(`window.__keyboardNavigationLink = document.querySelector('.app-sidebar a[aria-current="location"]'); window.__keyboardNavigationLink.focus({ preventScroll: true })`)
       for (const modifiers of [8, 0]) {
         await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers })
         await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers })
       }
       const focusProof = await evaluate(`(() => {
-        const selected = document.querySelector('.app-sidebar a[aria-current="location"]');
+        const selected = window.__keyboardNavigationLink;
         const style = getComputedStyle(selected);
         return { selected: selected.outerHTML, active: document.activeElement?.outerHTML.slice(0, 500),
           focused: document.activeElement === selected, visible: selected.matches(':focus-visible'),
