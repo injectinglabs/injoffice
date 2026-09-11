@@ -24,13 +24,12 @@ function ToolNavigation({ surface, hash, remembered }: { surface: Surface; hash:
   const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
     if (isModifiedClick(event)) return
     const href = event.currentTarget.getAttribute('href')
-    if (href && location.hash === href) {
-      event.preventDefault()
-      window.dispatchEvent(new HashChangeEvent('hashchange'))
-    } else if (href && !event.currentTarget.dataset.workspaceFeature) {
-      const previous = remembered.get(sectionForHash(href).key)
-      if (previous) { event.preventDefault(); window.location.hash = previous }
-    }
+    if (!href) return
+    const destination = !event.currentTarget.dataset.workspaceFeature
+      ? remembered.get(sectionForHash(href).key) ?? href : href
+    event.preventDefault()
+    if (location.hash === destination) window.dispatchEvent(new HashChangeEvent('hashchange'))
+    else window.location.hash = destination
   }
   return <nav className="tool-nav" id="demo-navigation" tabIndex={-1} aria-label="InjOffice tools">
     {TOOL_WORKSPACES.map(workspace => <section className="tool-nav-examples" key={workspace.tool} aria-label={`${workspace.title} examples`}>

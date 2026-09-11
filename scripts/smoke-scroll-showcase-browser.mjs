@@ -176,6 +176,7 @@ async function assertInternalGroupNavigation(group, feature, key) {
     button.scrollIntoView({ block: 'center' });
     button.focus({ preventScroll: true });
   })()`)
+  await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`)
   const point = await evaluate(`(() => { const r = document.querySelector('${selector}').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)
   if (key) {
     await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' })
@@ -186,7 +187,7 @@ async function assertInternalGroupNavigation(group, feature, key) {
   }
   rememberedFeatures.docs = feature
   await until(`${ready('docs')} && document.querySelector('${selector}').getAttribute('aria-current') === 'true'`, `${key ? 'keyboard' : 'pointer'} selects ${feature}`)
-  await until(`document.activeElement === document.querySelector('#example-docs-${feature} h3')`, 'sidebar selection focuses the example heading')
+  await until(`document.activeElement === document.querySelector('#example-docs-${feature} h3')`, `sidebar selection focuses the example heading (was ${await evaluate('document.activeElement?.outerHTML.slice(0, 300)')})`)
   await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`)
   assert.equal(await evaluate(`document.querySelector('.app-sidebar a[aria-current="location"]').getAttribute('href')`), '#/docs', 'internal navigation keeps Docs selected')
 }

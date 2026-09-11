@@ -472,7 +472,7 @@ try {
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
   await until(`document.documentElement.scrollWidth <= 390`, 'mobile first tool has no horizontal overflow')
   assert.ok(await evaluate(`(() => {
-    const rail = document.querySelector('.app-sidebar'), nav = document.querySelector('.tool-nav');
+    const rail = document.querySelector('.app-sidebar'), nav = rail.querySelector('.tool-nav');
     return getComputedStyle(nav).display === 'grid' && getComputedStyle(rail).position === 'relative'
       && Math.abs(rail.getBoundingClientRect().height - nav.getBoundingClientRect().height) < 2;
   })()`), 'mobile index wraps all examples with no reserved blank area')

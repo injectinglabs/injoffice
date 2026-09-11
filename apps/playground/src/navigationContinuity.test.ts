@@ -70,6 +70,7 @@ describe('playground navigation continuity', () => {
     expect(appSource).toContain("new Event('injoffice:workspace-scroll')")
     expect(appSource).toContain('anchorTarget.current ?? activeSectionKey')
     expect(appSource).toContain('remembered.get(sectionForHash(href).key)')
+    expect(appSource).toContain("if (location.hash === destination) window.dispatchEvent(new HashChangeEvent('hashchange'))")
   })
 
   it('pre-optimizes dependencies imported only by lazy routes in development', () => {
