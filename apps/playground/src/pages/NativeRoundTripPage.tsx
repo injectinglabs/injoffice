@@ -381,7 +381,7 @@ export default function NativeRoundTripPage() {
             <>
               <div className="native-sheet-heading">
                 <div>
-                  <span className="native-kicker ds-eyebrow">Exact native projection</span>
+                  <span className="native-kicker ds-eyebrow">Spreadsheet preview · limited layout</span>
                   <h2>{activeSheet.name}</h2>
                 </div>
                 <span className="native-muted ds-muted">{sourceName} · {workbook.source.authority}</span>
