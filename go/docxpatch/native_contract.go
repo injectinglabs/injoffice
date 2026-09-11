@@ -123,9 +123,11 @@ type NativeRunV1 struct {
 	Properties *NativeRunPropertiesV1 `json:"properties,omitempty"`
 	Text       *string                `json:"text,omitempty"`
 	PageField  string                 `json:"page_field,omitempty"`
-	Control    string                 `json:"control,omitempty"`
-	Reference  *NativeReferenceV1     `json:"reference,omitempty"`
-	Drawing    *NativeDrawingV1       `json:"drawing,omitempty"`
+	// Derived renderer metadata is represented for schema parity, but never accepted as source.
+	LayoutPageField *string            `json:"layout_page_field,omitempty"`
+	Control         string             `json:"control,omitempty"`
+	Reference       *NativeReferenceV1 `json:"reference,omitempty"`
+	Drawing         *NativeDrawingV1   `json:"drawing,omitempty"`
 }
 
 type NativeNumberingReferenceV1 struct {
@@ -958,6 +960,9 @@ func (v *nativeValidator) run(run *NativeRunV1, path, ownerPart string, parentAn
 		if run.Text == nil || *run.Text != "" {
 			v.add("INVALID_VALUE", path+"/text", "page-field source text must be empty; cached text is not authoritative")
 		}
+	}
+	if run.LayoutPageField != nil {
+		v.add("INVALID_VALUE", path+"/layout_page_field", "internal layout field markers are not authored source")
 	}
 	v.id(run.ID, path+"/id")
 	runAnchor := v.anchor(&run.Anchor, path+"/anchor", ownerPart, parentAnchor)
