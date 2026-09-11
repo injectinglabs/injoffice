@@ -473,7 +473,7 @@ export function decodeNativeDocxPagePaintRequestV1(value: unknown): DecodeNative
     if (manifest.ok && integrity.font_manifest_sha256 !== nativeDocxPagePaintFontManifestSha256V1(manifest.value)) add(issues, 'BROKEN_REFERENCE', '/integrity/font_manifest_sha256', 'must attest the complete validated font manifest carried by this request')
     if (pagination.ok && integrity.shaped_lines_sha256 !== nativeDocxPagePaintShapedLinesSha256V1(pagination.value.shaped_lines, root.page_field_variants as NativeDocxPageFieldVariantV1[] | undefined)) add(issues, 'BROKEN_REFERENCE', '/integrity/shaped_lines_sha256', 'must attest the complete strict shaped-lines and page-field variants carried by this request')
     if (pagination.ok) {
-      const qualified = qualifyNativeDocxTablesV1(pagination.value.document, pagination.value.resolved_layout)
+      const qualified = qualifyNativeDocxTablesV1(pagination.value.document, pagination.value.resolved_layout, pagination.value.shaped_lines)
       const expected = qualified.status === 'qualified' ? qualified.sha256 : nativeDocxTableProjectionSha256V1([])
       if (integrity.table_projection_sha256 !== expected) add(issues, 'BROKEN_REFERENCE', '/integrity/table_projection_sha256', 'must attest the exact qualified table projection or the canonical empty projection for an upstream refusal')
     }
@@ -837,7 +837,7 @@ export async function compileNativeDocxPagePaintV1(value: unknown, outlineProvid
     const first = blockingShapingDiagnostics[0] ?? blockingPaginationDiagnostics[0] ?? pagination.resolved_layout.diagnostics[0]
     return { ok: true, value: refusal(provenance, 'unsupported-diagnostic', documentID, `Page-paint v1 requires diagnostic-free shaping/resolution and permits only the exact header/footer selection handoff from pagination${first ? `: ${first.code}` : ''}`) }
   }
-  const qualifiedTables = qualifyNativeDocxTablesV1(pagination.document, pagination.resolved_layout)
+  const qualifiedTables = qualifyNativeDocxTablesV1(pagination.document, pagination.resolved_layout, pagination.shaped_lines)
   if (qualifiedTables.status !== 'qualified') return { ok: true, value: refusal(provenance, 'unsupported-source', qualifiedTables.diagnostics[0]!.scope_id, qualifiedTables.diagnostics[0]!.message) }
   const tableCommandsIndex = tableCommandsByPage(request, layout.pages, qualifiedTables.tables)
   if (!tableCommandsIndex) return { ok: true, value: refusal(provenance, 'resource-limit', documentID, 'Table paint indexing exceeded its bounded work or geometry contract') }
@@ -1172,7 +1172,7 @@ export function decodeNativeDocxPagePaintForRequestV1(value: unknown, requestVal
       const expectedUnderlines: Array<{ pageIndex: number; command: NativeDocxStrokeTextUnderlineCommandV1 }> = []
       const underlineIDsByPlacement = new Map<string, string[]>()
       const headerFooterByPageID = headerFooter.status === 'placed' ? new Map<string, NativeDocxHeaderFooterPageLayoutV1>(headerFooter.pages.map((entry) => [entry.page_id, entry])) : new Map<string, NativeDocxHeaderFooterPageLayoutV1>()
-      const qualifiedTables = qualifyNativeDocxTablesV1(request.value.pagination_request.document, request.value.pagination_request.resolved_layout)
+      const qualifiedTables = qualifyNativeDocxTablesV1(request.value.pagination_request.document, request.value.pagination_request.resolved_layout, request.value.pagination_request.shaped_lines)
       const expectedTableByPageID = qualifiedTables.status === 'qualified'
         ? tableCommandsByPage(request.value, request.value.paginated_layout.pages, qualifiedTables.tables)
         : undefined

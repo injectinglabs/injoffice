@@ -18,6 +18,7 @@ import {
 import { encodeNativeDOCXFontInventoryV1, nativeDOCXCanonicalWireSHA256V1, type NativeDOCXFontInventoryV1 } from './nativeFontInventoryV1.js'
 import { decodeNativeDocxPagePaintResourceListV1, qualifyNativeDocxInlineImageV1 } from './nativeImagePagePaintV1.js'
 import { paginateNativeDocxV1 } from './nativePaginationV1.js'
+import { qualifyNativeDocxTablesV1 } from './nativeTablePagePaintV1.js'
 import { decodeNativeDocxShapedLines } from './nativeShapedLinesContract.js'
 import { decodeNativeDocxPagePaintForRequestV1, decodeNativeDocxPagePaintRequestV1, nativeDocxPagePaintShapedLinesSha256V1 } from './nativePagePaintV1.js'
 import { nativeDocxPageFieldDocumentV1 } from './nativePageFieldsV1.js'
@@ -944,6 +945,61 @@ describe('native DOCX page-paint compiler v1', () => {
     if (completed.page_paint_output.status !== 'painted') return
     expect(completed.page_paint_output.pages[0]!.commands.map((command) => command.kind)).toEqual(['fill_table_cell', 'fill_glyph_path', 'stroke_table_border', 'stroke_table_border', 'stroke_table_border', 'stroke_table_border'])
     expect(completed.page_paint_output.provenance.table_projection.sha256).toMatch(/^sha256:[0-9a-f]{64}$/)
+  })
+  it('autofits unequal text columns from real font advances and replays the source-bound width policy', async () => {
+    const input = tableFixture(), document = input.document as NativeDocxDocumentV1, resolved = input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    const table = document.body.blocks[0]!.table!, left = table.rows[0]!.cells[0]!
+    table.layout = 'autofit'; table.width_twips = 4_000; table.grid_widths_twips = [4_680, 4_680]
+    left.width_twips = 4_680; left.paragraphs[0]!.runs[0]!.text = 'ID'
+    const right = structuredClone(left), paragraph = right.paragraphs[0]!, oldParagraph = paragraph.id, oldRun = paragraph.runs[0]!.id
+    right.id += ':right'; paragraph.id += ':right'; paragraph.runs[0]!.id += ':right'; paragraph.runs[0]!.text = 'Longer content '.repeat(12)
+    table.rows[0]!.cells.push(right)
+    resolved.paragraphs.push({ ...structuredClone(resolved.paragraphs.find(p=>p.paragraph_id===oldParagraph)!), paragraph_id: paragraph.id })
+    resolved.runs.push({ ...structuredClone(resolved.runs.find(r=>r.run_id===oldRun)!), paragraph_id:paragraph.id, run_id:paragraph.runs[0]!.id })
+    rewriteInventory(input, inventory=>{inventory.references[0]!.scope_ids.push(paragraph.id,paragraph.runs[0]!.id);inventory.references[0]!.scope_ids.sort()})
+    const original = JSON.stringify(document), prepared = await prepareNativeDocxPagePaintV1(input)
+    const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+    const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map(request=>{const outline=provider.outline(request.glyph_id);return outline.path.length?{status:'outlined' as const,...request,...outline}:{status:'empty' as const,...request,units_per_em:outline.units_per_em}}) })
+    if(completed.page_paint_output.status!=='painted')throw new Error(JSON.stringify(completed.page_paint_output))
+    const fills=completed.page_paint_output.pages[0]!.commands.filter(command=>command.kind==='fill_table_cell')
+    expect(fills).toHaveLength(2)
+    expect(fills[0]!.width_millipoints).toBeLessThan(fills[1]!.width_millipoints)
+    expect(fills.reduce((sum,fill)=>sum+fill.width_millipoints,0)).toBe(200_000)
+    const finalShaped=prepared.page_paint_request.pagination_request.shaped_lines
+    const qualified=qualifyNativeDocxTablesV1(document,resolved,finalShaped)
+    expect(qualified).toMatchObject({status:'qualified',tables:[{width_policy:{name:'shaped-content-minmax-v1',source_grid_widths_twips:[4680,4680],preferred_width_twips:4000}}]})
+    expect(qualifyNativeDocxTablesV1(document,resolved,{...finalShaped,revision:'stale'})).toMatchObject({status:'refused',tables:[]})
+    expect(prepared.page_paint_request.pagination_request.shaped_lines.paragraphs[1]!.lines.length).toBeGreaterThan(1)
+    expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output,completed.page_paint_request,completed.page_paint_request.outline_provider).ok).toBe(true)
+    expect(JSON.stringify(document)).toBe(original)
+    const tampered=structuredClone(completed.page_paint_output)
+    const fill=tampered.pages[0]!.commands.find(command=>command.kind==='fill_table_cell')!
+    if(fill.kind==='fill_table_cell')fill.width_millipoints+=50
+    expect(decodeNativeDocxPagePaintForRequestV1(tampered,completed.page_paint_request,completed.page_paint_request.outline_provider).ok).toBe(false)
+    // Auto/omitted preferred widths shrink to intrinsic max content, capped by
+    // the source section; this is not equal-grid scaling in disguise.
+    delete table.width_twips
+    for(const cell of table.rows[0]!.cells)delete cell.width_twips
+    const auto=await prepareNativeDocxPagePaintV1(input)
+    expect(auto.page_paint_request.paginated_layout.status).toBe('paginated')
+    const automatic=qualifyNativeDocxTablesV1(document,resolved,auto.page_paint_request.pagination_request.shaped_lines)
+    expect(automatic.status).toBe('qualified')
+    if(automatic.status==='qualified') {
+      expect(automatic.tables[0]!.width_millipoints).toBeLessThanOrEqual(468_000)
+      expect(automatic.tables[0]!.grid_widths_millipoints[0]).toBeLessThan(automatic.tables[0]!.grid_widths_millipoints[1]!)
+    }
+  })
+  it('refuses unsatisfied content minima and unsupported autofit spacing/merge policies atomically', async () => {
+    for (const mode of ['wide-word', 'indent', 'merge', 'percent'] as const) {
+      const input=tableFixture(), document=input.document as NativeDocxDocumentV1, resolved=input.resolved_layout as NativeDocxResolvedLayoutInputV1
+      const table=document.body.blocks[0]!.table!
+      table.layout='autofit'
+      if(mode==='wide-word')table.rows[0]!.cells[0]!.paragraphs[0]!.runs[0]!.text='W'.repeat(100)
+      if(mode==='indent')resolved.paragraphs[0]!.properties.indent_start_twips=100
+      if(mode==='merge')table.rows[0]!.cells[0]!.vertical_merge='restart'
+      if(mode==='percent'){delete table.width_twips;table.width_percent_fiftieths=2500}
+      await expect(prepareNativeDocxPagePaintV1(input)).rejects.toThrow(/autofit/i)
+    }
   })
   it('paints source-bound natural row fragments without duplicating glyphs or full-row shading', async () => {
     const input = tableFixture(), document = input.document as NativeDocxDocumentV1

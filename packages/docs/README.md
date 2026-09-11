@@ -332,7 +332,25 @@ integral twips; non-integral allocations refuse rather than silently round.
 The policy, source grid, percentage and container identity enter the qualified
 table hash. Cell text is shaped again at the resulting content widths. This is
 flexible percentage sizing of a fixed grid, **not content-based autofit**.
-It refuses autofit/missing widths, non-prefix repeating headers,
+Content-based sizing is a separate `shaped-content-minmax-v1` policy for explicit
+`autofit` tables. A bounded preliminary pass uses the same attested fonts and
+HarfBuzz shaper as the final render. Intrinsic minima come from complete
+space-separated words; maxima come from complete hard-break-delimited lines.
+Widths round upward to integer twips so text minima are never rounded down.
+The table's absolute preferred width is clamped between these intrinsic bounds
+and its owning section; omitted/auto preferred width uses the maximum that fits.
+Remaining width is distributed in proportion to each column's min/max headroom,
+with deterministic largest-remainder allocation and source-order ties.
+Authored grid/cell widths remain source preferences recorded in the policy;
+they are not immutable column widths. Final wrapped glyph clusters independently
+rederive the same allocation during source-bound pagination and paint validation.
+This supports unmerged direct-text cells in one section column, including natural
+row fragmentation and repeated headings. It refuses unsatisfied word minima,
+percentage preferred widths, paragraph indents/justification, tabs, discretionary
+breaks, special spacing controls, RTL paragraphs, numbered/merged cells, and
+unqualified font/source diagnostics. This is genuine font-content sizing under
+an explicit bounded policy, **not a claim of Microsoft's autofit algorithm**.
+Both table policies refuse non-prefix repeating headers,
 cell-border conflicts, nested content, numbered cells, conditional
 `tblStylePr` effects, and any table-descendant resolution diagnostic. Selected story
 lines must fit between the exact header/footer edge distance and the body box.

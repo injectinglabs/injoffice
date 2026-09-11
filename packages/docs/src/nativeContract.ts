@@ -185,7 +185,7 @@ export interface NativeDocxTableV1 {
   table_style_id?: string
   width_twips?: number
   width_percent_fiftieths?: number
-  layout?: 'fixed'
+  layout?: 'fixed' | 'autofit'
   alignment?: 'left'
   indent_twips?: number
   grid_widths_twips?: number[]
@@ -752,7 +752,7 @@ function validateTable(value: unknown, path: string, issues: NativeDocxValidatio
     if (percent !== undefined && percent !== null && percent > 5000) add(issues, 'OUT_OF_RANGE', `${path}/width_percent_fiftieths`, 'must be at most 5000 fiftieths of a percent')
     if (entry.width_twips !== undefined) add(issues, 'INVALID_UNION', path, 'table width must use exactly one unit')
   }
-  if (entry.layout !== undefined) enumValue(entry.layout, `${path}/layout`, ['fixed'], issues)
+  if (entry.layout !== undefined) enumValue(entry.layout, `${path}/layout`, ['fixed', 'autofit'], issues)
   if (entry.alignment !== undefined) enumValue(entry.alignment, `${path}/alignment`, ['left'], issues)
   twipsInteger(entry.indent_twips, `${path}/indent_twips`, issues, 0, false)
   if (entry.grid_widths_twips !== undefined) array(entry.grid_widths_twips, `${path}/grid_widths_twips`, issues).forEach((width, index) => twipsInteger(width, `${path}/grid_widths_twips/${index}`, issues, 1))

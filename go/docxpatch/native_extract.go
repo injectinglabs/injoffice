@@ -3257,6 +3257,9 @@ func (extractor *nativeExtractor) extractTable(partName string, node *nativeXMLN
 				typeValue, typeOK := nativeAttr(property, extractor.wordNS, "type")
 				if widthOK && width > 0 && typeOK && typeValue == "dxa" && nativeExactLeaf(property, xml.Name{Space: extractor.wordNS, Local: "w"}, xml.Name{Space: extractor.wordNS, Local: "type"}) {
 					table.WidthTwips = nativeInt64(width)
+				} else if widthOK && width == 0 && typeOK && typeValue == "auto" && nativeExactLeaf(property, xml.Name{Space: extractor.wordNS, Local: "w"}, xml.Name{Space: extractor.wordNS, Local: "type"}) {
+					// Auto width has no absolute preferred extent; the explicit
+					// autofit layout is qualified by font-shaped content later.
 				} else if widthOK && width > 0 && width <= 5000 && typeOK && typeValue == "pct" && nativeExactLeaf(property, xml.Name{Space: extractor.wordNS, Local: "w"}, xml.Name{Space: extractor.wordNS, Local: "type"}) {
 					table.WidthPercentFiftieths = nativeInt64(width)
 				} else {
@@ -3264,7 +3267,7 @@ func (extractor *nativeExtractor) extractTable(partName string, node *nativeXMLN
 				}
 			} else if property.Name == (xml.Name{Space: extractor.wordNS, Local: "tblLayout"}) {
 				value, ok := nativeAttr(property, extractor.wordNS, "type")
-				if ok && value == "fixed" && nativeExactLeaf(property, xml.Name{Space: extractor.wordNS, Local: "type"}) {
+				if ok && (value == "fixed" || value == "autofit") && nativeExactLeaf(property, xml.Name{Space: extractor.wordNS, Local: "type"}) {
 					table.Layout = nativeString(value)
 				} else {
 					unsafe = true
@@ -3439,6 +3442,8 @@ func (extractor *nativeExtractor) extractTableCell(partName, tableID string, nod
 				// that schema default instead of treating it as unmodeled markup.
 				if widthOK && (!typeOK || typeValue == "dxa") && nativeExactLeaf(property, xml.Name{Space: extractor.wordNS, Local: "w"}, xml.Name{Space: extractor.wordNS, Local: "type"}) {
 					cell.WidthTwips = nativeInt64(value)
+				} else if widthOK && value == 0 && typeOK && typeValue == "auto" && nativeExactLeaf(property, xml.Name{Space: extractor.wordNS, Local: "w"}, xml.Name{Space: extractor.wordNS, Local: "type"}) {
+					// No absolute preferred cell width.
 				} else {
 					unsafe = true
 				}

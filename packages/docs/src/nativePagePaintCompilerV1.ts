@@ -456,7 +456,20 @@ export async function prepareNativeDocxPagePaintV1(input: NativeDocxPagePaintPre
   if (!isCanonicalHarfBuzzTextShaperV1(shaper, input.source_revision)) throw new TypeError('HarfBuzz shaper provenance does not attest the exact pinned runtime and requested engine source revision')
   await attestResolvedFontReferencesBeforeBidi(resolver, manifest.value, references)
   const dimensions = shapingDimensions(document.value, settings.value)
-  const qualifiedTables = qualifyNativeDocxTablesV1(document.value, resolved.value)
+  let measuredTables: import('./nativeShapingLines.js').NativeDocxShapedLinesV1 | undefined
+  if (document.value.body.blocks.some(block => block.table?.layout === 'autofit')) {
+    // The probe uses the same source, attested fonts and canonical shaper. A
+    // generous bounded width yields intrinsic advances; final qualification
+    // independently derives the same min/max from the final wrapped clusters.
+    const probeWidths = new Map<string, number>()
+    for (const block of document.value.body.blocks) for (const row of block.table?.rows ?? []) for (const cell of row.cells) for (const paragraph of cell.paragraphs) probeWidths.set(paragraph.id, 1_000_000_000)
+    const measured = await shapeNativeDocxLinesWithParagraphWidthsV1({ protocol: 'injoffice.docx.shaping-request', version: 1, document: document.value, resolved_layout: resolved.value, font_manifest: manifest.value, available_width_millipoints: dimensions.width, tab_interval_millipoints: dimensions.tab }, { resolver, shaper }, shapingParagraphWidths(document.value, probeWidths))
+    if (!measured.ok) failIssues('autofit measurement failed validation', measured.issues)
+    if (measured.value.diagnostics.length) throw new TypeError('Content autofit measurement refused unqualified source text or exceeded its budget')
+    measuredTables = measured.value
+  }
+  const qualifiedTables = qualifyNativeDocxTablesV1(document.value, resolved.value, measuredTables)
+  if (measuredTables && qualifiedTables.status !== 'qualified') throw new TypeError('Content autofit refused unsupported source geometry or unsatisfied intrinsic widths')
   if (document.value.body.blocks.some((block) => block.table !== undefined) && document.value.sections.some((section) => section.page.columns > 1)) {
     throw new TypeError('native page-paint compiler refuses table content when any section uses multi-column flow')
   }
