@@ -62,7 +62,7 @@ func resolveNativeShapeStyle(properties, style, themeRoot *nativeXMLNode, dialec
 		if err != nil {
 			return nil, err
 		}
-		if requireOnlyNativeAttrs(list) != nil || !onlyNativeXMLSpace(list.Text) || int(index) > len(list.Children) {
+		if requireOnlyNativeAttrs(list) != nil || !onlyNativeXMLSpace(list.Text) || index > int64(len(list.Children)) {
 			return nil, fmt.Errorf("style matrix entry unavailable")
 		}
 		selected := list.Children[index-1]
