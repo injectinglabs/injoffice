@@ -39,6 +39,15 @@ func TestNativeApproximationEligibilityRejectsAmbiguousLegacySettings(t *testing
 				data := buildNativeDOCX(t, nativeEntries(parts))
 				before := append([]byte(nil), data...)
 				settings, err := ExtractNativePaginationSettingsV1(data)
+				if test.name == "foreign mode" {
+					if err == nil || !strings.Contains(err.Error(), "namespace spoofing") {
+						t.Fatalf("foreign settings must hard-refuse: %v", err)
+					}
+					if _, approximationErr := ExtractNativeDocxApproximationEligibilityV1(data); approximationErr == nil {
+						t.Fatal("approximation accepted foreign settings")
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}
