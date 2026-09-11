@@ -368,8 +368,9 @@ function combinedNoteImageTableHeaderFixture(): NativeDocxPagePaintPrepareInputV
   return input
 }
 describe('native DOCX page-paint compiler v1', () => {
-  it('renders explicit approximate legacy previews through real HarfBuzz without changing strict preparation', async () => {
-    for (const mode of [12, 14] as const) {
+  // Each case includes a real HarfBuzz cold start. Bound it independently of
+  // the default five-second unit-test timeout on shared CI runners.
+  it.each([12, 14] as const)('renders approximate mode %s through real HarfBuzz without changing strict preparation', async (mode) => {
       const input = fixture()
       const settings = input.pagination_settings as NativeDocxPaginationSettingsV1
       settings.profile = 'unsupported'
@@ -393,8 +394,7 @@ describe('native DOCX page-paint compiler v1', () => {
       const strict = await prepareNativeDocxPagePaintV1(input)
       expect(strict.page_paint_request.paginated_layout).toMatchObject({ status: 'refused', pages: [] })
       expect(strict.outline_requests).toEqual([])
-    }
-  })
+  }, 15_000)
   function hostFixture() {
     const input = fixture()
     const original = JSON.parse(input.font_inventory_json) as NativeDOCXFontInventoryV1
