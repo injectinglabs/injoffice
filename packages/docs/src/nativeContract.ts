@@ -127,6 +127,8 @@ export interface NativeDocxRunV1 {
   text?: string
   /** Source PAGE/NUMPAGES instruction; cached text is not a rendering authority. */
   page_field?: 'PAGE' | 'NUMPAGES'
+  /** Internal layout substitution marker; requires original-source replay before page paint. */
+  layout_page_field?: 'PAGE' | 'NUMPAGES'
   control?: 'tab' | 'line-break' | 'page-break' | 'column-break' | 'soft-hyphen'
   reference?: NativeDocxReferenceV1
   drawing?: NativeDocxDrawingV1
@@ -373,7 +375,7 @@ export const DOCX_NATIVE_V1_BINDING_FIELDS = {
   DrawingV1: ['id', 'anchor', 'relationship_id', 'media_part', 'content_type', 'name', 'alt_text', 'placement', 'width_emu', 'height_emu', 'x_emu', 'y_emu', 'horizontal_relative_from', 'vertical_relative_from', 'wrap', 'edit_policy', 'rotation_degrees', 'flip_horizontal', 'flip_vertical', 'source_crop', 'floating_layer', 'stacking_order'],
   DrawingCropV1: ['left', 'top', 'right', 'bottom'],
   ReferenceV1: ['kind', 'target_id', 'role'],
-  RunV1: ['kind', 'id', 'anchor', 'properties', 'text', 'page_field', 'control', 'reference', 'drawing'],
+  RunV1: ['kind', 'id', 'anchor', 'properties', 'text', 'page_field', 'layout_page_field', 'control', 'reference', 'drawing'],
   NumberingReferenceV1: ['num_id', 'level', 'abstract_num_id'],
   ParagraphPropertiesV1: ['paragraph_style_id', 'numbering', 'alignment', 'keep_next', 'keep_lines', 'page_break_before', 'widow_control'],
   ParagraphV1: ['id', 'anchor', 'edit_policy', 'properties', 'runs'],
@@ -666,6 +668,10 @@ function validateRun(value: unknown, path: string, issues: NativeDocxValidationI
     enumValue(entry.page_field, `${path}/page_field`, ['PAGE', 'NUMPAGES'], issues)
     if (kind !== 'text') add(issues, 'INVALID_UNION', `${path}/page_field`, 'page field requires a text run')
     if (entry.text !== '') add(issues, 'INVALID_VALUE', `${path}/text`, 'page-field source text must be empty; cached text is not authoritative')
+  }
+  if (entry.layout_page_field !== undefined) {
+    enumValue(entry.layout_page_field, `${path}/layout_page_field`, ['PAGE', 'NUMPAGES'], issues)
+    if (kind !== 'text' || entry.page_field !== undefined || typeof entry.text !== 'string' || !/^[1-9][0-9]{0,5}$/.test(entry.text)) add(issues, 'INVALID_VALUE', path, 'layout fields require decimal text and no source field marker')
   }
   const payloads = ['text', 'control', 'reference', 'drawing'].filter((key) => entry[key] !== undefined)
   if (payloads.length !== 1 || payloads[0] !== kind) add(issues, 'INVALID_UNION', path, 'run kind must match exactly one payload')

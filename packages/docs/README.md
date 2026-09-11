@@ -464,12 +464,25 @@ made editable. Low-level consumers must pass the compiler's variants through
 to header/footer layout and paint, not reuse the empty source field as text.
 
 This bounded profile allows at most 64 pages and 100,000 cumulative variant
-fragments (`DOCX_PAGE_FIELD_LIMITS`). Body/note/comment fields, header/footer
+fragments (`DOCX_PAGE_FIELD_LIMITS`). Note/comment fields, header/footer
 tables, other complex `fldChar` sequences, nested fields, switches (including
 `MERGEFORMAT`), locked/dirty fields, section numbering formats/restarts, and all
-other field instructions remain refused. Field-dependent body pagination needs
-a separate convergence contract; this implementation makes no Word-pixel parity
+other field instructions remain refused. This implementation makes no Word-pixel parity
 claim. See the [OOXML simple-field definition](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.simplefield?view=openxml-3.0.1).
+
+Ordinary body-paragraph PAGE/NUMPAGES fields use a bounded whole-body layout
+fixed point: start with decimal `1`, shape and paginate, derive field text from
+the actual page carrying its glyphs, and repeat until the complete state is
+unchanged. Cycles and failure to converge within eight passes refuse. At most
+128 body fields and 64 pages qualify. Across solver passes and subsequent
+header/footer variants, at most 100,000 shaping fragments are processed. Hidden fields, table/note/comment fields
+and fields split across pages refuse. No stale cached result seeds the solve.
+The paint request retains `body_field_source` plus its integrity digest and
+proves that the derived document differs only by final page-derived field text
+and internal `layout_page_field` substitution markers. These markers require
+source replay and are never emitted by source extraction or accepted as compiler
+source input. The original-source digest is also carried in output provenance.
+Read-only paragraph policies and original raw XML/package digests are preserved.
 
 Text-run `w:vertAlign` values `subscript` and `superscript` use an explicit
 font-metric simulation profile. Native shaping reads the embedded font's

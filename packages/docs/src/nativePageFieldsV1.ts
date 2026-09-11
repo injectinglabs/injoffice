@@ -9,9 +9,10 @@ function runs(story: NativeDocxStoryV1) {
   return story.blocks.flatMap((block) => block.paragraph?.runs ?? block.table?.rows.flatMap((row) => row.cells.flatMap((cell) => cell.paragraphs.flatMap((p) => p.runs))) ?? [])
 }
 
-/** This first field profile intentionally excludes pagination-dependent body text. */
+/** Header/footer expansion; body fields retain markers and are separately source-replayed. */
 export function hasNativeDocxPageFieldsV1(document: NativeDocxDocumentV1): boolean {
-  for (const story of [document.body, ...document.notes, ...document.comment_stories]) if (runs(story).some((run) => run.page_field)) throw new TypeError('PAGE/NUMPAGES fields are qualified only in header/footer stories; body, notes and comments remain refused')
+  for (const story of [...document.notes, ...document.comment_stories]) if (runs(story).some((run) => run.page_field)) throw new TypeError('PAGE/NUMPAGES fields in notes and comments remain refused')
+  for (const run of runs(document.body)) if (run.page_field && !/^[1-9][0-9]{0,5}$/.test(run.text ?? '')) throw new TypeError('Body fields require layout-derived decimal text before header expansion')
   let found = false
   for (const story of [...document.headers, ...document.footers]) for (const run of runs(story)) if (run.page_field) {
     found = true

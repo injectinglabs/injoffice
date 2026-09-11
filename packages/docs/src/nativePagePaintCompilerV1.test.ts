@@ -426,6 +426,34 @@ describe('native DOCX page-paint compiler v1', () => {
       }
     }
   })
+  it('converges body PAGE/NUMPAGES against final pages while preserving the original source and read-only policy', async () => {
+    const input=fixture(), document=input.document as NativeDocxDocumentV1, resolved=input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    const first=document.body.blocks[0]!.paragraph!
+    first.runs[0]!.page_field='NUMPAGES';first.runs[0]!.text=''
+    const second=structuredClone(first)
+    second.id='paragraph:second';second.anchor=anchor('/w:document[1]/w:body[1]/w:p[2]',200,290);second.properties.page_break_before=true
+    second.runs[0]!.id='run:second';second.runs[0]!.anchor=anchor('/w:document[1]/w:body[1]/w:p[2]/w:r[1]/w:t[1]',210,280);second.runs[0]!.page_field='PAGE'
+    document.body.blocks.push({kind:'paragraph',id:second.id,paragraph:second})
+    resolved.paragraphs.push({...structuredClone(resolved.paragraphs[0]!),paragraph_id:second.id,properties:{page_break_before:true}})
+    resolved.runs.push({...structuredClone(resolved.runs[0]!),run_id:'run:second',paragraph_id:second.id})
+    rewriteInventory(input,inventory=>{inventory.references[0]!.scope_ids.push(second.id,'run:second');inventory.references[0]!.scope_ids.sort()})
+    const before=JSON.stringify(document),prepared=await prepareNativeDocxPagePaintV1(input),request=prepared.page_paint_request
+    expect(JSON.stringify(document)).toBe(before)
+    expect(request.body_field_source).toEqual(document)
+    expect(request.pagination_request.document.body.blocks.map(block=>block.paragraph!.runs[0]!.text)).toEqual(['2','2'])
+    expect(request.pagination_request.document.body.blocks.every(block=>block.paragraph!.edit_policy.mode==='read-only')).toBe(true)
+    const provider=createHarfBuzzOutlineProviderV1({bytes:FONT_BYTES,contentDigest:FONT_DIGEST})
+    const completed=await completeNativeDocxPagePaintV1({prepared,outline_results:prepared.outline_requests.map(outline=>({status:'outlined' as const,...outline,...provider.outline(outline.glyph_id)}))})
+    expect(completed.page_paint_output.status).toBe('painted')
+    expect(decodeNativeDocxPagePaintForRequestV1(completed.page_paint_output,request,request.outline_provider).ok).toBe(true)
+    for(const mutate of [
+      (r:typeof request)=>{delete r.body_field_source},
+      (r:typeof request)=>{delete r.body_field_source; delete r.integrity.body_field_source_sha256},
+      (r:typeof request)=>{r.body_field_source!.body.blocks[0]!.paragraph!.runs[0]!.text='999'},
+      (r:typeof request)=>{r.pagination_request.document.body.blocks[0]!.paragraph!.runs[0]!.text='1'},
+      (r:typeof request)=>{r.body_field_source!.body.anchor.xml_sha256=`sha256:${'0'.repeat(64)}`},
+    ]){const invalid=structuredClone(request);mutate(invalid);expect(decodeNativeDocxPagePaintRequestV1(invalid).ok).toBe(false)}
+  })
   it('derives PAGE/NUMPAGES from final pagination in both repeated header and footer, never cached values', async () => {
     const input = fixture()
     const document = input.document as NativeDocxDocumentV1
@@ -474,7 +502,7 @@ describe('native DOCX page-paint compiler v1', () => {
     expect(() => nativeDocxPageFieldDocumentV1(stale, 0, 2)).toThrow(/cached results/)
     expect(() => nativeDocxPageFieldDocumentV1(document, 0, 65)).toThrow(/bounded/)
     const bodyField = structuredClone(document); bodyField.body.blocks[0]!.paragraph!.runs[0]!.page_field = 'PAGE'
-    expect(() => nativeDocxPageFieldDocumentV1(bodyField, 0, 2)).toThrow(/only in header/)
+    expect(() => nativeDocxPageFieldDocumentV1(bodyField, 0, 2)).toThrow(/Body fields/)
   })
   it('exact-joins source-attested inline image flips and half-turns without changing layout extents', async () => {
     for (const rotation_degrees of [0, 90, 180, 270] as const) for (const flip_horizontal of [false, true]) for (const flip_vertical of [false, true]) {
