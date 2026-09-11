@@ -428,8 +428,9 @@ policy, not a claim of Word-pixel parity.
 
 Simple decimal `PAGE` and `NUMPAGES` fields in ordinary header/footer paragraphs
 are resolved from the final native body pagination. The Go extractor recognizes
-only an unlocked `w:fldSimple` with an exact `PAGE` or `NUMPAGES` instruction and
-one supported text result run. It discards the cached result, records
+an unlocked `w:fldSimple` or a flat paragraph-local five-run
+`begin` / `instrText` / `separate` / result / `end` sequence, with an exact
+`PAGE` or `NUMPAGES` instruction and one supported text result run. It discards the cached result, records
 `page_field`, and keeps the paragraph read-only. The raw story-root XML anchor
 digest covers the instruction and cached bytes; the package digest binds the
 complete source. These are integrity joins within the trusted extraction
@@ -446,7 +447,7 @@ to header/footer layout and paint, not reuse the empty source field as text.
 
 This bounded profile allows at most 64 pages and 100,000 cumulative variant
 fragments (`DOCX_PAGE_FIELD_LIMITS`). Body/note/comment fields, header/footer
-tables, complex `fldChar` fields, nested fields, switches (including
+tables, other complex `fldChar` sequences, nested fields, switches (including
 `MERGEFORMAT`), locked/dirty fields, section numbering formats/restarts, and all
 other field instructions remain refused. Field-dependent body pagination needs
 a separate convergence contract; this implementation makes no Word-pixel parity

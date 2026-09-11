@@ -2135,12 +2135,26 @@ func nativeExactResolvedParagraphIndent(node *nativeXMLNode, wordNS string) bool
 func (extractor *nativeExtractor) extractParagraphRuns(partName, paragraphID string, paragraph *nativeXMLNode) ([]NativeRunV1, bool, error) {
 	runs := []NativeRunV1{}
 	unsafe := false
-	for _, child := range paragraph.Children {
+	for childIndex := 0; childIndex < len(paragraph.Children); childIndex++ {
+		child := paragraph.Children[childIndex]
 		if child.Name == (xml.Name{Space: extractor.wordNS, Local: "pPr"}) {
 			continue
 		}
 		switch {
 		case child.Name == (xml.Name{Space: extractor.wordNS, Local: "r"}):
+			if hasNativeFieldBegin(child, extractor.wordNS) {
+				unsafe = true
+				field, ok, err := extractor.extractFlatPageField(partName, paragraphID, paragraph.Children[childIndex:])
+				if err != nil {
+					return nil, false, err
+				}
+				if ok {
+					runs = append(runs, field)
+					childIndex += 4
+					continue
+				}
+				extractor.addUnsupported("FIELD_SEMANTICS", "fields", paragraphID, partName, child, "Complex page fields require an exact flat begin/instruction/separate/result/end run sequence")
+			}
 			extracted, runUnsafe, err := extractor.extractRunNode(partName, paragraphID, child)
 			if err != nil {
 				return nil, false, err

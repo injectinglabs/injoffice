@@ -16,7 +16,7 @@ export function hasNativeDocxPageFieldsV1(document: NativeDocxDocumentV1): boole
   for (const story of [...document.headers, ...document.footers]) for (const run of runs(story)) if (run.page_field) {
     found = true
     if (run.kind !== 'text' || run.text !== '') throw new TypeError('Source page-field text must be empty; cached results are not authoritative')
-    if (!run.anchor.path.includes('/w:fldSimple[')) throw new TypeError('Page-field source must be anchored inside an exact simple field')
+    if (!run.anchor.path.includes('/w:fldSimple[') && !/^.*\/w:p\[\d+\]\/w:r\[\d+\]\/w:t\[\d+\]$/.test(run.anchor.path)) throw new TypeError('Page-field source must be anchored in a simple field or a paragraph-local flat field result text')
     // Modeled header/footer parts are not passthrough parts. Their root anchor
     // hashes the raw source XML containing both instruction and cached result;
     // document.source.package_sha256 binds the complete OPC bytes as well.

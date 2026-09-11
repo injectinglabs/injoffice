@@ -150,6 +150,12 @@ func buildWithAllRendering(font []byte, withJPEG, withFields, withScripts bool, 
 				tag = "ftr"
 			}
 			parts["word/"+region+"1.xml"] = []byte(`<w:` + tag + ` xmlns:w="` + wns + `"><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:t xml:space="preserve">Page </w:t></w:r>` + field("PAGE") + `<w:r><w:t xml:space="preserve"> of </w:t></w:r>` + field("NUMPAGES") + `</w:p></w:` + tag + `>`)
+			if region == "footer" {
+				for _, instruction := range []string{"PAGE", "NUMPAGES"} {
+					complex := `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> ` + instruction + ` </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr>` + runProps + `</w:rPr><w:t>999</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>`
+					parts["word/footer1.xml"] = []byte(strings.Replace(string(parts["word/footer1.xml"]), field(instruction), complex, 1))
+				}
+			}
 			parts["[Content_Types].xml"] = []byte(strings.Replace(string(parts["[Content_Types].xml"]), "</Types>", `<Override PartName="/word/`+region+`1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.`+region+`+xml"/></Types>`, 1))
 			parts["word/_rels/document.xml.rels"] = []byte(strings.Replace(string(parts["word/_rels/document.xml.rels"]), "</Relationships>", `<Relationship Id="`+region+`" Type="`+rns+`/`+region+`" Target="`+region+`1.xml"/></Relationships>`, 1))
 			parts["word/document.xml"] = []byte(strings.Replace(string(parts["word/document.xml"]), `<w:sectPr>`, `<w:sectPr><w:`+region+`Reference xmlns:r="`+rns+`" w:type="default" r:id="`+region+`"/>`, 1))
