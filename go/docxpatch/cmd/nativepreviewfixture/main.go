@@ -145,7 +145,7 @@ func buildWithAllRendering(font []byte, withJPEG, withFields, withScripts bool, 
 			return `<w:fldSimple w:instr=" ` + instruction + ` "><w:r><w:rPr>` + runProps + `</w:rPr><w:t>999</w:t></w:r></w:fldSimple>`
 		}
 		bodyField := `<w:p><w:r><w:t xml:space="preserve">Body page </w:t></w:r>` + field("PAGE") + `<w:r><w:t xml:space="preserve"> of </w:t></w:r>` + field("NUMPAGES") + `</w:p>`
-		parts["word/document.xml"] = []byte(strings.Replace(string(parts["word/document.xml"]), `<w:sectPr>`, bodyField+`<w:sectPr>`, 1))
+		parts["word/document.xml"] = []byte(strings.Replace(string(parts["word/document.xml"]), `<w:sectPr>`, bodyField+`<w:sectPr><w:pgNumType w:fmt="decimal" w:start="7"/>`, 1))
 		for _, region := range []string{"header", "footer"} {
 			tag := "hdr"
 			if region == "footer" {

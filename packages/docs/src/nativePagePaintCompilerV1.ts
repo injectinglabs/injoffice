@@ -20,6 +20,7 @@ import {
 import { hasNativeDocxPageFieldsV1, nativeDocxPageFieldDocumentV1, DOCX_PAGE_FIELD_LIMITS, type NativeDocxPageFieldVariantV1 } from './nativePageFieldsV1.js'
 import { solveNativeDocxLayoutFixedPointV1 } from './nativeLayoutFixedPointV1.js'
 import { canonicalWireSha256 } from './nativePagePaintWireV1.js'
+import { nativeDocxPageNumberV1 } from './nativePageNumbersV1.js'
 import { nativeDocxBodyPageFieldRunsV1, nativeDocxBodyPageFieldDocumentV1, nativeDocxBodyPageFieldValuesV1 } from './nativeBodyPageFieldsV1.js'
 import {
   createHarfBuzzTextShaperV1,
@@ -522,7 +523,7 @@ export async function prepareNativeDocxPagePaintV1(input: NativeDocxPagePaintPre
     pageFieldVariants = []
     let fragments = layoutFragmentWork
     for (const page of paginated.value.pages) {
-      const fieldDocument = nativeDocxPageFieldDocumentV1(decodedPagination.value.document, page.ordinal, paginated.value.pages.length)
+      const fieldDocument = nativeDocxPageFieldDocumentV1(decodedPagination.value.document, page.ordinal, paginated.value.pages.length, nativeDocxPageNumberV1(decodedPagination.value.document, paginated.value, page.ordinal))
       const variant = await shapeNativeDocxLinesWithParagraphWidthsV1({ protocol: 'injoffice.docx.shaping-request', version: 1, document: fieldDocument, resolved_layout: resolved.value, font_manifest: manifest.value, available_width_millipoints: dimensions.width, tab_interval_millipoints: dimensions.tab }, { resolver, shaper }, paragraphWidths)
       if (!variant.ok) failIssues('page-field shaping failed', variant.issues)
       fragments += variant.value.paragraphs.reduce((n, paragraph) => n + paragraph.lines.reduce((m, line) => m + line.fragments.length, 0), 0)

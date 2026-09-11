@@ -1,5 +1,6 @@
 import { decodeNativeDocxDocument, type NativeDocxDocumentV1, type NativeDocxRunV1 } from './nativeContract.js'
 import type { NativeDocxPaginationRequestV1, NativeDocxPaginatedLayoutV1 } from './nativePaginationV1.js'
+import { nativeDocxPageNumberV1 } from './nativePageNumbersV1.js'
 
 export type NativeDocxBodyPageFieldValuesV1 = Record<string, string>
 
@@ -22,7 +23,7 @@ export function nativeDocxBodyPageFieldRunsV1(document: NativeDocxDocumentV1): N
 
 export function nativeDocxBodyPageFieldDocumentV1(source: NativeDocxDocumentV1, values: NativeDocxBodyPageFieldValuesV1): NativeDocxDocumentV1 {
   const fields = nativeDocxBodyPageFieldRunsV1(source)
-  if (Object.keys(values).length !== fields.length || fields.some(run => !/^[1-9][0-9]{0,5}$/.test(values[run.id] ?? ''))) throw new TypeError('Body field values must exactly cover source fields with bounded decimal text')
+  if (Object.keys(values).length !== fields.length || fields.some(run => !/^(0|[1-9][0-9]{0,5})$/.test(values[run.id] ?? ''))) throw new TypeError('Body field values must exactly cover source fields with bounded decimal text')
   const derived = structuredClone(source)
   for (const block of derived.body.blocks) for (const run of block.paragraph?.runs ?? []) if (run.page_field) { run.text = values[run.id]!; run.layout_page_field = run.page_field; delete run.page_field }
   return derived
@@ -41,7 +42,7 @@ export function nativeDocxBodyPageFieldValuesV1(source: NativeDocxDocumentV1, re
   return Object.fromEntries(fields.map(run => {
     const pages = locations.get(run.id)!
     if (pages.size !== 1) throw new TypeError('Each visible body field must exact-join one final page; hidden or page-split fields refuse')
-    return [run.id,String(run.page_field === 'NUMPAGES' ? layout.pages.length : [...pages][0]! + 1)]
+    return [run.id,String(run.page_field === 'NUMPAGES' ? layout.pages.length : nativeDocxPageNumberV1(source,layout,[...pages][0]!))]
   }))
 }
 

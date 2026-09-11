@@ -3512,7 +3512,7 @@ func (extractor *nativeExtractor) extractSection(node *nativeXMLNode, startsAtBl
 			extractor.addUnsupported("FOREIGN_SECTION_MARKUP", "sections", id, extractor.mainPart, child, "Foreign section markup is preserved verbatim")
 			continue
 		}
-		if child.Name.Local == "type" || child.Name.Local == "titlePg" || child.Name.Local == "pgSz" || child.Name.Local == "pgMar" || child.Name.Local == "cols" {
+		if child.Name.Local == "type" || child.Name.Local == "titlePg" || child.Name.Local == "pgNumType" || child.Name.Local == "pgSz" || child.Name.Local == "pgMar" || child.Name.Local == "cols" {
 			if seenSingleton[child.Name.Local] {
 				extractor.addUnsupported("DUPLICATE_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Duplicate modeled section-property singletons make exact pagination geometry ambiguous")
 				continue
@@ -3531,6 +3531,23 @@ func (extractor *nativeExtractor) extractSection(node *nativeXMLNode, startsAtBl
 				section.BreakType = map[string]string{"continuous": "continuous", "evenPage": "even-page", "oddPage": "odd-page", "nextColumn": "next-column", "nextPage": "next-page"}[value]
 			default:
 				extractor.addUnsupported("UNMODELED_SECTION_BREAK", "sections", id, extractor.mainPart, child, "Missing or unknown section break type is preserved; next-page is exposed conservatively")
+			}
+		case "pgNumType":
+			format, _ := nativeAttr(child, extractor.wordNS, "fmt")
+			start, hasStart := nativeAttr(child, extractor.wordNS, "start")
+			valid := nativeExactLeaf(child, xml.Name{Space: extractor.wordNS, Local: "fmt"}, xml.Name{Space: extractor.wordNS, Local: "start"}) && (format == "" || format == "decimal")
+			var number int64
+			if hasStart {
+				var err error
+				number, err = strconv.ParseInt(start, 10, 64)
+				valid = valid && err == nil && number >= 0 && number <= 999999 && strconv.FormatInt(number, 10) == start
+			}
+			if !valid {
+				extractor.addUnsupported("UNMODELED_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Page numbering requires bounded decimal start and no chapter/switch attributes")
+				continue
+			}
+			if hasStart {
+				section.PageNumberStart = &number
 			}
 		case "titlePg":
 			if !nativeExactLeaf(child, xml.Name{Space: extractor.wordNS, Local: "val"}) {

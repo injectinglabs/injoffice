@@ -17,6 +17,7 @@ import {
   paintImageCommandID, paintNoteSeparatorCommandID, decodeNativeDocxPagePaintV1,
 } from './nativePagePaintWireV1.js'
 import { validateNativeDocxBodyPageFieldSourceV1 } from './nativeBodyPageFieldsV1.js'
+import { nativeDocxPageNumberV1 } from './nativePageNumbersV1.js'
 export {
   DOCX_PAGE_PAINT_REQUEST_PROTOCOL, DOCX_PAGE_PAINT_REQUEST_VERSION,
   DOCX_PAGE_PAINT_PROTOCOL, DOCX_PAGE_PAINT_VERSION, DOCX_PAGE_PAINT_LIMITS,
@@ -940,7 +941,7 @@ export async function compileNativeDocxPagePaintV1(value: unknown, outlineProvid
           properties = resolved.properties
           if (fragment.source_kind === 'run') {
             const noteMarker = nativeRun.kind === 'reference' && nativeRun.reference && (nativeRun.reference.kind === 'footnote' || nativeRun.reference.kind === 'endnote') ? noteNumbers.get(nativeRun.reference.target_id) : undefined
-            const sourceText = nativeRun.page_field ? String(nativeRun.page_field === 'PAGE' ? page.ordinal + 1 : layout.pages.length) : nativeRun.text
+            const sourceText = nativeRun.page_field ? String(nativeRun.page_field === 'PAGE' ? nativeDocxPageNumberV1(pagination.document,layout,page.ordinal) : layout.pages.length) : nativeRun.text
             const exactText = nativeRun.kind === 'text' && sourceText !== undefined && sourceText.slice(fragment.start_utf16, fragment.end_utf16) === fragment.text
             const exactMarker = noteMarker !== undefined && fragment.start_utf16 === 0 && fragment.end_utf16 === noteMarker.length && fragment.text === noteMarker
             if (!exactText && !exactMarker) return { ok: true, value: refusal(provenance, 'identity-mismatch', fragment.id, 'Run fragment text and UTF-16 range must exactly match native text or its placed note number') }
@@ -1127,7 +1128,7 @@ export async function compileNativeDocxPagePaintV1(value: unknown, outlineProvid
         if (interval.start !== cursor || interval.end <= interval.start) return { ok: true, value: refusal(provenance, 'identity-mismatch', nativeRun.id, 'Painted visual clusters must exactly partition their native text run in logical order') }
         cursor = interval.end
       }
-      const expectedText = nativeRun.page_field ? String(nativeRun.page_field === 'PAGE' ? ordinal + 1 : layout.pages.length) : nativeRun.text
+      const expectedText = nativeRun.page_field ? String(nativeRun.page_field === 'PAGE' ? nativeDocxPageNumberV1(pagination.document,layout,ordinal) : layout.pages.length) : nativeRun.text
       if (cursor !== expectedText.length) return { ok: true, value: refusal(provenance, 'identity-mismatch', nativeRun.id, 'Painted visual clusters must completely cover their native text run') }
     } else if (nativeRun.kind === 'control' && nativeRun.control === 'tab' && sourceControlCounts.get(coverageID) !== 1) {
       return { ok: true, value: refusal(provenance, 'identity-mismatch', nativeRun.id, 'A painted native tab must have exactly one visual fragment') }

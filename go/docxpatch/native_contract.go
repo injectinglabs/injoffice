@@ -292,6 +292,7 @@ type NativeSectionV1 struct {
 	StartsAtBlockID string                          `json:"starts_at_block_id"`
 	BreakType       string                          `json:"break_type"`
 	TitlePage       *bool                           `json:"title_page"`
+	PageNumberStart *int64                          `json:"page_number_start,omitempty"`
 	Page            NativePageGeometryV1            `json:"page"`
 	HeaderRefs      []NativeHeaderFooterReferenceV1 `json:"header_refs"`
 	FooterRefs      []NativeHeaderFooterReferenceV1 `json:"footer_refs"`
@@ -1101,6 +1102,9 @@ func (v *nativeValidator) section(section *NativeSectionV1, path, mainPart strin
 	v.oneOf(section.BreakType, path+"/break_type", "continuous", "next-page", "even-page", "odd-page", "next-column")
 	if section.TitlePage == nil {
 		v.add("REQUIRED", path+"/title_page", "field is required")
+	}
+	if section.PageNumberStart != nil && (*section.PageNumberStart < 0 || *section.PageNumberStart > 999999) {
+		v.add("INVALID_VALUE", path+"/page_number_start", "decimal page number start must be between 0 and 999999")
 	}
 	v.twips(section.Page.WidthTwips, path+"/page/width_twips", 1)
 	v.twips(section.Page.HeightTwips, path+"/page/height_twips", 1)

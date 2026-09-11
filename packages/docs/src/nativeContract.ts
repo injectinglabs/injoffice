@@ -283,6 +283,7 @@ export interface NativeDocxSectionV1 {
   break_type: 'continuous' | 'next-page' | 'even-page' | 'odd-page' | 'next-column'
   /** Exact w:titlePg policy. False means the element is absent or explicitly off. */
   title_page: boolean
+  page_number_start?: number
   page: NativeDocxPageGeometryV1
   header_refs: NativeDocxHeaderFooterReferenceV1[]
   footer_refs: NativeDocxHeaderFooterReferenceV1[]
@@ -391,7 +392,7 @@ export const DOCX_NATIVE_V1_BINDING_FIELDS = {
   PageMarginsV1: ['top_twips', 'right_twips', 'bottom_twips', 'left_twips', 'header_twips', 'footer_twips', 'gutter_twips'],
   ColumnV1: ['id', 'ordinal', 'width_twips', 'space_after_twips'],
   PageGeometryV1: ['width_twips', 'height_twips', 'orientation', 'margins', 'columns', 'column_spacing_twips', 'column_layout', 'column_definitions'],
-  SectionV1: ['id', 'anchor', 'starts_at_block_id', 'break_type', 'title_page', 'page', 'header_refs', 'footer_refs'],
+  SectionV1: ['id', 'anchor', 'starts_at_block_id', 'break_type', 'title_page', 'page_number_start', 'page', 'header_refs', 'footer_refs'],
   CommentV1: ['id', 'native_comment_id', 'author', 'initials', 'created_at', 'anchor', 'body_story_id'],
   UnsupportedCapabilityV1: ['id', 'code', 'capability', 'scope_id', 'anchor', 'preservation', 'message'],
   DocumentV1: ['protocol', 'version', 'document_id', 'revision', 'source', 'body', 'sections', 'headers', 'footers', 'notes', 'comment_stories', 'comments', 'capabilities', 'passthrough_parts', 'unsupported'],
@@ -671,7 +672,7 @@ function validateRun(value: unknown, path: string, issues: NativeDocxValidationI
   }
   if (entry.layout_page_field !== undefined) {
     enumValue(entry.layout_page_field, `${path}/layout_page_field`, ['PAGE', 'NUMPAGES'], issues)
-    if (kind !== 'text' || entry.page_field !== undefined || typeof entry.text !== 'string' || !/^[1-9][0-9]{0,5}$/.test(entry.text)) add(issues, 'INVALID_VALUE', path, 'layout fields require decimal text and no source field marker')
+    if (kind !== 'text' || entry.page_field !== undefined || typeof entry.text !== 'string' || !/^(0|[1-9][0-9]{0,5})$/.test(entry.text)) add(issues, 'INVALID_VALUE', path, 'layout fields require decimal text and no source field marker')
   }
   const payloads = ['text', 'control', 'reference', 'drawing'].filter((key) => entry[key] !== undefined)
   if (payloads.length !== 1 || payloads[0] !== kind) add(issues, 'INVALID_UNION', path, 'run kind must match exactly one payload')
@@ -854,6 +855,10 @@ function validateSection(value: unknown, path: string, issues: NativeDocxValidat
   if (start) reference(refs, start, `${path}/starts_at_block_id`, 'body-block')
   enumValue(entry.break_type, `${path}/break_type`, ['continuous', 'next-page', 'even-page', 'odd-page', 'next-column'], issues)
   booleanValue(entry.title_page, `${path}/title_page`, issues)
+  if (entry.page_number_start !== undefined) {
+    const start = integer(entry.page_number_start, `${path}/page_number_start`, issues)
+    if (start !== undefined && start > 999999) add(issues, 'INVALID_VALUE', `${path}/page_number_start`, 'must not exceed 999999')
+  }
   const page = object(entry.page, `${path}/page`, DOCX_NATIVE_V1_BINDING_FIELDS.PageGeometryV1, issues)
   if (page) {
     twipsInteger(page.width_twips, `${path}/page/width_twips`, issues, 1)

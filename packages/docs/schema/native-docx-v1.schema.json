@@ -400,6 +400,7 @@
         "starts_at_block_id": { "$ref": "#/$defs/Identifier" },
         "break_type": { "enum": ["continuous", "next-page", "even-page", "odd-page", "next-column"] },
         "title_page": { "type": "boolean" },
+        "page_number_start": { "type": "integer", "minimum": 0, "maximum": 999999 },
         "page": { "$ref": "#/$defs/PageGeometryV1" },
         "header_refs": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/HeaderFooterReferenceV1" } },
         "footer_refs": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/HeaderFooterReferenceV1" } }

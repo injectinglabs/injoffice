@@ -466,7 +466,7 @@ to header/footer layout and paint, not reuse the empty source field as text.
 This bounded profile allows at most 64 pages and 100,000 cumulative variant
 fragments (`DOCX_PAGE_FIELD_LIMITS`). Note/comment fields, header/footer
 tables, other complex `fldChar` sequences, nested fields, switches (including
-`MERGEFORMAT`), locked/dirty fields, section numbering formats/restarts, and all
+`MERGEFORMAT`), locked/dirty fields, non-decimal section numbering formats, and all
 other field instructions remain refused. This implementation makes no Word-pixel parity
 claim. See the [OOXML simple-field definition](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.simplefield?view=openxml-3.0.1).
 
@@ -483,6 +483,14 @@ and internal `layout_page_field` substitution markers. These markers require
 source replay and are never emitted by source extraction or accepted as compiler
 source input. The original-source digest is also carried in output provenance.
 Read-only paragraph policies and original raw XML/package digests are preserved.
+
+Exact `w:pgNumType` decimal section starts (`0` through `999999`) restart PAGE
+display text without changing physical pagination or NUMPAGES. Unspecified
+starts continue physical page numbering, including parity blanks. A restart
+on a page shared by continuous sections refuses rather than guessing ownership.
+Chapter numbering attributes, other number formats, malformed starts and display
+overflow remain refused. The browser fixture starts at 7 and proves native
+`Page 7 of 2` / `Page 8 of 2` in both stories and the page-eight body field.
 
 Text-run `w:vertAlign` values `subscript` and `superscript` use an explicit
 font-metric simulation profile. Native shaping reads the embedded font's

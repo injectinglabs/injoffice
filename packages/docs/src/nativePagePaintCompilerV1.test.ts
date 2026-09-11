@@ -426,8 +426,9 @@ describe('native DOCX page-paint compiler v1', () => {
       }
     }
   })
-  it('converges body PAGE/NUMPAGES against final pages while preserving the original source and read-only policy', async () => {
+  it.each([undefined,0,7])('converges body PAGE/NUMPAGES with decimal restart %s while preserving the original source and read-only policy', async (start) => {
     const input=fixture(), document=input.document as NativeDocxDocumentV1, resolved=input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    if(start!==undefined) document.sections[0]!.page_number_start=start
     const first=document.body.blocks[0]!.paragraph!
     first.runs[0]!.page_field='NUMPAGES';first.runs[0]!.text=''
     const second=structuredClone(first)
@@ -440,7 +441,7 @@ describe('native DOCX page-paint compiler v1', () => {
     const before=JSON.stringify(document),prepared=await prepareNativeDocxPagePaintV1(input),request=prepared.page_paint_request
     expect(JSON.stringify(document)).toBe(before)
     expect(request.body_field_source).toEqual(document)
-    expect(request.pagination_request.document.body.blocks.map(block=>block.paragraph!.runs[0]!.text)).toEqual(['2','2'])
+    expect(request.pagination_request.document.body.blocks.map(block=>block.paragraph!.runs[0]!.text)).toEqual(['2',String((start??1)+1)])
     expect(request.pagination_request.document.body.blocks.every(block=>block.paragraph!.edit_policy.mode==='read-only')).toBe(true)
     const provider=createHarfBuzzOutlineProviderV1({bytes:FONT_BYTES,contentDigest:FONT_DIGEST})
     const completed=await completeNativeDocxPagePaintV1({prepared,outline_results:prepared.outline_requests.map(outline=>({status:'outlined' as const,...outline,...provider.outline(outline.glyph_id)}))})
