@@ -311,6 +311,13 @@ export default function NativeRoundTripPage() {
   const bounds = activeSheet ? previewBounds(activeSheet) : null
   const cellMap = new Map(activeSheet?.cells.map((cell) => [`${cell.row}:${cell.column}`, cell]) ?? [])
   const editableMap = new Map(targets.map((candidate) => [targetKey(candidate), candidate]))
+  const previewWarnings = workbook && activeSheet && bounds
+    ? activeSheet.cells.filter((cell) => cell.row < bounds.rows && cell.column < bounds.columns)
+      .flatMap((cell) => {
+        const warning = nativeCellPreview(workbook, cell).warning
+        return warning ? [{ ref: cell.ref, warning }] : []
+      })
+    : []
 
   return (
     <div className="platen-fill native-demo workbench-surface ds" data-demo-surface="native" data-demo-busy={busy}>
@@ -396,9 +403,9 @@ export default function NativeRoundTripPage() {
                               {candidate ? (
                                 <button type="button" onClick={() => chooseTarget(candidate)} aria-label={`Edit ${activeSheet.name} ${cell?.ref ?? `${columnName(column)}${row + 1}`}`}>
                                   {preview.text || '\u00a0'}
+                                  {preview.warning && <sup role="img" aria-label={preview.warning}> ⚠</sup>}
                                 </button>
-                              ) : <span>{preview.text || '\u00a0'}</span>}
-                              {preview.warning && <small className="ds-muted" role="note">{preview.warning}</small>}
+                              ) : <span>{preview.text || '\u00a0'}{preview.warning && <sup role="img" aria-label={preview.warning}> ⚠</sup>}</span>}
                             </td>
                           )
                         })}
@@ -407,7 +414,12 @@ export default function NativeRoundTripPage() {
                   </tbody>
                 </table>
               </div>
-              <p className="ds-muted">Formula cells show saved results, which may be stale; this preview does not recalculate. Unsupported number formats are marked beside their stored values.</p>
+              <p className="ds-muted">Formula cells show saved results, which may be stale; this preview does not recalculate. Warning markers identify raw values or missing saved results.</p>
+              {previewWarnings.length > 0 && <details className="ds-muted">
+                <summary>{previewWarnings.length} preview cell warnings</summary>
+                <ul>{previewWarnings.slice(0, 12).map(({ ref, warning }) => <li key={ref}><strong>{ref}:</strong> {warning}</li>)}</ul>
+                {previewWarnings.length > 12 && <p>{previewWarnings.length - 12} more cells are marked in the preview; hover their markers for details.</p>}
+              </details>}
             </>
           ) : (
             <div className="native-empty">
