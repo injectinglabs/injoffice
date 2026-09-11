@@ -546,8 +546,9 @@ func resolveNativePPTXMutations(deck NativePPTXDeck, operations []NativePPTXMuta
 			return nil, fmt.Errorf("%s: source quarter-turn transforms are preview-only", prefix)
 		}
 		for _, diagnostic := range element.Compatibility.Diagnostics {
-			if diagnostic.Code == "pptx.presentation-text-style-preview" {
-				return nil, fmt.Errorf("%s: presentation level style projection is preview-only", prefix)
+			switch diagnostic.Code {
+			case "pptx.presentation-text-style-preview", "pptx.autoshape-theme-style-preview", "pptx.autoshape-preset-preview", "pptx.autoshape-text-layout-unavailable", "pptx.autoshape-text-unavailable":
+				return nil, fmt.Errorf("%s: projected shape styles or omitted text are preview-only", prefix)
 			}
 		}
 		// These flags are omitted from native paragraphs. Equal compatibility
