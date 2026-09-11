@@ -12,7 +12,10 @@ func TestNativeFlatPageField(t *testing.T) {
 		pass           bool
 	}{
 		{name: "PAGE", pass: true}, {"NUMPAGES", " PAGE ", " NUMPAGES ", true},
-		{"switch", " PAGE ", " PAGE \\* MERGEFORMAT ", false},
+		{"mergeformat", " PAGE ", " PAGE \\* MERGEFORMAT ", true},
+		{"arabic", " PAGE ", " PAGE \\* Arabic ", true},
+		{"both-switches", " PAGE ", " PAGE \\*Arabic \\*MERGEFORMAT ", true},
+		{"unsupported-switch", " PAGE ", " PAGE \\* CHARFORMAT ", false},
 		{"unknown", " PAGE ", " DATE ", false},
 		{"locked", `w:fldCharType="begin"`, `w:fldCharType="begin" w:fldLock="true"`, false},
 		{"dirty", `w:fldCharType="begin"`, `w:fldCharType="begin" w:dirty="true"`, false},

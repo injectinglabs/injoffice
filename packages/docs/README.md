@@ -472,8 +472,8 @@ to header/footer layout and paint, not reuse the empty source field as text.
 
 This bounded profile allows at most 64 pages and 100,000 cumulative variant
 fragments (`DOCX_PAGE_FIELD_LIMITS`). Note/comment fields, header/footer
-tables, other complex `fldChar` sequences, nested fields, switches (including
-`MERGEFORMAT`), locked/dirty fields, non-decimal section numbering formats, and all
+tables, other complex `fldChar` sequences, nested fields, unsupported switches,
+locked/dirty fields, non-decimal section numbering formats, and all
 other field instructions remain refused. This implementation makes no Word-pixel parity
 claim. See the [OOXML simple-field definition](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.simplefield?view=openxml-3.0.1).
 
@@ -498,6 +498,15 @@ on a page shared by continuous sections refuses rather than guessing ownership.
 Chapter numbering attributes, other number formats, malformed starts and display
 overflow remain refused. The browser fixture starts at 7 and proves native
 `Page 7 of 2` / `Page 8 of 2` in both stories and the page-eight body field.
+
+Simple and qualified flat complex PAGE/NUMPAGES instructions admit only the
+optional `\* Arabic` and `\* MERGEFORMAT` switches (each at most once, either
+order). Arabic selects decimal digits; MERGEFORMAT preserves the existing
+single result run's exact formatting while discarding its cached text, matching
+[Microsoft's field-format semantics](https://support.microsoft.com/en-us/word/format-field-results).
+Raw instruction bytes remain bound by source digests and field paragraphs stay
+read-only. Other formats, CHARFORMAT, numeric pictures, duplicate switches,
+locked/dirty fields, nested fields and multi-run results still refuse.
 
 Text-run `w:vertAlign` values `subscript` and `superscript` use an explicit
 font-metric simulation profile. Native shaping reads the embedded font's

@@ -2164,14 +2164,14 @@ func (extractor *nativeExtractor) extractParagraphRuns(partName, paragraphID str
 		case child.Name == (xml.Name{Space: extractor.wordNS, Local: "fldSimple"}):
 			unsafe = true // Field results are never editable text.
 			instruction, present := nativeAttr(child, extractor.wordNS, "instr")
-			instruction = strings.Trim(instruction, " \t\r\n")
+			instruction, qualifiedInstruction := nativePageFieldInstruction(instruction)
 			instructionAttrs := 0
 			for _, attr := range child.Attrs {
 				if attr.Name == (xml.Name{Space: extractor.wordNS, Local: "instr"}) {
 					instructionAttrs++
 				}
 			}
-			if !present || instructionAttrs != 1 || (instruction != "PAGE" && instruction != "NUMPAGES") || !nativeExactContainer(child, xml.Name{Space: extractor.wordNS, Local: "instr"}) || len(child.Children) != 1 || child.Children[0].Name != (xml.Name{Space: extractor.wordNS, Local: "r"}) {
+			if !present || instructionAttrs != 1 || !qualifiedInstruction || !nativeExactContainer(child, xml.Name{Space: extractor.wordNS, Local: "instr"}) || len(child.Children) != 1 || child.Children[0].Name != (xml.Name{Space: extractor.wordNS, Local: "r"}) {
 				extractor.addUnsupported("FIELD_SEMANTICS", "fields", paragraphID, partName, child, "Only an unlocked simple decimal PAGE or NUMPAGES field with one text result run is modeled")
 				continue
 			}

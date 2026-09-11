@@ -5,6 +5,39 @@ import (
 	"strings"
 )
 
+// The result is already restricted to one uniformly formatted text run. Thus
+// MERGEFORMAT preserves its exact result properties; Arabic selects the same
+// decimal digits as the qualified PAGE/NUMPAGES display profile.
+func nativePageFieldInstruction(raw string) (string, bool) {
+	if len(raw) > 256 {
+		return "", false
+	}
+	tokens := strings.FieldsFunc(raw, func(r rune) bool { return r == ' ' || r == '\t' || r == '\r' || r == '\n' })
+	if len(tokens) == 0 || (tokens[0] != "PAGE" && tokens[0] != "NUMPAGES") {
+		return "", false
+	}
+	seen := map[string]bool{}
+	for i := 1; i < len(tokens); i++ {
+		token := tokens[i]
+		if !strings.HasPrefix(token, `\*`) {
+			return "", false
+		}
+		name := strings.TrimPrefix(token, `\*`)
+		if name == "" {
+			i++
+			if i >= len(tokens) {
+				return "", false
+			}
+			name = tokens[i]
+		}
+		if (name != "MERGEFORMAT" && name != "Arabic") || seen[name] {
+			return "", false
+		}
+		seen[name] = true
+	}
+	return tokens[0], true
+}
+
 func hasNativeFieldBegin(run *nativeXMLNode, wordNS string) bool {
 	for _, child := range directNativeChildren(run, wordNS, "fldChar") {
 		if value, _ := nativeAttr(child, wordNS, "fldCharType"); value == "begin" {
@@ -55,7 +88,8 @@ func (extractor *nativeExtractor) extractFlatPageField(partName, paragraphID str
 				return false
 			}
 		}
-		return strings.Trim(content.Text, " \t\r\n") == value
+		instruction, ok := nativePageFieldInstruction(content.Text)
+		return ok && instruction == value
 	}
 	if !metadata(sequence[0], "fldChar", "begin") || !metadata(sequence[2], "fldChar", "separate") || !metadata(sequence[4], "fldChar", "end") {
 		return refuse()
