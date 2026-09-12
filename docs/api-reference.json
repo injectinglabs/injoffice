@@ -11228,6 +11228,16 @@
               "signature": "export declare function compileNativeSheetGeometryV2(workbook: NativeWorkbookRenderModelV2, sheetId: string, viewport: NativeSheetViewportV2, metricAuthority: NativeMaximumDigitWidthAuthorityV2): NativeSheetGeometryV2"
             },
             {
+              "name": "compileNativeSheetPagePreviewV1",
+              "kind": "function",
+              "signature": "export declare function compileNativeSheetPagePreviewV1(geometry: NativeSheetGeometryV2, objects: NativeWorkbookObjectsV1, hostPolicy?: NativeSheetHostPagePolicyV1): NativeSheetPagePreviewV1"
+            },
+            {
+              "name": "compileNativeStoredRowSheetGeometryV1",
+              "kind": "export",
+              "signature": "compileNativeStoredRowSheetGeometryV1"
+            },
+            {
               "name": "createNativeMaximumDigitWidthAuthorityV2",
               "kind": "function",
               "signature": "export declare function createNativeMaximumDigitWidthAuthorityV2(workbook: NativeWorkbookRenderModelV2, fontBytes: Uint8Array): NativeMaximumDigitWidthAuthorityV2"
@@ -11361,6 +11371,11 @@
               "name": "isCompiledNativeSheetGeometryV2",
               "kind": "function",
               "signature": "export declare function isCompiledNativeSheetGeometryV2(value: unknown): value is NativeSheetGeometryV2"
+            },
+            {
+              "name": "isCompiledNativeStoredRowSheetGeometryV1",
+              "kind": "export",
+              "signature": "isCompiledNativeStoredRowSheetGeometryV1"
             },
             {
               "name": "isNativeMaximumDigitWidthAuthorityV2",
@@ -11888,6 +11903,11 @@
               "signature": "NativeSheetGeometryV2IssueCode"
             },
             {
+              "name": "NativeSheetHostPagePolicyV1",
+              "kind": "type",
+              "signature": "NativeSheetHostPagePolicyV1"
+            },
+            {
               "name": "NativeSheetMergedGeometryV1",
               "kind": "type",
               "signature": "NativeSheetMergedGeometryV1"
@@ -11908,6 +11928,21 @@
               "signature": "NativeSheetMutationAuthorityV2"
             },
             {
+              "name": "NativeSheetPageConfigV1",
+              "kind": "type",
+              "signature": "export interface NativeSheetPageConfigV1"
+            },
+            {
+              "name": "NativeSheetPagePreviewV1",
+              "kind": "type",
+              "signature": "NativeSheetPagePreviewV1"
+            },
+            {
+              "name": "NativeSheetPageSettingsV1",
+              "kind": "type",
+              "signature": "export interface NativeSheetPageSettingsV1"
+            },
+            {
               "name": "NativeSheetPaintedCellV2",
               "kind": "type",
               "signature": "NativeSheetPaintedCellV2"
@@ -11916,6 +11951,11 @@
               "name": "NativeSheetPaintedGlyphV2",
               "kind": "type",
               "signature": "NativeSheetPaintedGlyphV2"
+            },
+            {
+              "name": "NativeSheetPreviewPageV1",
+              "kind": "type",
+              "signature": "NativeSheetPreviewPageV1"
             },
             {
               "name": "NativeSheetRenderModelV1",
@@ -11966,6 +12006,11 @@
               "name": "nativeStoredRowPreviewV1",
               "kind": "function",
               "signature": "export declare function nativeStoredRowPreviewV1(objects: NativeWorkbookObjectsV1, revision: string, sheetPart: string, row: number): NativeStoredRowV1 | undefined"
+            },
+            {
+              "name": "NativeStoredRowSheetGeometryV1",
+              "kind": "type",
+              "signature": "NativeStoredRowSheetGeometryV1"
             },
             {
               "name": "NativeStoredRowV1",
@@ -12579,6 +12624,26 @@
               "signature": "export declare function assertNativeWorkbookV2(input: unknown): asserts input is NativeWorkbookV2"
             },
             {
+              "name": "compileNativeSheetGeometryV2",
+              "kind": "function",
+              "signature": "export declare function compileNativeSheetGeometryV2(workbook: NativeWorkbookRenderModelV2, sheetId: string, viewport: NativeSheetViewportV2, metricAuthority: NativeMaximumDigitWidthAuthorityV2): NativeSheetGeometryV2"
+            },
+            {
+              "name": "compileNativeSheetPagePreviewV1",
+              "kind": "function",
+              "signature": "export declare function compileNativeSheetPagePreviewV1(geometry: NativeSheetGeometryV2, objects: NativeWorkbookObjectsV1, hostPolicy?: NativeSheetHostPagePolicyV1): NativeSheetPagePreviewV1"
+            },
+            {
+              "name": "compileNativeStoredRowSheetGeometryV1",
+              "kind": "function",
+              "signature": "export declare function compileNativeStoredRowSheetGeometryV1(workbook: NativeWorkbookRenderModelV2, sheetId: string, viewport: NativeSheetViewportV2, metricAuthority: NativeMaximumDigitWidthAuthorityV2, objects: NativeWorkbookObjectsV1): NativeStoredRowSheetGeometryV1"
+            },
+            {
+              "name": "createNativeMaximumDigitWidthAuthorityV2",
+              "kind": "function",
+              "signature": "export declare function createNativeMaximumDigitWidthAuthorityV2(workbook: NativeWorkbookRenderModelV2, fontBytes: Uint8Array): NativeMaximumDigitWidthAuthorityV2"
+            },
+            {
               "name": "decodeNativeWorkbookObjectsV1",
               "kind": "function",
               "signature": "export declare function decodeNativeWorkbookObjectsV1(input: unknown, packageSHA256: string): NativeWorkbookObjectsV1"
@@ -12602,6 +12667,11 @@
               "name": "formatNativeSheetCellDisplayV2",
               "kind": "function",
               "signature": "export declare function formatNativeSheetCellDisplayV2(kind: 'number' | 'date', lexical: string, numberFormat: string | undefined, date1904?: boolean): NativeSheetCellDisplayFormatResultV2"
+            },
+            {
+              "name": "isCompiledNativeStoredRowSheetGeometryV1",
+              "kind": "function",
+              "signature": "export declare function isCompiledNativeStoredRowSheetGeometryV1(value: unknown): value is NativeStoredRowSheetGeometryV1"
             },
             {
               "name": "layoutNativeCachedChartV1",
@@ -12629,6 +12699,31 @@
               "signature": "NativeSheetCellDisplayFormatResultV2"
             },
             {
+              "name": "NativeSheetGeometryV2",
+              "kind": "type",
+              "signature": "NativeSheetGeometryV2"
+            },
+            {
+              "name": "NativeSheetHostPagePolicyV1",
+              "kind": "type",
+              "signature": "NativeSheetHostPagePolicyV1"
+            },
+            {
+              "name": "NativeSheetPagePreviewV1",
+              "kind": "type",
+              "signature": "NativeSheetPagePreviewV1"
+            },
+            {
+              "name": "NativeSheetPreviewPageV1",
+              "kind": "type",
+              "signature": "NativeSheetPreviewPageV1"
+            },
+            {
+              "name": "NativeSheetViewportV2",
+              "kind": "type",
+              "signature": "NativeSheetViewportV2"
+            },
+            {
               "name": "NativeStoredRowGeometryV1",
               "kind": "type",
               "signature": "NativeStoredRowGeometryV1"
@@ -12637,6 +12732,11 @@
               "name": "nativeStoredRowPreviewV1",
               "kind": "function",
               "signature": "export declare function nativeStoredRowPreviewV1(objects: NativeWorkbookObjectsV1, revision: string, sheetPart: string, row: number): NativeStoredRowV1 | undefined"
+            },
+            {
+              "name": "NativeStoredRowSheetGeometryV1",
+              "kind": "type",
+              "signature": "NativeStoredRowSheetGeometryV1"
             },
             {
               "name": "NativeStoredRowV1",
@@ -12727,6 +12827,11 @@
               "name": "NativeWorkbookV2ValidationError",
               "kind": "class",
               "signature": "export declare class NativeWorkbookV2ValidationError extends Error"
+            },
+            {
+              "name": "projectNativeWorkbookV2",
+              "kind": "function",
+              "signature": "export declare function projectNativeWorkbookV2(input: unknown): NativeWorkbookRenderModelV2"
             },
             {
               "name": "StyleDelta",
