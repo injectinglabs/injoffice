@@ -111,6 +111,15 @@ export async function applyPdfFormValues(bytes: Uint8Array, values: FormValueSpe
   return applyFormValues(bytes, values, options)
 }
 
+/** Keep rejected input as an unsaved draft, never as a claimed canonical value. */
+export function restorePdfSkippedDrafts(canonical: PdfFormField[], drafts: PdfFormField[], skipped: { name: string }[]): PdfFormField[] {
+  const names = new Set(skipped.map(({ name }) => name))
+  return canonical.map(field => {
+    const matches = drafts.filter(draft => draft.name === field.name && draft.kind === field.kind)
+    return names.has(field.name) && matches.length === 1 ? matches[0]! : field
+  })
+}
+
 export function pdfFormResultMessage(result: { applied: number; skipped: { name: string; reason: string }[]; appearances?: FormValueAppearance[] }): string {
   const summary = result.applied === 0 ? 'No form values applied.' : `Applied ${result.applied} form value${result.applied === 1 ? '' : 's'}.`
   const outcome = result.skipped.length === 0 ? summary : `${summary} Skipped ${result.skipped.length}: ${result.skipped.map(({ name, reason }) => `${name}: ${reason}`).join('; ')}`

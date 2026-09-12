@@ -26,6 +26,7 @@ import {
   applyPdfPlacedDrawing,
   applyPdfFormValues,
   pdfFormResultMessage,
+  restorePdfSkippedDrafts,
   applyPdfMarkup,
   applyPdfNote,
   applyPdfNoteEdit,
@@ -127,6 +128,8 @@ export default function PdfPage() {
   const [fields, setFields] = useState<PdfFormField[]>([])
   const [formNotice, setFormNotice] = useState<string | null>(null)
   const [formAppearanceFont, setFormAppearanceFont] = useState<TextAppearanceFont | 'viewer'>('viewer')
+  const [unsavedFormNames, setUnsavedFormNames] = useState<string[]>([])
+  const pendingFormDrafts = useRef<{ bytes: Uint8Array; drafts: PdfFormField[]; skipped: { name: string }[] } | null>(null)
   const [noteText, setNoteText] = useState('Shared note')
   const [hostOld, setHostOld] = useState('InjOffice')
   const [hostNew, setHostNew] = useState('InjOffice PDF')
@@ -199,7 +202,11 @@ export default function PdfPage() {
       const result = await applyPdfFormValues(bytes, fields, formAppearanceFont === 'viewer' ? undefined : { textAppearance: { font: formAppearanceFont } })
       const message = pdfFormResultMessage(result)
       setFormNotice(message)
-      if (result.applied > 0) await applyBytes(result.bytes, message)
+      setUnsavedFormNames(result.skipped.map(({ name }) => name))
+      if (result.applied > 0) {
+        pendingFormDrafts.current = { bytes: result.bytes, drafts: fields, skipped: result.skipped }
+        await applyBytes(result.bytes, message)
+      }
       else setInfo(message)
     } catch (reason: unknown) {
       setError(errorMessage(reason))
@@ -306,7 +313,15 @@ export default function PdfPage() {
           setOutline(nextOutline)
           setGeometry(nextGeometry)
           setAnnots(nextAnnots)
-          setFields(nextFields)
+          const pending = pendingFormDrafts.current
+          if (pending?.bytes === bytes) {
+            setFields(restorePdfSkippedDrafts(nextFields, pending.drafts, pending.skipped))
+            setUnsavedFormNames(pending.skipped.map(({ name }) => name))
+          } else {
+            setFields(nextFields)
+            setUnsavedFormNames([])
+          }
+          pendingFormDrafts.current = null
         }
       } catch (reason: unknown) {
         if (cancelled) return
@@ -603,12 +618,13 @@ export default function PdfPage() {
               </DsField>
               <p className="ds-muted">Choose a font to save fresh appearances for supported single-line text fields using printable ASCII. This replaces the text font; it does not preserve the original typography. Unsupported text fields are skipped. Other field types may still depend on the PDF viewer.</p>
               {formNotice && <p role="status" className="ds-muted" aria-live="polite">{formNotice}</p>}
+              {unsavedFormNames.length > 0 && <p role="status" className="ds-muted">Unsaved drafts: {unsavedFormNames.join(', ')}. These values are not in the downloaded PDF. Change the input or appearance mode and apply again.</p>}
               {fields.length === 0 ? <p className="ds-muted">No form fields in this file.</p> : fields.map((field, index) => (
                 <DsField key={field.name} label={field.name}>
                   {field.kind === 'checkbox' ? (
-                    <input type="checkbox" checked={Boolean(field.checked)} onChange={(event) => setFields((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, checked: event.target.checked } : item))} />
+                    <input type="checkbox" disabled={locked} checked={Boolean(field.checked)} onChange={(event) => setFields((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, checked: event.target.checked } : item))} />
                   ) : (
-                    <DsInput value={field.value ?? ''} onChange={(event) => setFields((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))} />
+                    <DsInput disabled={locked} value={field.value ?? ''} onChange={(event) => setFields((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))} />
                   )}
                 </DsField>
               ))}
