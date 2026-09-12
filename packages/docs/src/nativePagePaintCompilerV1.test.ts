@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { NativeFontManifest, NativeFontResolver, ResolvedFontFace } from '@injoffice/font-metrics/layout'
 import { createHarfBuzzTextShaperV1, createHarfBuzzOutlineProviderV1, inspectHarfBuzzFontMetricsV1 } from '@injoffice/font-metrics/harfbuzz'
 import { reorderNativeBidiLineV1 } from '@injoffice/font-metrics/bidi'
@@ -416,6 +416,15 @@ describe('native DOCX page-paint compiler v1', () => {
     expect(result.pages[0]!.commands.some(command => command.kind === 'stroke_table_border')).toBe(true)
     expect(input).toEqual(original)
     expect(decodeNativeDocxAutomaticBorderPreviewV1(result).ok).toBe(true)
+    const cyclic: any = {}; cyclic.self = cyclic
+    const huge: any = { reasons: Array(100_001).fill('x') }
+    for (const hostile of [cyclic, huge]) {
+      const clone = vi.spyOn(globalThis, 'structuredClone')
+      try {
+        expect(decodeNativeDocxAutomaticBorderPreviewV1({ ...result, legacy_eligibility: hostile }).ok).toBe(false)
+        expect(clone.mock.calls.some(([value]) => value === hostile || (value as any)?.legacy_eligibility === hostile)).toBe(false)
+      } finally { clone.mockRestore() }
+    }
     if (mode !== undefined) expect(decodeNativeDocxAutomaticBorderPreviewV1({ ...result, legacy_eligibility: undefined }).ok).toBe(false)
     for (const mutation of [
       { reasons: [] }, { page_background_rgb: '000000' }, { approximated_render_properties: [] },

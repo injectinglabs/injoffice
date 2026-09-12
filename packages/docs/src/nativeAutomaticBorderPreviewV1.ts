@@ -247,7 +247,12 @@ export function decodeNativeDocxAutomaticBorderPreviewV1(
       delete (scan as Record<string, unknown>).legacy_eligibility;
     if (preflightWire(scan, "automatic-border preview").length)
       return { ok: false };
-    const input = structuredClone(candidate);
+    // Validate the separately nullable legacy subtree before allocating its
+    // owned copy. It must not bypass the enclosing allocation budget.
+    const legacy = candidate?.legacy_eligibility === undefined ? undefined :
+      decodeNativeDocxApproximationEligibilityV1(candidate.legacy_eligibility, candidate.rendering_provenance.pagination_settings);
+    const input = structuredClone(scan) as NativeDocxAutomaticBorderPreviewV1;
+    if (legacy !== undefined) input.legacy_eligibility = legacy;
     if (
       Object.keys(input)
         .filter((key) => key !== "legacy_eligibility")
