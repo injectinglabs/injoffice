@@ -1400,7 +1400,9 @@ func nativeExactNoteSentinel(node *nativeXMLNode, wordNS, role string) bool {
 		instruction = "continuationSeparator"
 	}
 	paragraphs := directNativeChildren(node, wordNS, "p")
-	if len(node.Children) != 1 || len(paragraphs) != 1 || !nativeExactContainer(paragraphs[0]) {
+	// Word records revision-session identifiers on otherwise exact reserved
+	// separators. These source-preserved hex IDs do not alter separator layout.
+	if len(node.Children) != 1 || len(paragraphs) != 1 || !nativeExactRevisionContainer(paragraphs[0], wordNS, "rsidR", "rsidRDefault", "rsidP") {
 		return false
 	}
 	runs := directNativeChildren(paragraphs[0], wordNS, "r")
@@ -1413,6 +1415,9 @@ func nativeExactNoteSentinel(node *nativeXMLNode, wordNS, role string) bool {
 		return false
 	}
 	if len(properties) == 1 {
+		if !nativeExactContainer(properties[0]) {
+			return false
+		}
 		spacing := directNativeChildren(properties[0], wordNS, "spacing")
 		after, hasAfter := "", false
 		line, hasLine := "", false
