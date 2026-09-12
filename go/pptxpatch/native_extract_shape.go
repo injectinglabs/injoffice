@@ -146,7 +146,7 @@ func (extractor *nativeExtractor) extractAutoShape(node *nativeXMLNode, slidePar
 		} else {
 			textBodyLayout = layout
 		}
-		parsed, parseErr := extractor.extractNativeParagraphs(textBody, dialect)
+		parsed, parseErr := extractor.extractNativeShapeParagraphs(textBody, dialect)
 		if parseErr != nil {
 			var duplicate nativeDuplicateSingletonError
 			if isNativeDuplicateSingleton(parseErr, &duplicate) {
@@ -156,6 +156,9 @@ func (extractor *nativeExtractor) extractAutoShape(node *nativeXMLNode, slidePar
 			textOmitted = true
 		} else {
 			paragraphs = parsed
+		}
+		if extractor.presentationTextStyle != nil {
+			gaps.add("pptx.presentation-text-style-preview", "explicit presentation level styles are projected before local level, paragraph and run properties; target remains read-only", false)
 		}
 		if preset != nil && *preset == NativeShapePresetPentagon {
 			gaps.add("pptx.autoshape-text-layout-unavailable", "pentagon geometry retained; text omitted because preset text-region layout is not qualified", false)

@@ -82,6 +82,9 @@ export interface NativeTextRun {
   fontSizeHundredthPt?: number
   color?: string
   fontFamily?: string
+  language?: string
+  /** Authored minimum font size for pair kerning; zero disables kerning. */
+  kerningMinSizeHundredthPt?: number
 }
 
 export interface NativeParagraph {

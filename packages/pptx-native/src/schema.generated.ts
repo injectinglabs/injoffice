@@ -3,7 +3,7 @@
 
 export const PPTX_NATIVE_SCHEMA_ID = "https://injoffice.dev/schemas/pptx-native-v1.schema.json" as const
 export const PPTX_NATIVE_CONTRACT_VERSION = "pptx-native/v1" as const
-export const PPTX_NATIVE_SCHEMA_SHA256 = "a8187e6611a2b3230534407f133501ebbcce3533e1326580dfa17da4b5d2890a" as const
+export const PPTX_NATIVE_SCHEMA_SHA256 = "e94926463b754fdcbff161395a98ad788cc73b517725ad8d971a2001c18ee158" as const
 export const PPTX_NATIVE_RESOURCE_LIMITS = {
   "maxJsonBytes": 268435456,
   "maxNodes": 1000000,
@@ -501,6 +501,8 @@ export const PPTX_NATIVE_OBJECT_BINDINGS = {
       "fontFamily",
       "fontSizeHundredthPt",
       "italic",
+      "kerningMinSizeHundredthPt",
+      "language",
       "text"
     ],
     "required": [
@@ -1040,6 +1042,17 @@ export const PPTX_NATIVE_SCHEMA = {
           "type": "string",
           "minLength": 1,
           "maxLength": 256
+        },
+        "language": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 63,
+          "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$"
+        },
+        "kerningMinSizeHundredthPt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 400000
         }
       }
     },

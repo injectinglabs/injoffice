@@ -2,6 +2,14 @@
 
 `pptxpatch` reads and writes a bounded, editable PowerPoint OOXML model.
 
+Native text retains authored DrawingML kerning thresholds as
+`kerningMinSizeHundredthPt` (0–400000); zero disables pair kerning. The native
+renderer enables the `kern` feature at or above a positive threshold. Explicit
+host shaping overrides remain authoritative. Extraction validates each source
+threshold before style precedence, and supported text replacements serialize it
+back to OOXML rather than silently dropping it. This does not qualify autofit,
+script-specific font slots, or other previously unsupported text layout.
+
 ```bash
 go get github.com/injectinglabs/injoffice/go/pptxpatch
 ```

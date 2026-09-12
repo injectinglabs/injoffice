@@ -203,6 +203,7 @@ type nativeExtractor struct {
 	groupProjectionSeen     bool
 	theme                   nativeResolvedTheme
 	slideDependencies       nativeSlideDependencyGraph
+	presentationTextStyle   *nativeXMLNode
 }
 
 type nativeStagedPassthroughToken struct {
@@ -1238,6 +1239,10 @@ func (extractor *nativeExtractor) extract() (NativePPTXDeck, error) {
 		return NativePPTXDeck{}, err
 	}
 	presentationUnsupported := []nativeUnsupportedSource{}
+	extractor.presentationTextStyle, err = nativeSingleton(presentationRoot, dialect.presentation, "defaultTextStyle", false)
+	if err != nil {
+		return NativePPTXDeck{}, err
+	}
 	if hasNativeSemanticAttrs(presentationRoot) || !onlyNativeXMLSpace(presentationRoot.Text) {
 		unsupported, unsupportedErr := makeNativeUnsupportedSource(extractor.pkg.parts[officeDocument.Part], presentationRoot, officeDocument.Part, "presentation-root", "pptx.unsupported-presentation-markup", "presentation root contains unmodeled markup")
 		if unsupportedErr != nil {
@@ -1815,7 +1820,7 @@ func (extractor *nativeExtractor) extractTextShape(node *nativeXMLNode, part, sl
 		textLayoutMessage = textLayoutErr.Error()
 		textBody = nil
 	}
-	paragraphs, paragraphErr := extractor.extractNativeParagraphs(txBody, dialect)
+	paragraphs, paragraphErr := extractor.extractNativeShapeParagraphs(txBody, dialect)
 	textContentMessage := ""
 	if paragraphErr != nil {
 		if !isNativeTextContentUnsupported(paragraphErr) {
@@ -1856,6 +1861,10 @@ func (extractor *nativeExtractor) extractTextShape(node *nativeXMLNode, part, sl
 		element.Name = stringPointer(name)
 	}
 	if textLayoutMessage == "" && textContentMessage == "" {
+		if extractor.presentationTextStyle != nil {
+			element.Compatibility.Status = NativeCompatibilityStatusPreserveOnly
+			element.Compatibility.Diagnostics = append(element.Compatibility.Diagnostics, NativeDiagnostic{Severity: NativeDiagnosticSeverityWarning, Code: "pptx.presentation-text-style-preview", Message: "explicit presentation level styles are projected before local level, paragraph and run properties; target remains read-only"})
+		}
 		nativePreserveTextCheckingMetadata(&element, txBody, dialect)
 		_ = fingerprint
 		_ = zIndex
@@ -2130,7 +2139,7 @@ func (extractor *nativeExtractor) extractNativeTextRun(node *nativeXMLNode, dial
 	if err != nil {
 		return NativeTextRun{}, err
 	}
-	if err := requireOnlyNativeAttrs(rPr, xml.Name{Local: "b"}, xml.Name{Local: "i"}, xml.Name{Local: "sz"}); err != nil {
+	if err := requireOnlyNativeAttrs(rPr, xml.Name{Local: "b"}, xml.Name{Local: "i"}, xml.Name{Local: "sz"}, xml.Name{Local: "lang"}, xml.Name{Local: "kern"}); err != nil {
 		return NativeTextRun{}, fmt.Errorf("pptxpatch: native extract: unmodeled run metadata: %w", err)
 	}
 	if err := requireOnlyNativeChildren(rPr,
@@ -2165,6 +2174,19 @@ func (extractor *nativeExtractor) extractNativeTextRun(node *nativeXMLNode, dial
 			return NativeTextRun{}, err
 		}
 		run.Italic = &parsed
+	}
+	if value, ok := exactNativeAttr(rPr, "", "lang"); ok {
+		if !validNativeLanguage(value) {
+			return NativeTextRun{}, fmt.Errorf("invalid authored language tag")
+		}
+		run.Language = &value
+	}
+	if value, ok := exactNativeAttr(rPr, "", "kern"); ok {
+		threshold, err := parseCanonicalNativeInt(value, 0, 400000)
+		if err != nil {
+			return NativeTextRun{}, fmt.Errorf("pptxpatch: native extract: invalid kerning threshold: %w", err)
+		}
+		run.KerningMinSizeHundredthPt = &threshold
 	}
 	if value, ok := exactNativeAttr(rPr, "", "sz"); ok {
 		size, err := strconv.ParseInt(value, 10, 64)
