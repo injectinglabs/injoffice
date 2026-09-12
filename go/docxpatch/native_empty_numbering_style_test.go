@@ -8,7 +8,7 @@ import (
 func TestEmptyDefaultNumberingStyleQualification(t *testing.T) {
 	for _, ns := range []string{wordMLTransitional, wordMLStrict} {
 		base := `<w:style w:type="numbering" w:default="1" w:styleId="NoList"><w:name w:val="No List"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/></w:style>`
-		for _, variant := range []string{"valid", "formatting", "link", "duplicate", "unknown", "badbool", "badpriority", "foreign", "owner", "text"} {
+		for _, variant := range []string{"valid", "formatting", "link", "duplicate", "unknown", "badbool", "badpriority", "foreign", "owner", "rootowner", "text"} {
 			markup := base
 			switch variant {
 			case "formatting":
@@ -30,7 +30,11 @@ func TestEmptyDefaultNumberingStyleQualification(t *testing.T) {
 			case "text":
 				markup = strings.Replace(markup, "</w:style>", "bad</w:style>", 1)
 			}
-			root, err := parseNativeXML("styles.xml", []byte(`<w:styles xmlns:w="`+ns+`">`+markup+`</w:styles>`))
+			rootAttrs := ""
+			if variant == "rootowner" {
+				rootAttrs = ` extra="1"`
+			}
+			root, err := parseNativeXML("styles.xml", []byte(`<w:styles xmlns:w="`+ns+`"`+rootAttrs+`>`+markup+`</w:styles>`))
 			if err != nil {
 				t.Fatal(err)
 			}
