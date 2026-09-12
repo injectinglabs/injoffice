@@ -11528,6 +11528,11 @@
               "signature": "export declare function layoutNativeCachedChartV1(chart: NativeChartPreviewV1):"
             },
             {
+              "name": "layoutNativeDrawingObjectsV1",
+              "kind": "function",
+              "signature": "export declare function layoutNativeDrawingObjectsV1(geometry: NativeSheetGeometryV2, objects: NativeWorkbookObjectsV1): NativePositionedDrawingV1[]"
+            },
+            {
               "name": "MAX_WORKBOOK_MUTATIONS",
               "kind": "const",
               "signature": "export declare const MAX_WORKBOOK_MUTATIONS = 10000"
@@ -11698,6 +11703,21 @@
               "signature": "NativeChartSeriesPreviewV1"
             },
             {
+              "name": "NativeDrawingAnchorV1",
+              "kind": "type",
+              "signature": "export type NativeDrawingAnchorV1 ="
+            },
+            {
+              "name": "NativeDrawingMarkerV1",
+              "kind": "type",
+              "signature": "export interface NativeDrawingMarkerV1"
+            },
+            {
+              "name": "NativeDrawingObjectV1",
+              "kind": "type",
+              "signature": "export interface NativeDrawingObjectV1"
+            },
+            {
               "name": "NativeFormulaType",
               "kind": "type",
               "signature": "NativeFormulaType"
@@ -11736,6 +11756,11 @@
               "name": "NativeOOXMLCellTypeV2",
               "kind": "type",
               "signature": "NativeOOXMLCellTypeV2"
+            },
+            {
+              "name": "NativePositionedDrawingV1",
+              "kind": "type",
+              "signature": "NativePositionedDrawingV1"
             },
             {
               "name": "NativeRenderCellContentV1",
@@ -12819,6 +12844,11 @@
               "signature": "export declare function layoutNativeCachedChartV1(chart: NativeChartPreviewV1):"
             },
             {
+              "name": "layoutNativeDrawingObjectsV1",
+              "kind": "function",
+              "signature": "export declare function layoutNativeDrawingObjectsV1(geometry: NativeSheetGeometryV2, objects: NativeWorkbookObjectsV1): NativePositionedDrawingV1[]"
+            },
+            {
               "name": "NativeCachedChartMarkV1",
               "kind": "type",
               "signature": "NativeCachedChartMarkV1"
@@ -12832,6 +12862,26 @@
               "name": "NativeChartSeriesPreviewV1",
               "kind": "type",
               "signature": "NativeChartSeriesPreviewV1"
+            },
+            {
+              "name": "NativeDrawingAnchorV1",
+              "kind": "type",
+              "signature": "export type NativeDrawingAnchorV1 ="
+            },
+            {
+              "name": "NativeDrawingMarkerV1",
+              "kind": "type",
+              "signature": "export interface NativeDrawingMarkerV1"
+            },
+            {
+              "name": "NativeDrawingObjectV1",
+              "kind": "type",
+              "signature": "export interface NativeDrawingObjectV1"
+            },
+            {
+              "name": "NativePositionedDrawingV1",
+              "kind": "type",
+              "signature": "NativePositionedDrawingV1"
             },
             {
               "name": "NativeSheetCellDisplayFormatResultV2",
