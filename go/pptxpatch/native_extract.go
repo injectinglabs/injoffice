@@ -1858,8 +1858,10 @@ func (extractor *nativeExtractor) extractTextShape(node *nativeXMLNode, part, sl
 	if name != "" {
 		element.Name = stringPointer(name)
 	}
+	// The retained source-frame layout is approximate even when an independent
+	// content refusal prevents painting text. Keep that provenance in both paths.
+	nativeMarkSourceFrameAutoFit(&element)
 	if textLayoutMessage == "" && textContentMessage == "" {
-		nativeMarkSourceFrameAutoFit(&element)
 		nativePreserveTextCheckingMetadata(&element, txBody, dialect)
 		_ = fingerprint
 		_ = zIndex
