@@ -11893,6 +11893,11 @@
               "signature": "NativeTablePreviewV1"
             },
             {
+              "name": "nativeTableTotalsTextPreview",
+              "kind": "function",
+              "signature": "export declare function nativeTableTotalsTextPreview(objects: NativeWorkbookObjectsV1, revision: string, sheetPart: string, row: number, column: number, styleID: number): boolean"
+            },
+            {
               "name": "NativeValueKind",
               "kind": "type",
               "signature": "NativeValueKind"
@@ -12512,6 +12517,11 @@
               "name": "NativeTablePreviewV1",
               "kind": "type",
               "signature": "NativeTablePreviewV1"
+            },
+            {
+              "name": "nativeTableTotalsTextPreview",
+              "kind": "function",
+              "signature": "export declare function nativeTableTotalsTextPreview(objects: NativeWorkbookObjectsV1, revision: string, sheetPart: string, row: number, column: number, styleID: number): boolean"
             },
             {
               "name": "NativeWorkbookCellV2",

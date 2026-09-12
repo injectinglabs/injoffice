@@ -268,6 +268,12 @@ padding alignment. It does not widen the exact native glyph-paint contract.
 double totals divider in accent1. Source-qualified default border styles are
 required on both sides of an edge. Explicit, unknown, overlapping-table, named
 style and unsupported differential border overrides remain unpainted. Custom
-DXF fonts/fills/borders, totals font styling, accounting positioning and text
+DXF fonts/fills/borders, unqualified totals font styling, accounting positioning and text
 metrics are not fully reproduced. This is partial read-only presentation, not
 an Office-fidelity claim or mutation authority.
+
+`nativeTableTotalsTextPreview` identifies qualified Medium2 totals-row cells for
+bold text. It reuses source-qualified default-font style IDs and requires explicit
+totals evidence, an unambiguous table and the matching package revision. Explicit
+cell fonts and totals DXF/named-style overrides remain unchanged. Font family,
+color, sizing and metrics are not replaced by this helper.

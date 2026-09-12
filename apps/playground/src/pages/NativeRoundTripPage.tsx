@@ -28,7 +28,7 @@ import {
 } from '../xlsxRoundTripRuntime'
 import { nativeCellPreview } from '../nativeCellPreview'
 import { NativeWorkbookObjects } from '../components/NativeWorkbookObjects'
-import {nativeTableFillPreview,nativeTableHeaderTextPreview,nativeTableBorderPreview,type NativeWorkbookObjectsV1,type NativeTableBorderSideV1} from '@injoffice/sheets/browser'
+import {nativeTableFillPreview,nativeTableHeaderTextPreview,nativeTableTotalsTextPreview,nativeTableBorderPreview,type NativeWorkbookObjectsV1,type NativeTableBorderSideV1} from '@injoffice/sheets/browser'
 
 const XLSX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const SAMPLE_PATH = `${import.meta.env.BASE_URL}native-fixture/launch-readiness-plan.xlsx`
@@ -416,10 +416,11 @@ export default function NativeRoundTripPage() {
                           const preview = nativeCellPreview(workbook, cell,objects,activeSheet.part_name)
                           const styleID=styleAt(row,column),fill=styleID===null||styleID===undefined?undefined:workbook.styles[styleID]?.effective.fill
                           const tableFill=objects?nativeTableFillPreview(objects,workbook.source.package_sha256,activeSheet.part_name,row,column,fill,styleID??-1):undefined
+                          const tableTotals=objects?nativeTableTotalsTextPreview(objects,workbook.source.package_sha256,activeSheet.part_name,row,column,styleID??-1):false
                           const tableHeader=objects?nativeTableHeaderTextPreview(objects,workbook.source.package_sha256,activeSheet.part_name,row,column,fill,styleID??-1):false
                           const tableEdges=objects?nativeTableBorderPreview(objects,workbook.source.package_sha256,activeSheet.part_name,row,column,styleID??-1,{top:styleAt(row-1,column),right:styleAt(row,column+1),bottom:styleAt(row+1,column),left:styleAt(row,column-1)}):undefined
                           return (
-                            <td key={column} className={active ? 'native-cell-active' : undefined} style={{...previewCellStyle(workbook, cell,styleID??undefined),...(tableFill?{backgroundColor:tableFill}:{}),...(tableHeader?{color:'#FFFFFF',fontWeight:700}:{}),...(tableEdges?.top?{borderTop:edgeCSS(tableEdges.top)}:{}),...(tableEdges?.right?{borderRight:edgeCSS(tableEdges.right)}:{}),...(tableEdges?.bottom?{borderBottom:edgeCSS(tableEdges.bottom)}:{}),...(tableEdges?.left?{borderLeft:edgeCSS(tableEdges.left)}:{})}} title={preview.warning ?? (preview.cached ? 'Saved formula result; not recalculated.' : undefined)}>
+                            <td key={column} className={active ? 'native-cell-active' : undefined} style={{...previewCellStyle(workbook, cell,styleID??undefined),...(tableFill?{backgroundColor:tableFill}:{}),...(tableHeader?{color:'#FFFFFF',fontWeight:700}:{}),...(tableTotals?{fontWeight:700}:{}),...(tableEdges?.top?{borderTop:edgeCSS(tableEdges.top)}:{}),...(tableEdges?.right?{borderRight:edgeCSS(tableEdges.right)}:{}),...(tableEdges?.bottom?{borderBottom:edgeCSS(tableEdges.bottom)}:{}),...(tableEdges?.left?{borderLeft:edgeCSS(tableEdges.left)}:{})}} title={preview.warning ?? (preview.cached ? 'Saved formula result; not recalculated.' : undefined)}>
                               {candidate ? (
                                 <button type="button" style={tableFill?{background:'transparent'}:undefined} onClick={() => chooseTarget(candidate)} aria-label={`Edit ${activeSheet.name} ${cell?.ref ?? `${columnName(column)}${row + 1}`}`}>
                                   {preview.text || '\u00a0'}

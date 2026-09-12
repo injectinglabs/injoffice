@@ -53,6 +53,7 @@ type NativeTableNumberFormatV1 struct {
 
 // NativeTableFillPreviewV1 qualifies fills and default-font header text only.
 type NativeTableFillPreviewV1 struct {
+	TotalsBold         bool   `json:"totals_bold,omitempty"`
 	Header             string `json:"header"`
 	Stripe             string `json:"stripe"`
 	Body               string `json:"body"`
