@@ -72,11 +72,19 @@ End-mark font size, styling, different language, and empty/trailing-empty runs
 remain unqualified. Accepted end marks stay read-only, with an explicit source
 preservation diagnostic and a prewrite mutation refusal.
 
+DrawingML `vert="vert"` projects read-only `writingMode="vertical-clockwise"`.
+Per ECMA-376 Part 1 §20.1.10.83, lines rotate clockwise and progress leftward.
+The renderer swaps the inner text frame's inline/block limits and transforms
+only text, independently of shape/group rotations. The bounded preview accepts
+non-bulleted ASCII Latin runs with LTR shaping; stacked, East Asian, RTL, other
+vertical modes, and vertical table cells remain unsupported. Existing native
+line-box policy labels still apply; this is not a claim of Office equivalence.
+
 AutoShape frame rotations of 90, 180, and 270 degrees are projected as optional
 `transform.quarterTurns` and rendered around the source frame center. Their
 affine coefficients are exact integer values; 90/270-degree frames requiring
 fractional-EMU centers remain refused. Normal horizontal shape text rotates
-with its frame. Independent vertical text flow, arbitrary-angle rotation,
+with its frame. Vertical modes outside the bounded clockwise profile, arbitrary-angle rotation,
 flipped frames, autofit, and unresolved preset/theme paint remain unsupported.
 Rotated source targets are preview-only and explicitly reject mutations; this
 does not widen authoring or editing permissions.

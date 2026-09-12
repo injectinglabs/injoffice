@@ -1714,11 +1714,18 @@ async function compileTextBody(paragraphs: readonly NativeParagraph[], context: 
     const approximateSourceFrame = context.layout?.autoFit === 'shape-source-frame'
     if (approximateSourceFrame && !state.sourceFrameAutoFitPreview) throw new TextBodyLayoutRefusal('text.sourceFrameAutoFitRequiresOptIn', 'Source-frame autofit is approximate and requires explicit preview opt-in.')
     if (approximateSourceFrame) state.diagnostics.push({ severity: 'warning', code: 'text.sourceFrameAutoFitApproximate', message: 'Read-only approximate autofit preview uses the saved source frame without resizing; frame size, layout, and overflow or clipping may differ from PowerPoint.', slideId: state.slide.id, elementId: context.elementId })
-    const compiled = await compileParagraphs(paragraphs, context, state)
+    const vertical = context.layout?.writingMode === 'vertical-clockwise'
+    if (vertical && paragraphs.some(paragraph=>paragraph.bullet!==false || paragraph.level!==0 || (paragraph.marginLeftEmu??0)!==0 || (paragraph.indentEmu??0)!==0 || paragraph.runs.some(run=>!run.text || !/^[\x20-\x7e]+$/.test(run.text)))) throw new TextBodyLayoutRefusal('text.verticalUnsupported','Clockwise vertical preview requires nonempty ASCII Latin text and no bullets or paragraph offsets.')
+    const layoutContext = vertical ? {...context,bounds:{x:0,y:0,cx:context.bounds.cy,cy:context.bounds.cx}} : context
+    const compiled = await compileParagraphs(paragraphs, layoutContext, state)
+    if(vertical && compiled.some(paragraph=>paragraph.runs.some(run=>run.direction!=='ltr'))) throw new TextBodyLayoutRefusal('text.verticalUnsupported','Clockwise vertical preview requires qualified left-to-right Latin shaping.')
+    const transform = vertical ? {aPpm:0,bPpm:1_000_000,cPpm:-1_000_000,dPpm:0,txEmu:context.bounds.x+context.bounds.cx,tyEmu:context.bounds.y} : undefined
+    if(transform){checkCoordinate(transform.txEmu,path,state.budget);checkCoordinate(transform.tyEmu,path,state.budget)}
     const deterministic = Boolean(context.layout && state.lineLayoutPolicy)
     if (deterministic) state.diagnostics.push({severity:'warning',code:'text.deterministicLayout',message:'Measured native glyphs use InjOffice max-run-natural-v1 line boxes and anchor offsets; this policy is not an Office visual-equivalence claim.',slideId:state.slide.id,elementId:context.elementId})
     return {
       kind: 'textBody', sourceElementId: context.elementId, bounds: context.bounds,
+      ...(transform?{transform}:{}),
       fidelity: approximateSourceFrame ? 'approximateSourceFrame' : deterministic ? 'deterministicNative' : context.layout ? 'native' : 'legacyUnavailable',
       ...(deterministic ? {lineLayoutPolicy: state.lineLayoutPolicy} : {}),
       wrap: context.layout?.wrap, verticalAnchor: context.layout?.verticalAnchor, autoFit: context.layout?.autoFit,

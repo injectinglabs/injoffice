@@ -77,7 +77,12 @@ function paintTextBody(textBody: RenderTextBodyNode, surface: PaintSurface): voi
     })
     return
   }
+  if (textBody.transform) {
+    surface.push({kind:'save'})
+    surface.push({kind:'transform',transform:textBody.transform})
+  }
   paintParagraphs(textBody.paragraphs, surface)
+  if (textBody.transform) surface.push({kind:'restore'})
 }
 
 function paintNode(node: RenderNode, surface: PaintSurface): void {

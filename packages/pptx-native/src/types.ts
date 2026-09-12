@@ -107,6 +107,7 @@ export interface NativeTextBodyLayout {
   autoFit: 'none' | 'shape-source-frame'
   horizontalOverflow: 'overflow'
   verticalOverflow: 'overflow'
+  writingMode?: 'vertical-clockwise'
 }
 
 export interface NativeStroke {

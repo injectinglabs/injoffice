@@ -1862,6 +1862,7 @@ func (extractor *nativeExtractor) extractTextShape(node *nativeXMLNode, part, sl
 	// content refusal prevents painting text. Keep that provenance in both paths.
 	nativeMarkSourceFrameAutoFit(&element)
 	if textLayoutMessage == "" && textContentMessage == "" {
+		nativeMarkVerticalTextPreview(&element)
 		nativePreserveTextCheckingMetadata(&element, txBody, dialect)
 		_ = fingerprint
 		_ = zIndex
@@ -1871,6 +1872,7 @@ func (extractor *nativeExtractor) extractTextShape(node *nativeXMLNode, part, sl
 		return NativeElement{}, fmt.Errorf("pptxpatch: native extract: cumulative emitted passthrough reference budget exceeded")
 	}
 	reason := "pptx.text-refused"
+	nativeMarkVerticalTextPreview(&element)
 	if textContentMessage == "" {
 		reason = "pptx.text-layout-refused"
 	} else if textLayoutMessage == "" {

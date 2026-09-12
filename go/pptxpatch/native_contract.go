@@ -124,6 +124,7 @@ type NativeTextBodyLayout struct {
 	AutoFit            string                   `json:"autoFit"`
 	HorizontalOverflow string                   `json:"horizontalOverflow"`
 	VerticalOverflow   string                   `json:"verticalOverflow"`
+	WritingMode        *string                  `json:"writingMode,omitempty"`
 }
 
 type NativeArrowEnd struct {

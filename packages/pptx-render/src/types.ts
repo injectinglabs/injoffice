@@ -176,6 +176,8 @@ export interface RenderTextBodyNode {
   readonly kind: 'textBody'
   readonly sourceElementId: string
   readonly bounds: RenderRect
+  /** Text-only physical mapping; parent shape/group transforms remain separate. */
+  readonly transform?: RenderTransform
   readonly fidelity: 'native' | 'deterministicNative' | 'approximateSourceFrame' | 'nativeUnavailable' | 'legacyUnavailable'
   /** Explicit InjOffice line-box policy; does not attest Office visual parity. */
   readonly lineLayoutPolicy?: 'max-run-natural-v1'

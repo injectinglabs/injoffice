@@ -193,6 +193,57 @@ function nativeTextBody(overrides: Partial<NativeTextBodyLayout> = {}): NativeTe
   }
 }
 
+it('lays clockwise Latin lines in the swapped inner frame with top-down advance and leftward progression',async()=>{
+ const element=nativeTextElement('vertical-lines','AA AA AA',nativeTextBody({writingMode:'vertical-clockwise',leftInsetEmu:10000,rightInsetEmu:20000,topInsetEmu:30000,bottomInsetEmu:40000}),{x:0,y:0,cx:500000,cy:110000})
+ const deck=authoredDeck([element]),before=JSON.stringify(deck)
+ const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+ const body=findNode(tree,'text',element.id).textBody
+ expect(body.status).toBe('laidOut')
+ expect(body.bounds).toEqual({x:10000,y:30000,cx:470000,cy:40000})
+ expect(body.transform).toEqual({aPpm:0,bPpm:1000000,cPpm:-1000000,dPpm:0,txEmu:480000,tyEmu:30000})
+ expect(body.paragraphs.length).toBeGreaterThan(1)
+ expect(body.paragraphs.every(line=>line.runs.reduce((sum,run)=>sum+run.advanceInlineEmu,0)<=40000)).toBe(true)
+ const physicalXs=body.paragraphs.map(line=>480000-line.runs[0]!.baselineY)
+ expect(physicalXs.every((x,index)=>index===0||x<physicalXs[index-1]!)).toBe(true)
+ const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+ expect(surface.finish()).toContainEqual({kind:'transform',transform:body.transform})
+ expect(surface.finish().some(command=>command.kind==='glyphRun')).toBe(true)
+ expect(JSON.stringify(deck)).toBe(before)
+})
+
+it('keeps shape geometry independent and composes vertical text with scaled-group and shape quarter turns',async()=>{
+ const text=nativeTextElement('vertical-shape','AB',nativeTextBody({writingMode:'vertical-clockwise',wrap:'none'}),{x:100,y:200,cx:400000,cy:200000})
+ const shape:NativeElement={...text,kind:'shape',preset:'triangle',fill:'123456',transform:{...text.transform,quarterTurns:2}}
+ const group:NativeElement={kind:'group',id:'vertical-group',provenance:'authored',transform:{x:0,y:0,cx:2000000,cy:3000000},childTransform:{x:0,y:0,cx:1000000,cy:1000000},children:[shape],passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+ const tree=await compileNativePptxSlide(authoredDeck([group]),0,{textLayout:textLayout()})
+ const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+ let matrix=[1,0,0,1,0,0];const stack:number[][]=[];let shapeMatrix:number[]|undefined,textMatrix:number[]|undefined
+ for(const command of surface.finish()){
+  if(command.kind==='save')stack.push([...matrix]);if(command.kind==='restore')matrix=stack.pop()!
+  if(command.kind==='transform'){const t=command.transform,[a,b,c,d,x,y]=matrix as [number,number,number,number,number,number];matrix=[(a*t.aPpm+c*t.bPpm)/1e6,(b*t.aPpm+d*t.bPpm)/1e6,(a*t.cPpm+c*t.dPpm)/1e6,(b*t.cPpm+d*t.dPpm)/1e6,a*t.txEmu+c*t.tyEmu+x,b*t.txEmu+d*t.tyEmu+y]}
+  if(command.kind==='path'&&command.fill==='123456')shapeMatrix=[...matrix]
+  if(command.kind==='glyphRun')textMatrix=[...matrix]
+ }
+ expect(shapeMatrix).toEqual([-2,0,0,-3,800200,600600])
+ expect(textMatrix?.map(value=>value===0?0:value)).toEqual([0,-3,2,0,200,600600])
+})
+
+it('refuses unsupported vertical scripts, offsets, bullets and RTL shaper direction',async()=>{
+ for(const text of ['漢','مرحبا','']){
+  const element=nativeTextElement('vertical-refused',text,nativeTextBody({writingMode:'vertical-clockwise'}))
+  const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout()})
+  expect(findNode(tree,'text',element.id).textBody.status).toBe('refused')
+ }
+ for(const property of [{bullet:true},{marginLeftEmu:1},{indentEmu:1}]){
+  const element=nativeTextElement('vertical-bullet','AB',nativeTextBody({writingMode:'vertical-clockwise'}));Object.assign(element.paragraphs[0]!,property)
+  const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+  expect(findNode(tree,'text',element.id).textBody.status).toBe('refused')
+ }
+ const element=nativeTextElement('vertical-rtl','AB',nativeTextBody({writingMode:'vertical-clockwise'}))
+ const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(fixtureShaper(),()=>({direction:'rtl'}))})
+ expect(findNode(tree,'text',element.id).textBody.status).toBe('refused')
+})
+
 it('applies native shape-frame quarter turns to glyph paint without reshaping horizontal text', async()=>{
  for(const quarterTurns of [1,2,3] as const){
   const element=nativeTextElement('rotated-text','AB',nativeTextBody(),{x:100,y:200,cx:500000,cy:500000})
