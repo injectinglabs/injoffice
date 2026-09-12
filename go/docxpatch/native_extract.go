@@ -2032,11 +2032,11 @@ func (extractor *nativeExtractor) extractParagraphProperties(partName, paragraph
 			case "widowControl":
 				properties.WidowControl = nativeBool(value)
 			}
-		case "autoSpaceDE", "autoSpaceDN":
+		case "autoSpaceDE", "autoSpaceDN", "adjustRightInd":
 			preserveOnly = true
 			if !nativeNeutralSourceProperty(child, node, extractor.wordNS) {
 				unsafe = true
-				extractor.addUnsupported("UNMODELED_PARAGRAPH_PROPERTY", "paragraph-properties", paragraphID, partName, child, "Automatic East Asian spacing is supported only as an exact explicit disabled setting")
+				extractor.addUnsupported("UNMODELED_PARAGRAPH_PROPERTY", "paragraph-properties", paragraphID, partName, child, "Automatic spacing or grid indent adjustment is supported only as an exact explicit disabled setting")
 			}
 		case "bidi":
 			preserveOnly = true
@@ -2179,6 +2179,11 @@ func (extractor *nativeExtractor) extractParagraphRuns(partName, paragraphID str
 			continue
 		}
 		switch {
+		case child.Name == (xml.Name{Space: extractor.wordNS, Local: "bookmarkStart"}) && nativeExactEmptyBookmark(paragraph.Children[childIndex:], extractor.wordNS):
+			// A closed, empty bookmark has no painted content. Its source is
+			// retained and the containing paragraph remains non-editable.
+			unsafe = true
+			childIndex++
 		case child.Name == (xml.Name{Space: extractor.wordNS, Local: "r"}):
 			if hasNativeFieldBegin(child, extractor.wordNS) {
 				unsafe = true

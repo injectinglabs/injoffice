@@ -2160,9 +2160,9 @@ func (resolver *nativeLayoutResolver) parseParagraphProperties(partName string, 
 			resolver.parseSpacing(child, scopeID, partName, &properties)
 		case "ind":
 			resolver.parseIndent(child, scopeID, partName, &properties)
-		case "autoSpaceDE", "autoSpaceDN":
+		case "autoSpaceDE", "autoSpaceDN", "adjustRightInd":
 			if !nativeNeutralSourceProperty(child, node, resolver.wordNS) {
-				resolver.addDiagnostic("UNMODELED_PARAGRAPH_PROPERTY", scopeID, partName, child, "Automatic East Asian spacing is supported only as an exact explicit disabled setting")
+				resolver.addDiagnostic("UNMODELED_PARAGRAPH_PROPERTY", scopeID, partName, child, "Automatic spacing or grid indent adjustment is supported only as an exact explicit disabled setting")
 			}
 		case "keepNext", "keepLines", "pageBreakBefore", "widowControl", "bidi":
 			value, ok := nativeOnOff(child, resolver.wordNS)
