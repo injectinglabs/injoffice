@@ -3,12 +3,15 @@ package xlsxpatch
 import (
 	"encoding/xml"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
 const nativeStoredRowPreviewLimit = 32
 const nativeRowDescentNamespace = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"
+
+var nativeStoredRowDecimal = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
 
 // Only the first 32 rows are projected. This is stored row geometry, not font
 // metrics, column sizing, baseline positioning, or automatic row fitting.
@@ -148,6 +151,9 @@ func isPreviewNamespaceDeclaration(attr xml.Attr) bool {
 	return attr.Name.Space == "xmlns" || (attr.Name.Space == "" && attr.Name.Local == "xmlns")
 }
 func boundedPreviewRowNumber(raw string, max float64) (float64, bool) {
+	if len(raw) > 64 || !nativeStoredRowDecimal.MatchString(raw) {
+		return 0, false
+	}
 	v, e := strconv.ParseFloat(raw, 64)
 	return v, e == nil && !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 && v <= max
 }

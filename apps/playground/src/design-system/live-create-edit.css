@@ -370,7 +370,8 @@
   min-height: 0;
   height: 100%;
   padding: 0 6px;
-  line-height: var(--native-stored-row-height);
+  line-height: 1;
+  align-content: center;
   overflow: hidden;
 }
 

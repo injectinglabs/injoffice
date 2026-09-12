@@ -12,7 +12,7 @@ func TestStoredRowPreviewQualification(t *testing.T) {
 		if len(got.Rows) != 32 || got.Rows[0].HeightPoints != 14.4 || got.Rows[1].HeightPoints != 24 || !got.Rows[2].Hidden || len(got.Warnings) != 2 {
 			t.Fatalf("wrong stored geometry: %+v", got)
 		}
-		for _, variant := range []string{"automatic-default", "automatic-override", "automatic-inherited", "foreign-descent", "invalid-descent", "unknown-attribute", "invalid-spans", "duplicate-row", "zero-height", "text", "data-attrs"} {
+		for _, variant := range []string{"automatic-default", "automatic-override", "automatic-inherited", "foreign-descent", "invalid-descent", "hex-default", "hex-height", "hex-descent", "unknown-attribute", "invalid-spans", "duplicate-row", "zero-height", "text", "data-attrs"} {
 			source := original
 			switch variant {
 			case "automatic-default":
@@ -25,6 +25,12 @@ func TestStoredRowPreviewQualification(t *testing.T) {
 				source = strings.ReplaceAll(source, nativeRowDescentNamespace, "urn:foreign")
 			case "invalid-descent":
 				source = strings.Replace(source, `dyDescent="0.3"`, `dyDescent="NaN"`, 1)
+			case "hex-default":
+				source = strings.Replace(source, `defaultRowHeight="14.4"`, `defaultRowHeight="0x1p2"`, 1)
+			case "hex-height":
+				source = strings.Replace(source, `ht="24"`, `ht="0x1p2"`, 1)
+			case "hex-descent":
+				source = strings.Replace(source, `dyDescent="0.3"`, `dyDescent="0x1p2"`, 1)
 			case "unknown-attribute":
 				source = strings.Replace(source, `r="1"`, `r="1" thickBot="1"`, 1)
 			case "invalid-spans":
