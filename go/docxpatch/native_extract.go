@@ -2071,13 +2071,24 @@ func nativeExactParagraphMarkProperties(node *nativeXMLNode, wordNS string) bool
 			// Preserve the bounded complex-script slot without treating it as
 			// active. The resolver still qualifies the paragraph mark's script
 			// context; RTL/mixed-script uncertainty retains its diagnostic.
-			if !nativeExactLeaf(property, xml.Name{Space: wordNS, Local: "ascii"}, xml.Name{Space: wordNS, Local: "hAnsi"}, xml.Name{Space: wordNS, Local: "cs"}) {
+			if !nativeExactLeaf(property, xml.Name{Space: wordNS, Local: "ascii"}, xml.Name{Space: wordNS, Local: "hAnsi"}, xml.Name{Space: wordNS, Local: "cs"}, xml.Name{Space: wordNS, Local: "eastAsia"}) {
 				return false
 			}
-			if value, present := nativeAttr(property, wordNS, "cs"); present && !nativeBoundedResolvedString(value, 256) {
+			for _, slot := range []string{"cs", "eastAsia"} {
+				if value, present := nativeAttr(property, wordNS, slot); present && !nativeBoundedResolvedString(value, 256) {
+					return false
+				}
+			}
+		case "lang":
+			if !nativeExactLeaf(property, xml.Name{Space: wordNS, Local: "val"}, xml.Name{Space: wordNS, Local: "eastAsia"}, xml.Name{Space: wordNS, Local: "bidi"}) {
 				return false
 			}
-		case "sz", "b", "i", "rtl", "vanish", "color", "lang":
+			for _, slot := range []string{"eastAsia", "bidi"} {
+				if value, present := nativeAttr(property, wordNS, slot); present && !nativeScriptLanguageTag(value) {
+					return false
+				}
+			}
+		case "sz", "b", "i", "rtl", "vanish", "color":
 			if !nativeExactLeaf(property, xml.Name{Space: wordNS, Local: "val"}) {
 				return false
 			}
@@ -3046,6 +3057,15 @@ func (extractor *nativeExtractor) extractRunProperties(partName, paragraphID str
 			if _, ok := nativeKerningThreshold(child, extractor.wordNS); !ok || len(directNativeChildren(node, extractor.wordNS, "kern")) != 1 {
 				unsafe = true
 				extractor.addUnsupported("UNMODELED_RUN_PROPERTY", "run-properties", paragraphID, partName, child, "Kerning threshold is malformed, duplicate or outside the bounded whole half-point subset")
+			}
+		case "szCs":
+			// The resolved source context, not extraction, determines whether
+			// this preserved script slot is inactive. Never expose it for edits.
+			preserveOnly = true
+			value, ok := nativePositiveIntAttr(child, extractor.wordNS, "val")
+			if !ok || value > 3276 || !nativeExactLeaf(child, xml.Name{Space: extractor.wordNS, Local: "val"}) || len(directNativeChildren(node, extractor.wordNS, "szCs")) != 1 {
+				unsafe = true
+				extractor.addUnsupported("UNMODELED_RUN_PROPERTY", "run-properties", paragraphID, partName, child, "Complex-script size is malformed, duplicate or outside the bounded whole half-point subset")
 			}
 		case "noProof":
 			preserveOnly = true
