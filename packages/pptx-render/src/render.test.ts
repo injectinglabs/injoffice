@@ -153,6 +153,21 @@ it('passes authored language to actual native shaping and retains glyph paint', 
   expect(surface.finish().some(command=>command.kind==='placeholder')).toBe(false)
 })
 
+it('paints qualified caption runs while retaining preserve-only warning and source authority', async () => {
+  const element=nativeTextElement('caption-end-mark','Istanbul',nativeTextBody(),{x:100,y:100,cx:1000000,cy:500000})
+  element.paragraphs[0]!.runs[0]!.language='tr-TR'
+  element.compatibility={status:'preserveOnly',diagnostics:[{severity:'warning',code:'pptx.end-paragraph-metadata-preserved',message:'End mark source remains preserved'}]}
+  const deck=authoredDeck([element])
+  deck.compatibility=structuredClone(element.compatibility);deck.slides[0]!.compatibility=structuredClone(element.compatibility)
+  const before=JSON.stringify(deck)
+  const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+  const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+  expect(surface.finish().some(command=>command.kind==='glyphRun')).toBe(true)
+  expect(surface.finish().some(command=>command.kind==='placeholder')).toBe(false)
+  expect(tree.diagnostics.some(diagnostic=>diagnostic.code==='render.preserveOnly' && diagnostic.elementId===element.id)).toBe(true)
+  expect(JSON.stringify(deck)).toBe(before)
+})
+
 function authoredDeck(elements: NativeElement[]): NativePptxDeck {
   return {
     contractVersion: 'pptx-native/v1', documentId: 'authored-render-deck', origin: 'authored',

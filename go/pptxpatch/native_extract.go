@@ -1964,9 +1964,6 @@ func (extractor *nativeExtractor) extractNativeParagraphs(txBody *nativeXMLNode,
 		if err != nil {
 			return nil, err
 		}
-		if endParaRPr != nil {
-			return nil, fmt.Errorf("pptxpatch: native extract: end-paragraph formatting is not representable in v1")
-		}
 		paragraph := NativeParagraph{Runs: []NativeTextRun{}}
 		for _, child := range paragraphNode.Children {
 			switch child.Name {
@@ -2047,6 +2044,9 @@ func (extractor *nativeExtractor) extractNativeParagraphs(txBody *nativeXMLNode,
 		}
 		if len(paragraph.Runs) == 0 {
 			return nil, fmt.Errorf("pptxpatch: native extract: empty paragraph lacks self-contained end-paragraph font metrics")
+		}
+		if err := qualifyNativeEndParagraphMetadata(endParaRPr, paragraph); err != nil {
+			return nil, err
 		}
 		paragraphs = append(paragraphs, paragraph)
 	}

@@ -66,6 +66,12 @@ not round-trip those flags. This does not permit unsupported language/layout
 properties, symbol-font bullet substitution, or shape/font autofit. Autofit and
 unsupported inherited-property diagnostics name the remaining blocker.
 
+Nonempty paragraphs may preserve an exact end mark containing only checking
+flags and a language identical to the final visible run's resolved language.
+End-mark font size, styling, different language, and empty/trailing-empty runs
+remain unqualified. Accepted end marks stay read-only, with an explicit source
+preservation diagnostic and a prewrite mutation refusal.
+
 AutoShape frame rotations of 90, 180, and 270 degrees are projected as optional
 `transform.quarterTurns` and rendered around the source frame center. Their
 affine coefficients are exact integer values; 90/270-degree frames requiring
