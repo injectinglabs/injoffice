@@ -306,6 +306,35 @@ explicitly, and content-type identity uses ASCII-only case folding. Explicit
 extractor-owned Word default section
 geometry is accepted; no other geometry is inferred.
 
+### Explicit operator font substitution (read-only)
+
+`renderNativeDocxFontSubstitutionPreviewV1(input, outlineProvider, { fonts })`
+is a separate approximate compiler. Supply a content-addressed host `manifest`,
+`resolver`, and `substitutionPolicy` on `fonts`; the policy is
+`{ version: 1, mappings: [{ sourceFamily, targetFamily, weight: 400 | 700,
+style: 'normal' | 'italic' }] }`. Exact supplied faces always win. There are no
+built-in substitutions, system font discovery, synthetic styles, or bundled
+proprietary fonts. `compileNativeDocxFontSubstitutionPreviewV1` accepts the
+corresponding original-source shaping/page-paint request plus the same policy.
+Neither function exports a strict prepared artifact or grants editing rights.
+
+The distinct `injoffice.docx.font-substitution-preview` envelope carries the
+original source identity, policy/hash, actual source-to-selected font records,
+the selected font manifest joined to rendering provenance, and persistent
+approximation warnings. `decodeNativeDocxFontSubstitutionPreviewV1` validates
+this output (also exported from the browser-safe `native-page-paint-output`
+entrypoint). Source font names, package bytes, and unrelated diagnostics remain
+unchanged; removing or forging substitution evidence cannot qualify strict paint.
+
+This first tier requires modern Word settings and graphic ASCII/LTR source runs
+or Latin numbering, plus eligible blank paragraph-mark metric consumers. Symbol
+bullets, font-matching metadata, EA/CS/RTL selection, legacy layout, automatic
+borders, absent-size policies, page fields and square-wrap combinations remain
+unsupported. Layout is not Word-validated; an explicit request may still return
+`status: 'refused'` with no pages. These constraints currently prevent applying
+this font-only tier to the original benchmark documents with matching metadata
+and legacy settings.
+
 The separate opt-in `renderNativeDocxApproximatePagePreviewV1` path may use
 current layout rules for exact legacy mode 12/14 settings. Its extractor-owned
 eligibility can additionally retain bounded known theme-language, locale,
