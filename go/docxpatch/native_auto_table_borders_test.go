@@ -6,6 +6,26 @@ import (
 	"testing"
 )
 
+func TestAutomaticBorderWhitePageUsesIndexedSourceOnce(t *testing.T) {
+	for _, content := range []string{`<w:body><w:p/></w:body>`, `<w:background w:color="000000"/><w:body/>`} {
+		root, err := parseNativeXML("word/document.xml", []byte(`<w:document xmlns:w="`+wordMLTransitional+`">`+content+`</w:document>`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolver := &nativeLayoutResolver{doc: &NativeDocumentV1{}, wordNS: wordMLTransitional, mainRoot: root}
+		want := !strings.Contains(content, "background")
+		if got := resolver.automaticBorderWhitePage(); got != want || !resolver.autoBorderWhiteChecked {
+			t.Fatalf("initial qualification = %v; want %v", got, want)
+		}
+		// A resolver's source is immutable in production. Removing this test's
+		// pointer proves repeat table checks use the cached result, including refusal.
+		resolver.mainRoot = nil
+		if got := resolver.automaticBorderWhitePage(); got != want {
+			t.Fatalf("cached qualification = %v; want %v", got, want)
+		}
+	}
+}
+
 func TestAutomaticTableBorderEvidencePreservesStrictSource(t *testing.T) {
 	for _, ns := range []string{wordMLTransitional, wordMLStrict} {
 		for _, test := range []struct {

@@ -33,33 +33,8 @@ type NativeAutomaticTableBorderPreviewV1 struct {
 }
 
 func (resolver *nativeLayoutResolver) automaticTableBorderPreview(table *NativeTableV1, chain []*nativeStyleDefinition) *NativeAutomaticTableBorderPreviewV1 {
-	if len(chain) == 0 || chain[0].basedOn != "" || resolver.resolveTableGeometry(table) == nil || len(resolver.doc.Headers)+len(resolver.doc.Footers)+len(resolver.doc.Notes)+len(resolver.doc.CommentStories) > 0 {
+	if len(chain) == 0 || chain[0].basedOn != "" || resolver.resolveTableGeometry(table) == nil || !resolver.automaticBorderWhitePage() {
 		return nil
-	}
-	root, err := parseNativeXML(resolver.mainPart, resolver.pkg.files[resolver.mainPart])
-	if err != nil || root.Name != (xml.Name{Space: resolver.wordNS, Local: "document"}) || !nativeExactContainer(root) || len(root.Children) != 1 || root.Children[0].Name != (xml.Name{Space: resolver.wordNS, Local: "body"}) || !nativeExactContainer(root.Children[0]) {
-		return nil
-	}
-	// No source background or drawing can underlay the declared white surface.
-	var drawing func(*nativeXMLNode) bool
-	drawing = func(n *nativeXMLNode) bool {
-		if n.Name.Local == "drawing" || n.Name.Local == "pict" || n.Name.Local == "object" || n.Name.Local == "background" {
-			return true
-		}
-		for _, c := range n.Children {
-			if drawing(c) {
-				return true
-			}
-		}
-		return false
-	}
-	if drawing(root) {
-		return nil
-	}
-	for _, child := range root.Children[0].Children {
-		if child.Name.Space != resolver.wordNS || child.Name.Local != "p" && child.Name.Local != "tbl" && child.Name.Local != "sectPr" {
-			return nil
-		}
 	}
 	result := &NativeAutomaticTableBorderPreviewV1{Policy: NativeAutomaticTableBorderPolicyV1, ReadOnly: true, PageBackground: "absent-on-white-preview", BackgroundRGB: "FFFFFF", PackageSHA256: resolver.doc.Source.PackageSHA256, AutomaticEdges: []string{}, CellIDs: []string{}, SourceDiagnostics: []NativeAutomaticTableBorderDiagnosticV1{}}
 	var owner *nativeXMLNode
@@ -194,6 +169,41 @@ func (resolver *nativeLayoutResolver) automaticTableBorderPreview(table *NativeT
 		return nil
 	}
 	return result
+}
+
+// The resolver and its indexed source trees are private to one immutable
+// package resolution. Qualify the page once, not once per table.
+func (resolver *nativeLayoutResolver) automaticBorderWhitePage() bool {
+	if resolver.autoBorderWhiteChecked {
+		return resolver.autoBorderWhite
+	}
+	resolver.autoBorderWhiteChecked = true
+	root := resolver.mainRoot
+	if len(resolver.doc.Headers)+len(resolver.doc.Footers)+len(resolver.doc.Notes)+len(resolver.doc.CommentStories) > 0 || root == nil || root.Name != (xml.Name{Space: resolver.wordNS, Local: "document"}) || !nativeExactContainer(root) || len(root.Children) != 1 || root.Children[0].Name != (xml.Name{Space: resolver.wordNS, Local: "body"}) || !nativeExactContainer(root.Children[0]) {
+		return false
+	}
+	var drawing func(*nativeXMLNode) bool
+	drawing = func(n *nativeXMLNode) bool {
+		if n.Name.Local == "drawing" || n.Name.Local == "pict" || n.Name.Local == "object" || n.Name.Local == "background" {
+			return true
+		}
+		for _, c := range n.Children {
+			if drawing(c) {
+				return true
+			}
+		}
+		return false
+	}
+	if drawing(root) {
+		return false
+	}
+	for _, child := range root.Children[0].Children {
+		if child.Name.Space != resolver.wordNS || child.Name.Local != "p" && child.Name.Local != "tbl" && child.Name.Local != "sectPr" {
+			return false
+		}
+	}
+	resolver.autoBorderWhite = true
+	return true
 }
 
 func nativeValidAutomaticBorderPreview(f *NativeAutomaticTableBorderPreviewV1, tableID string) bool {

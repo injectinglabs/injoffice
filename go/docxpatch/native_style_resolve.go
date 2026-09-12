@@ -260,6 +260,9 @@ type nativeLayoutResolver struct {
 	deferredDiagnosticCount int
 	numberingRootDeferred   []nativeDeferredNumberingDiagnostic
 	nodeByAnchor            map[string]*nativeXMLNode
+	mainRoot                *nativeXMLNode
+	autoBorderWhiteChecked  bool
+	autoBorderWhite         bool
 	themeSrgb               map[string]string
 	themeLatinFonts         nativeThemeLatinFonts
 }
@@ -479,6 +482,9 @@ func (resolver *nativeLayoutResolver) indexStoryNodes() error {
 		root, err := parseNativeXML(partName, resolver.pkg.files[partName])
 		if err != nil {
 			return err
+		}
+		if partName == resolver.mainPart {
+			resolver.mainRoot = root
 		}
 		var visit func(*nativeXMLNode)
 		visit = func(node *nativeXMLNode) {
