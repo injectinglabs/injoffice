@@ -160,9 +160,8 @@ export async function renderNativeDocxApproximatePagePreviewV1(input: NativeDocx
   const document = decodeNativeDocxDocument(input.document)
   if (!document.ok) failIssues('native document is invalid', document.issues)
   const bodyFields = nativeDocxBodyPageFieldRunsV1(document.value)
-  if (bodyFields.length || hasNativeSquareWrapV1(document.value)) {
-    const probe = bodyFields.length ? nativeDocxBodyPageFieldDocumentV1(document.value, Object.fromEntries(bodyFields.map(run => [run.id, '1']))) : document.value
-    if (hasNativeDocxPageFieldsV1(probe)) throw new TypeError('Approximate fixed-point preview excludes header/footer page fields')
+  const probe = bodyFields.length ? nativeDocxBodyPageFieldDocumentV1(document.value, Object.fromEntries(bodyFields.map(run => [run.id, '1']))) : document.value
+  if (bodyFields.length || hasNativeSquareWrapV1(document.value) || hasNativeDocxPageFieldsV1(probe)) {
     const prepared = await prepareNativeDocxPagePaintInternalV1(input, runtime, eligibility)
     return compileNativeDocxApproximateComputedPagePreviewV1(prepared.page_paint_request, eligibility, outlineProvider)
   }

@@ -274,8 +274,11 @@ read-only policy, settings and integrity hashes remain bound to the preview.
 The same solve handles page-edge square images with or without body fields,
 revalidating the final source-derived exclusion intervals. It retains the
 single-column, left-aligned LTR, no-table/no-note restrictions; interior islands,
-fully blocked lines and nonconvergence refuse. Header/footer page fields remain
-excluded from the approximate fixed-point path.
+fully blocked lines and nonconvergence refuse. Repeated header/footer page
+fields expand from the final page count and restarted page numbers, with the
+same source-bound variant coverage, fragment budgets and stale-cache refusals
+as strict rendering. Fields in notes/comments and body table cells remain
+unsupported.
 
 Top-of-page paragraph-before spacing is retained only on the first content page
 of a section and suppressed on later pages, including automatic, explicit, and
