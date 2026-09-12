@@ -126,7 +126,13 @@ func previewDrawingMarker(n *previewXML, ns string) (NativeDrawingMarkerV1, bool
 		}
 		values[key] = v
 	}
-	return NativeDrawingMarkerV1{int(values["col"]), int(values["row"]), values["colOff"], values["rowOff"]}, true
+	column, row := values["col"], values["row"]
+	// Keep the narrowing-conversion bounds local as well as in the parser.
+	// These source limits fit int on both native and 32-bit WASM targets.
+	if column < 0 || column > 16383 || row < 0 || row > 1048575 {
+		return m, false
+	}
+	return NativeDrawingMarkerV1{int(column), int(row), values["colOff"], values["rowOff"]}, true
 }
 func previewDrawingAnchor(n *previewXML, ns string) *NativeDrawingAnchorV1 {
 	if n == nil || n.name.Space != ns || (n.name.Local != "twoCellAnchor" && n.name.Local != "oneCellAnchor") {
