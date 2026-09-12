@@ -55,7 +55,7 @@ import {
   type NativeDocxGlyphOutlineResultV1,
   type NativeDocxPagePaintRequestV1,
 } from './nativePagePaintV1.js'
-import { decodeNativeDocxApproximatePagePreviewV1 } from './nativeApproximationV1.js'
+import { decodeNativeDocxApproximatePagePreviewV1, decodeNativeDocxApproximationEligibilityV1 } from './nativeApproximationV1.js'
 
 const HASH = `sha256:${'a'.repeat(64)}` as `sha256:${string}`
 const RELATIONSHIPS_HASH = `sha256:${'b'.repeat(64)}`
@@ -299,6 +299,36 @@ describe('native DOCX page-paint v1', () => {
     const ineligible = await compileNativeDocxApproximatePagePreviewV1(request, { ...eligibility, status: 'ineligible', legacy_compatibility_mode: null }, new FixtureProvider())
     expect(ineligible).toMatchObject({ fidelity: 'approximate', status: 'refused', pages: [] })
   })
+  it('retains known approximate settings values and requires matching facts and warnings', async () => {
+    const request = fixture()
+    const settings = request.pagination_request.pagination_settings
+    settings.profile = 'unsupported'
+    delete settings.compatibility_mode
+    const fact = { kind: 'decimalSymbol', path: '/w:settings[1]/w:decimalSymbol[1]', values: { val: ',' } }
+    const warning = `Current-layout approximation disregards ${fact.kind} at ${fact.path}; source values are retained and Word layout may differ`
+    settings.diagnostics = [{ code: 'PAGINATION_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: fact.path, preservation: 'preserve-verbatim', message: 'Original decimal setting is not strictly qualified' }]
+    const refused = paginateNativeDocxV1(request.pagination_request)
+    if (!refused.ok) throw new Error('invalid fixture')
+    request.paginated_layout = refused.value
+    request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(refused.value)
+    const original = structuredClone(request)
+    const eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: settings.package_sha256, settings_sha256: settings.settings_sha256, status: 'eligible', legacy_compatibility_mode: 12, reasons: [warning], approximated_settings: [fact] }
+    const approximate = await compileNativeDocxApproximatePagePreviewV1(request, eligibility, new FixtureProvider())
+    expect(approximate).toMatchObject({ status: 'painted', approximated_settings: [fact] })
+    expect(decodeNativeDocxApproximatePagePreviewV1(approximate).ok).toBe(true)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, approximated_settings: [] }).ok).toBe(false)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, reasons: approximate.reasons.filter(reason => reason !== warning) }).ok).toBe(false)
+    await expect(compileNativeDocxApproximatePagePreviewV1(request, { ...eligibility, approximated_settings: [] }, new FixtureProvider())).rejects.toThrow('conflicts')
+    await expect(compileNativeDocxApproximatePagePreviewV1(request, { ...eligibility, reasons: ['missing setting warning'] }, new FixtureProvider())).rejects.toThrow('conflicts')
+    expect(request).toEqual(original)
+    expect(await compileNativeDocxPagePaintV1(request, new FixtureProvider())).toMatchObject({ ok: true, value: { status: 'refused' } })
+    const flag = { kind: 'enableOpenTypeFeatures', path: '/w:settings[1]/w:compat[1]/w:compatSetting[2]', values: { val: '1' } }
+    const flagSettings = structuredClone(settings)
+    flagSettings.diagnostics[0] = { ...flagSettings.diagnostics[0]!, code: 'COMPATIBILITY_SETTING_UNSUPPORTED', path: flag.path }
+    const flagEligibility = { ...eligibility, approximated_settings: [flag], reasons: [`Current-layout approximation disregards ${flag.kind} at ${flag.path}; source values are retained and Word layout may differ`] }
+    expect(decodeNativeDocxApproximationEligibilityV1(flagEligibility, flagSettings).status).toBe('eligible')
+    expect(() => decodeNativeDocxApproximationEligibilityV1({ ...flagEligibility, approximated_settings: [], reasons: ['Legacy mode'] }, flagSettings)).toThrow('conflicts')
+  })
   it('bounds upstream refusal reasons and keeps valid atomic output', async () => {
     const request = fixture()
     const settings = request.pagination_request.pagination_settings
@@ -341,6 +371,21 @@ describe('native DOCX page-paint v1', () => {
     const unknown = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
     expect(unknown.ok && unknown.value.status).toBe('refused')
   })
+  it('retains qualified font matching diagnostics while painting supplied glyphs', async () => {
+    const request = fixture()
+    const resolved = request.pagination_request.resolved_layout
+    resolved.source_parts.font_table_part = 'word/fonts.xml'
+    resolved.diagnostics.push({ code: 'FONT_MATCHING_METADATA_PRESERVED', severity: 'unsupported', scope_id: resolved.document_id, part_name: 'word/fonts.xml', path: '/w:fonts[1]/w:font[1]/w:panose1[1]', preservation: 'preserve-verbatim', message: 'Matching metadata retained' })
+    const before = JSON.stringify(request.pagination_request.document)
+    const result = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(result.ok && result.value.status).toBe('painted')
+    expect(resolved.diagnostics).toHaveLength(1)
+    expect(JSON.stringify(request.pagination_request.document)).toBe(before)
+    resolved.diagnostics[0]!.code = 'UNMODELED_FONT_METADATA'
+    const unknown = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(unknown.ok && unknown.value.status).toBe('refused')
+  })
+
   it('bounds paginated-layout hashing and keeps object-key order irrelevant', () => {
     const layout = fixture().paginated_layout
     const reordered = Object.fromEntries(Object.entries(structuredClone(layout)).reverse()) as typeof layout

@@ -403,6 +403,13 @@ func (resolver *nativeLayoutResolver) loadParts() error {
 			}
 		}
 	}
+	// Style/default and numbering properties resolve theme references while
+	// parsing, so the validated related theme must be available first.
+	if resolver.parts.ThemePart != nil {
+		if err := resolver.loadTheme(*resolver.parts.ThemePart); err != nil {
+			return err
+		}
+	}
 	if resolver.parts.StylesPart != nil {
 		if err := resolver.loadStyles(*resolver.parts.StylesPart); err != nil {
 			return err
@@ -410,11 +417,6 @@ func (resolver *nativeLayoutResolver) loadParts() error {
 	}
 	if resolver.parts.NumberingPart != nil {
 		if err := resolver.loadNumbering(*resolver.parts.NumberingPart); err != nil {
-			return err
-		}
-	}
-	if resolver.parts.ThemePart != nil {
-		if err := resolver.loadTheme(*resolver.parts.ThemePart); err != nil {
 			return err
 		}
 	}
@@ -764,6 +766,10 @@ func (resolver *nativeLayoutResolver) loadFonts(partName string) error {
 			}
 		}
 		for _, property := range child.Children {
+			if nativeExactContainer(root) && nativeQualifiedFontDescriptor(property, child, resolver.wordNS) {
+				resolver.addDiagnostic("FONT_MATCHING_METADATA_PRESERVED", resolver.doc.DocumentID, partName, property, "Validated font matching metadata is preserved; native painting requires exact supplied faces, not metadata-driven substitution")
+				continue
+			}
 			if property.Name.Space == resolver.wordNS && property.Name.Local == "altName" {
 				continue
 			}
