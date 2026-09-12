@@ -31,7 +31,7 @@ import {
   type NativeTextBodyLayout,
   type NativeTextRun,
 } from '@injoffice/pptx-native'
-import { connectorPath, localBounds, presetPath, translationTransform,quarterTurnTransform } from './geometry.js'
+import { connectorPath, defaultPentagonTextRect, localBounds, presetPath, translationTransform,quarterTurnTransform } from './geometry.js'
 import {
   PPTX_RENDER_LIMITS,
   PPTX_RENDER_TREE_VERSION,
@@ -685,11 +685,14 @@ function elementBase(element: NativeElement, zIndex: number, budget: Budget, cli
 function nativeTextBodyBounds(element: Extract<NativeElement, { kind: 'text' | 'shape' }>, state: CompileState): RenderRect {
   const layout = element.textBody
   if (!layout) return localBounds(element.transform.cx, element.transform.cy)
+  const region = element.kind === 'shape' && element.preset === 'pentagon'
+    ? defaultPentagonTextRect(element.transform.cx, element.transform.cy)
+    : localBounds(element.transform.cx, element.transform.cy)
   const bounds = {
-    x: layout.leftInsetEmu,
-    y: layout.topInsetEmu,
-    cx: element.transform.cx - layout.leftInsetEmu - layout.rightInsetEmu,
-    cy: element.transform.cy - layout.topInsetEmu - layout.bottomInsetEmu,
+    x: region.x + layout.leftInsetEmu,
+    y: region.y + layout.topInsetEmu,
+    cx: region.cx - layout.leftInsetEmu - layout.rightInsetEmu,
+    cy: region.cy - layout.topInsetEmu - layout.bottomInsetEmu,
   }
   checkCoordinate(bounds.x, `$.elements.${element.id}.textBody.leftInsetEmu`, state.budget)
   checkCoordinate(bounds.y, `$.elements.${element.id}.textBody.topInsetEmu`, state.budget)

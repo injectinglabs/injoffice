@@ -24,8 +24,9 @@ to integer EMU, rather than an inscribed regular polygon. Supported solid theme
 fill/outline references are resolved by the native extractor. These source-bound
 projections are read-only. Unsupported shape text is explicitly omitted while
 independently supported geometry remains visible; diagnostics must be shown by
-the host. Vertical text flow, autofit, and pentagon text-region placement are not
-qualified by this geometry support. This is a partial preview, not a claim of
+the host. Default pentagon text uses the official preset text rectangle followed
+by authored body insets; custom adjustments remain unsupported. Vertical text
+flow and autofit are not qualified by this geometry support. This is a partial preview, not a claim of
 complete slide or Microsoft Office fidelity.
 
 ```ts
