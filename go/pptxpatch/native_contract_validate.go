@@ -688,6 +688,9 @@ func (v *nativeValidator) paragraphs(paragraphs []NativeParagraph, p string) {
 			if run.Language != nil && !validNativeLanguage(*run.Language) {
 				v.add(rp+".language", "schema.pattern", "must be a bounded supported language tag")
 			}
+			if run.KerningMinSizeHundredthPt != nil && (*run.KerningMinSizeHundredthPt < 0 || *run.KerningMinSizeHundredthPt > 400000) {
+				v.add(rp+".kerningMinSizeHundredthPt", "schema.range", "must be between 0 and 400000")
+			}
 			if run.FontFamily != nil {
 				fontFamilyLength := utf16CodeUnitLengthBounded(*run.FontFamily, 256)
 				if fontFamilyLength == 0 || fontFamilyLength > 256 {

@@ -993,10 +993,17 @@ async function shapeRun(nativeRun: NativeTextRun, context: NativePptxTextRunCont
   const override = state.resolveRun?.(context) ?? {}
   const families = [...(override.fontFamilies ?? (nativeRun.fontFamily ? [nativeRun.fontFamily] : state.textDefaults.fontFamilies))]
   const fallbackChainIds = override.fallbackChainIds ?? state.textDefaults.fallbackChainIds
+  const fontSizeHundredthPt = nativeRun.fontSizeHundredthPt ?? state.textDefaults.fontSizeHundredthPt
+  const features = override.features?.map((feature) => ({ ...feature })) ?? []
+  // An explicit host kern feature overrides the source, like other resolveRun settings.
+  if (nativeRun.kerningMinSizeHundredthPt !== undefined && !features.some((feature) => feature.tag === 'kern')) {
+    // PowerPoint treats zero as disabled, not an always-on zero-size threshold.
+    features.push({ tag: 'kern', value: nativeRun.kerningMinSizeHundredthPt > 0 && fontSizeHundredthPt >= nativeRun.kerningMinSizeHundredthPt ? 1 : 0 })
+  }
   const input: TextRunInput = deepFreeze({
     version: NATIVE_TEXT_LAYOUT_VERSION,
     text: nativeRun.text,
-    fontSizeMilliPoints: (nativeRun.fontSizeHundredthPt ?? state.textDefaults.fontSizeHundredthPt) * 10,
+    fontSizeMilliPoints: fontSizeHundredthPt * 10,
     font: {
       families,
       weight: nativeRun.bold ? 700 : 400,
@@ -1007,7 +1014,7 @@ async function shapeRun(nativeRun: NativeTextRun, context: NativePptxTextRunCont
     script: override.script ?? state.textDefaults.script,
     language: override.language ?? nativeRun.language ?? state.textDefaults.language,
     direction: override.direction ?? state.textDefaults.direction,
-    features: override.features?.map((feature) => ({ ...feature })),
+    features: features.length === 0 ? undefined : features,
     variations: override.variations?.map((variation) => ({ ...variation })),
     letterSpacingMilliPoints: override.letterSpacingMilliPoints,
     wordSpacingMilliPoints: override.wordSpacingMilliPoints,

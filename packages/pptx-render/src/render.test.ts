@@ -122,6 +122,28 @@ function textLayout(shaper = fixtureShaper(), resolveRun?: NativePptxTextLayout[
   }
 }
 
+it('applies the authored kerning threshold below, at and above its boundary', async () => {
+  // Original 32pt Arial AV probe exported with PowerPoint 16.112.4: zero/off
+  // and 3201/off have equal width; 3200/on is narrower. External PDF not stored.
+  for (const [size, threshold, enabled] of [[1199, 1200, 0], [1200, 1200, 1], [1201, 1200, 1], [1000, 0, 0]]) {
+    const base = fixtureShaper(), values: number[] = []
+    const shaper: NativeTextShaper = { ...base, shape(request) {
+      values.push(request.run.features?.find(feature => feature.tag === 'kern')?.value ?? -1)
+      return base.shape(request)
+    } }
+    const element = nativeTextElement('kern', 'AV', nativeTextBody(), { x: 0, y: 0, cx: 1000000, cy: 500000 })
+    Object.assign(element.paragraphs[0]!.runs[0]!, { fontSizeHundredthPt: size, kerningMinSizeHundredthPt: threshold })
+    const tree = await compileNativePptxSlide(authoredDeck([element]), 0, { textLayout: textLayout(shaper) })
+    const surface = createRecordingPaintSurface(); paintSlideRenderTree(tree, surface)
+    expect(values.length).toBeGreaterThan(0)
+    expect(values.every(value => value === enabled)).toBe(true)
+    expect(surface.finish().some(command => command.kind === 'glyphRun')).toBe(true)
+    values.length = 0
+    await compileNativePptxSlide(authoredDeck([element]), 0, { textLayout: textLayout(shaper, () => ({ features: [{ tag: 'kern', value: enabled ? 0 : 1 }] })) })
+    expect(values.every(value => value === (enabled ? 0 : 1))).toBe(true)
+  }
+})
+
 it('passes authored language to actual native shaping and retains glyph paint', async () => {
   const base=fixtureShaper(),languages:string[]=[]
   const shaper:NativeTextShaper={...base,shape(request){languages.push(request.run.language);return base.shape(request)}}

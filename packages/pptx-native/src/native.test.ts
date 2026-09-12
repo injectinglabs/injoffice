@@ -20,6 +20,21 @@ function fixture(path: string): unknown {
 }
 
 describe('native PPTX contract', () => {
+  it('retains bounded kerning thresholds including zero', () => {
+    const deck = fixture('valid/parsed-full.json') as NativePptxDeck
+    const element = deck.slides[0]!.elements.find(item => item.kind === 'text')!
+    if (element.kind !== 'text') throw new Error('text fixture missing')
+    const run = element.paragraphs[0]!.runs[0]!
+    for (const value of [0, 1200, 400000]) {
+      run.kerningMinSizeHundredthPt = value
+      expect(validateNativePptx(deck).ok).toBe(true)
+      expect(stringifyNativePptx(deck)).toContain(`"kerningMinSizeHundredthPt":${value}`)
+    }
+    for (const value of [-1, 400001, 1.5, NaN, Infinity]) {
+      run.kerningMinSizeHundredthPt = value
+      expect(validateNativePptx(deck).ok).toBe(false)
+    }
+  })
   it('retains bounded authored language tags and refuses malformed tags', () => {
     const deck=fixture('valid/parsed-full.json') as NativePptxDeck
     const element=deck.slides[0]!.elements.find(item=>item.kind==='text')!

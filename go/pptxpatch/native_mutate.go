@@ -292,7 +292,7 @@ func validateNativePPTXParagraphFieldNames(raw json.RawMessage) error {
 		}
 		for _, rawRun := range runs {
 			if _, err := nativePPTXJSONObject(rawRun, map[string]bool{
-				"text": true, "bold": true, "italic": true, "fontSizeHundredthPt": true, "color": true, "fontFamily": true, "language": true,
+				"text": true, "bold": true, "italic": true, "fontSizeHundredthPt": true, "color": true, "fontFamily": true, "language": true, "kerningMinSizeHundredthPt": true,
 			}); err != nil {
 				return err
 			}
@@ -683,6 +683,9 @@ func validateNativeMutationParagraphs(paragraphs []NativeParagraph, budget *nati
 			if run.Language != nil && !validNativeLanguage(*run.Language) {
 				return fmt.Errorf("paragraph %d run %d has invalid language", paragraphIndex, runIndex)
 			}
+			if run.KerningMinSizeHundredthPt != nil && (*run.KerningMinSizeHundredthPt < 0 || *run.KerningMinSizeHundredthPt > 400000) {
+				return fmt.Errorf("paragraph %d run %d has invalid kerning threshold", paragraphIndex, runIndex)
+			}
 			if strings.ContainsAny(*run.Text, "\t\r\n") {
 				return fmt.Errorf("paragraph %d run %d contains literal tab or line-break text outside the exact native mutation subset", paragraphIndex, runIndex)
 			}
@@ -832,7 +835,11 @@ func encodeNativeParagraphs(paragraphs []NativeParagraph, dialect nativeExtractD
 			if run.Language != nil {
 				language = fmt.Sprintf(` lang=%q`, *run.Language)
 			}
-			fmt.Fprintf(&output, `<a:r><a:rPr b=%q i=%q sz=%q%s><a:latin typeface="%s"/><a:solidFill><a:srgbClr val=%q/></a:solidFill></a:rPr>`, bold, italic, strconv.FormatInt(*run.FontSizeHundredthPt, 10), language, font, *run.Color)
+			kerning := ""
+			if run.KerningMinSizeHundredthPt != nil {
+				kerning = fmt.Sprintf(` kern=%q`, strconv.FormatInt(*run.KerningMinSizeHundredthPt, 10))
+			}
+			fmt.Fprintf(&output, `<a:r><a:rPr b=%q i=%q sz=%q%s%s><a:latin typeface="%s"/><a:solidFill><a:srgbClr val=%q/></a:solidFill></a:rPr>`, bold, italic, strconv.FormatInt(*run.FontSizeHundredthPt, 10), language, kerning, font, *run.Color)
 			if strings.TrimSpace(*run.Text) != *run.Text {
 				output.WriteString(`<a:t xml:space="preserve">`)
 			} else {
@@ -1308,7 +1315,7 @@ func nativeParagraphEqual(left, right NativeParagraph) bool {
 	}
 	for index := range left.Runs {
 		l, r := left.Runs[index], right.Runs[index]
-		if !nativeStringPointerEqual(l.Text, r.Text) || !nativeBoolPointerEqual(l.Bold, r.Bold) || !nativeBoolPointerEqual(l.Italic, r.Italic) || !nativeInt64PointerEqual(l.FontSizeHundredthPt, r.FontSizeHundredthPt) || !nativeStringPointerEqual(l.Color, r.Color) || !nativeStringPointerEqual(l.FontFamily, r.FontFamily) || !nativeStringPointerEqual(l.Language, r.Language) {
+		if !nativeStringPointerEqual(l.Text, r.Text) || !nativeBoolPointerEqual(l.Bold, r.Bold) || !nativeBoolPointerEqual(l.Italic, r.Italic) || !nativeInt64PointerEqual(l.FontSizeHundredthPt, r.FontSizeHundredthPt) || !nativeStringPointerEqual(l.Color, r.Color) || !nativeStringPointerEqual(l.FontFamily, r.FontFamily) || !nativeStringPointerEqual(l.Language, r.Language) || !nativeInt64PointerEqual(l.KerningMinSizeHundredthPt, r.KerningMinSizeHundredthPt) {
 			return false
 		}
 	}

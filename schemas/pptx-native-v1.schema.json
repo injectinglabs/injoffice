@@ -274,7 +274,8 @@
         "fontSizeHundredthPt": { "type": "integer", "minimum": 1, "maximum": 400000 },
         "color": { "$ref": "#/$defs/color" },
         "fontFamily": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "language": { "type": "string", "minLength": 2, "maxLength": 63, "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$" }
+        "language": { "type": "string", "minLength": 2, "maxLength": 63, "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$" },
+        "kerningMinSizeHundredthPt": { "type": "integer", "minimum": 0, "maximum": 400000 }
       }
     },
     "paragraph": {

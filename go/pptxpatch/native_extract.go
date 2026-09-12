@@ -2139,7 +2139,7 @@ func (extractor *nativeExtractor) extractNativeTextRun(node *nativeXMLNode, dial
 	if err != nil {
 		return NativeTextRun{}, err
 	}
-	if err := requireOnlyNativeAttrs(rPr, xml.Name{Local: "b"}, xml.Name{Local: "i"}, xml.Name{Local: "sz"}, xml.Name{Local: "lang"}); err != nil {
+	if err := requireOnlyNativeAttrs(rPr, xml.Name{Local: "b"}, xml.Name{Local: "i"}, xml.Name{Local: "sz"}, xml.Name{Local: "lang"}, xml.Name{Local: "kern"}); err != nil {
 		return NativeTextRun{}, fmt.Errorf("pptxpatch: native extract: unmodeled run metadata: %w", err)
 	}
 	if err := requireOnlyNativeChildren(rPr,
@@ -2180,6 +2180,13 @@ func (extractor *nativeExtractor) extractNativeTextRun(node *nativeXMLNode, dial
 			return NativeTextRun{}, fmt.Errorf("invalid authored language tag")
 		}
 		run.Language = &value
+	}
+	if value, ok := exactNativeAttr(rPr, "", "kern"); ok {
+		threshold, err := parseCanonicalNativeInt(value, 0, 400000)
+		if err != nil {
+			return NativeTextRun{}, fmt.Errorf("pptxpatch: native extract: invalid kerning threshold: %w", err)
+		}
+		run.KerningMinSizeHundredthPt = &threshold
 	}
 	if value, ok := exactNativeAttr(rPr, "", "sz"); ok {
 		size, err := strconv.ParseInt(value, 10, 64)
