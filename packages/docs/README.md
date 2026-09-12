@@ -14,6 +14,20 @@ equations separately under its explicit read-only partial-text preview. Strict
 painting and equation-paragraph mutations remain refused. No HTML strings,
 links, arbitrary MathML attributes or source font assets are exposed.
 
+An optional `equation_context_notices` inventory on same-byte inspection can
+qualify exact horizontal `lrTb` section direction, explicitly suppressed
+paragraph hyphenation, bounded non-drawing tab stops and two source-declared
+charset pairs for this equation-only view. These diagnostics remain in the
+original document/layout; neither ordinary text recovery nor native paint uses
+the exception. Charset declarations are ignored font-matching metadata, not a
+reinterpreted encoding or a claim of consistent/default font selection: MathML
+uses the already XML-decoded Unicode. The demo displays the retained notice count.
+Standalone hosts must supply trusted same-byte extractor evidence. The decoder
+joins styles/font-table digests to passthrough part hashes and bounds their slice
+anchors; it does not recompute XML slice hashes without source bytes. Main-part
+whole-part SHA is producer evidence; its original section diagnostic anchor
+(including slice SHA), section owner and package identity are joined exactly.
+
 `createNativeDocxPartialContentPreviewV1(document,
 { policy: 'source-text-with-omissions-v1', read_only: true }, resolvedLayout?)`
 is available from the browser-safe `@injoffice/docs/native-docx` entry. It

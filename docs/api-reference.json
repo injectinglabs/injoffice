@@ -3189,7 +3189,7 @@
             {
               "name": "createNativeDocxEquationPreviewsV1",
               "kind": "function",
-              "signature": "export declare function createNativeDocxEquationPreviewsV1(source: unknown, layout: unknown, equations: unknown): NativeDocxEquationPreviewV1[]"
+              "signature": "export declare function createNativeDocxEquationPreviewsV1(source: unknown, layout: unknown, equations: unknown, contextNotices?: unknown): NativeDocxEquationPreviewV1[]"
             },
             {
               "name": "createNativeDocxPartialContentPreviewV1",
@@ -3225,6 +3225,11 @@
               "name": "decodeNativeDocxDocument",
               "kind": "function",
               "signature": "export declare function decodeNativeDocxDocument(value: unknown): DecodeNativeDocxResult"
+            },
+            {
+              "name": "decodeNativeDocxEquationContextNoticesV1",
+              "kind": "function",
+              "signature": "export declare function decodeNativeDocxEquationContextNoticesV1(source: unknown, layout: unknown, input: unknown): NativeDocxEquationContextNoticeV1[]"
             },
             {
               "name": "decodeNativeDOCXFontInventoryV1",
@@ -3810,6 +3815,11 @@
               "name": "NativeDOCXEmbeddedFontSourceV1",
               "kind": "interface",
               "signature": "export interface NativeDOCXEmbeddedFontSourceV1"
+            },
+            {
+              "name": "NativeDocxEquationContextNoticeV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxEquationContextNoticeV1"
             },
             {
               "name": "NativeDocxEquationPreviewV1",
@@ -4815,7 +4825,7 @@
             {
               "name": "createNativeDocxEquationPreviewsV1",
               "kind": "function",
-              "signature": "export declare function createNativeDocxEquationPreviewsV1(source: unknown, layout: unknown, equations: unknown): NativeDocxEquationPreviewV1[]"
+              "signature": "export declare function createNativeDocxEquationPreviewsV1(source: unknown, layout: unknown, equations: unknown, contextNotices?: unknown): NativeDocxEquationPreviewV1[]"
             },
             {
               "name": "createNativeDocxPartialContentPreviewV1",
@@ -4826,6 +4836,11 @@
               "name": "decodeNativeDocxDocument",
               "kind": "function",
               "signature": "export declare function decodeNativeDocxDocument(value: unknown): DecodeNativeDocxResult"
+            },
+            {
+              "name": "decodeNativeDocxEquationContextNoticesV1",
+              "kind": "function",
+              "signature": "export declare function decodeNativeDocxEquationContextNoticesV1(source: unknown, layout: unknown, input: unknown): NativeDocxEquationContextNoticeV1[]"
             },
             {
               "name": "decodeNativeDocxJson",
@@ -4961,6 +4976,11 @@
               "name": "NativeDocxEditPolicyV1",
               "kind": "interface",
               "signature": "export interface NativeDocxEditPolicyV1"
+            },
+            {
+              "name": "NativeDocxEquationContextNoticeV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxEquationContextNoticeV1"
             },
             {
               "name": "NativeDocxEquationPreviewV1",
