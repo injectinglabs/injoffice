@@ -245,6 +245,18 @@ host locale are never workbook authority.
 
 ### Supplemental table preview
 
+`nativeStoredRowPreviewV1` reads optional source-bound stored row geometry from
+object inspection. The projection covers the first 32 rows of up to 64 sheets;
+unavailable or uninspected sheets retain host preview sizes. It applies stored
+fixed heights and explicit hidden-row flags only. Automatic heights, unknown
+dimension metadata, default-hidden sheets and ambiguous rows remain unavailable.
+Columns and text metrics are not inferred. The exact `x14ac:dyDescent` attribute
+qualifies fixed-height semantics as specified by
+[MS-XLSX](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/f11dfda4-46de-4035-8418-d76b0d3898f1),
+including its `customHeight` side effect; baseline positioning remains a visible
+limitation. Valid `spans` hints do not change stored row geometry. No native
+mutation or exact geometry compiler refusal is weakened.
+
 After source-bound object inspection, `nativeTableFillPreview` returns a qualified
 table background for a cell with default-fill provenance.
 `nativeTableHeaderTextPreview` identifies cells eligible for white bold header

@@ -336,6 +336,8 @@ export type {
 export { decodeNativeWorkbookObjectsV1, layoutNativeCachedChartV1 } from './nativeObjectsPreviewV1.js'
 export { nativeTableFillPreview, nativeTableHeaderTextPreview } from './nativeTableFillPreview.js'
 export { nativeTableTotalsTextPreview } from './nativeTableTotalsTextPreview.js'
+export { nativeStoredRowPreviewV1 } from './nativeStoredRowsPreviewV1.js'
+export type { NativeStoredRowGeometryV1, NativeStoredRowV1 } from './nativeStoredRowsPreviewV1.js'
 export { nativeTableNumberFormatPreview,formatNativeAccountingTextPreview } from './nativeTableNumberFormatPreview.js'
 export { nativeTableBorderPreview } from './nativeTableBorderPreview.js'
 export type { NativeTableBorderEdgesV1,NativeTableBorderSideV1 } from './nativeTableBorderPreview.js'

@@ -1,3 +1,4 @@
+import { decodeNativeStoredRowGeometryV1, type NativeStoredRowGeometryV1 } from "./nativeStoredRowsPreviewV1.js";
 import { snapshotNativePlainData } from "./nativePlainData.js";
 /** Read-only source-derived metadata. Never a workbook mutation envelope. */
 export interface NativeWorkbookObjectsV1 {
@@ -6,6 +7,7 @@ export interface NativeWorkbookObjectsV1 {
   package_sha256: string;
   tables: NativeTablePreviewV1[];
   charts: NativeChartPreviewV1[];
+  row_geometry?: NativeStoredRowGeometryV1[];
 }
 export interface NativeTablePreviewV1 {
   part: string;
@@ -99,12 +101,14 @@ export function decodeNativeWorkbookObjectsV1(
   const warnings = (v: unknown) => list(v, 32).map((x) => text(x));
   const bit = (v: unknown) => (typeof v === "boolean" ? v : fail());
   const count = (v: unknown) => (v === 0 || v === 1 ? v : fail());
+  const hasRows = !!input && typeof input === "object" && Object.hasOwn(input, "row_geometry");
   const value = obj(input, [
     "protocol",
     "version",
     "package_sha256",
     "tables",
     "charts",
+    ...(hasRows ? ["row_geometry"] : []),
   ]);
   if (
     value.protocol !== "injoffice.xlsx.preview-objects" ||
@@ -309,6 +313,7 @@ export function decodeNativeWorkbookObjectsV1(
     package_sha256: packageSHA256,
     tables,
     charts,
+    ...(hasRows ? { row_geometry: decodeNativeStoredRowGeometryV1(value.row_geometry) } : {}),
   };
 }
 

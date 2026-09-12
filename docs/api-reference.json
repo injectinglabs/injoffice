@@ -11813,6 +11813,21 @@
               "signature": "NativeSheetViewportV2"
             },
             {
+              "name": "NativeStoredRowGeometryV1",
+              "kind": "type",
+              "signature": "NativeStoredRowGeometryV1"
+            },
+            {
+              "name": "nativeStoredRowPreviewV1",
+              "kind": "function",
+              "signature": "export declare function nativeStoredRowPreviewV1(objects: NativeWorkbookObjectsV1, revision: string, sheetPart: string, row: number): NativeStoredRowV1 | undefined"
+            },
+            {
+              "name": "NativeStoredRowV1",
+              "kind": "type",
+              "signature": "NativeStoredRowV1"
+            },
+            {
               "name": "NativeStyleProjection",
               "kind": "type",
               "signature": "NativeStyleProjection"
@@ -12467,6 +12482,21 @@
               "name": "NativeSheetCellDisplayFormatResultV2",
               "kind": "type",
               "signature": "NativeSheetCellDisplayFormatResultV2"
+            },
+            {
+              "name": "NativeStoredRowGeometryV1",
+              "kind": "type",
+              "signature": "NativeStoredRowGeometryV1"
+            },
+            {
+              "name": "nativeStoredRowPreviewV1",
+              "kind": "function",
+              "signature": "export declare function nativeStoredRowPreviewV1(objects: NativeWorkbookObjectsV1, revision: string, sheetPart: string, row: number): NativeStoredRowV1 | undefined"
+            },
+            {
+              "name": "NativeStoredRowV1",
+              "kind": "type",
+              "signature": "NativeStoredRowV1"
             },
             {
               "name": "NativeTableBorderEdgesV1",
