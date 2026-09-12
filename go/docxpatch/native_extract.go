@@ -107,6 +107,8 @@ type nativeExtractor struct {
 	seenParaIDs         map[string]string
 	themeSrgbColors     map[string]string
 	themeSrgbLoaded     bool
+	tableLookLoaded     bool
+	tableLookStyles     map[string]*nativeXMLNode
 }
 
 // NativeExtractionOptions lets a caller retain durable identity across source
@@ -3294,6 +3296,14 @@ func (extractor *nativeExtractor) extractTable(partName string, node *nativeXMLN
 					table.TableStyleID = nativeString(value)
 				} else {
 					unsafe = true
+				}
+			} else if property.Name == (xml.Name{Space: extractor.wordNS, Local: "tblLook"}) {
+				// Conditional-style switches have no visual effect only when
+				// the complete referenced style chain has no conditional layers.
+				// The source remains read-only even for that qualified case.
+				unsafe = true
+				if !extractor.inactiveTableLook(tblPr, property) {
+					extractor.addUnsupported("UNMODELED_TABLE_PROPERTY", "table-properties", id, partName, property, "Table look has active, ambiguous, or unqualified conditional-style semantics")
 				}
 			} else if property.Name == (xml.Name{Space: extractor.wordNS, Local: "tblW"}) {
 				width, widthOK := nativeNonnegativeInt64Attr(property, extractor.wordNS, "w")
