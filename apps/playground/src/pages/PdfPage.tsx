@@ -126,6 +126,7 @@ export default function PdfPage() {
   const [geometry, setGeometry] = useState<PdfDocumentInfo | null>(null)
   const [annots, setAnnots] = useState<PdfAnnot[]>([])
   const [fields, setFields] = useState<PdfFormField[]>([])
+  const [fieldBytes, setFieldBytes] = useState<Uint8Array | null>(null)
   const [formNotice, setFormNotice] = useState<string | null>(null)
   const [formAppearanceFont, setFormAppearanceFont] = useState<TextAppearanceFont | 'viewer'>('viewer')
   const [unsavedFormNames, setUnsavedFormNames] = useState<string[]>([])
@@ -193,7 +194,7 @@ export default function PdfPage() {
   }
 
   const applyFormDrafts = async () => {
-    if (!bytes || busy) return
+    if (!bytes || busy || fieldBytes !== bytes) return
     setBusy('editing')
     setError(null)
     setInfo('')
@@ -322,6 +323,7 @@ export default function PdfPage() {
             setUnsavedFormNames([])
           }
           pendingFormDrafts.current = null
+          setFieldBytes(bytes)
         }
       } catch (reason: unknown) {
         if (cancelled) return
@@ -606,7 +608,7 @@ export default function PdfPage() {
             <div className="ioc-panel ds-panel">
               <span className="ds-eyebrow">Fill form fields</span>
               <DsField label="Saved text appearance">
-                <DsSelect aria-label="Saved text appearance" value={formAppearanceFont} disabled={locked} onChange={(event) => {
+                <DsSelect aria-label="Saved text appearance" value={formAppearanceFont} disabled={locked || fieldBytes !== bytes} onChange={(event) => {
                   setFormAppearanceFont(event.target.value as TextAppearanceFont | 'viewer')
                   setFormNotice(null)
                 }}>
@@ -622,13 +624,13 @@ export default function PdfPage() {
               {fields.length === 0 ? <p className="ds-muted">No form fields in this file.</p> : fields.map((field, index) => (
                 <DsField key={field.name} label={field.name}>
                   {field.kind === 'checkbox' ? (
-                    <input type="checkbox" disabled={locked} checked={Boolean(field.checked)} onChange={(event) => setFields((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, checked: event.target.checked } : item))} />
+                    <input type="checkbox" disabled={locked || fieldBytes !== bytes} checked={Boolean(field.checked)} onChange={(event) => setFields((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, checked: event.target.checked } : item))} />
                   ) : (
-                    <DsInput disabled={locked} value={field.value ?? ''} onChange={(event) => setFields((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))} />
+                    <DsInput disabled={locked || fieldBytes !== bytes} value={field.value ?? ''} onChange={(event) => setFields((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))} />
                   )}
                 </DsField>
               ))}
-              <DsButton variant="outlined" className="workbench-button" disabled={locked || fields.length === 0} onClick={() => void applyFormDrafts()}>Apply form values</DsButton>
+              <DsButton variant="outlined" className="workbench-button" disabled={locked || fieldBytes !== bytes || fields.length === 0} onClick={() => void applyFormDrafts()}>Apply form values</DsButton>
             </div>
           )}
 
