@@ -275,6 +275,9 @@ func nativeBulletFontFamily(node *nativeXMLNode) (string, error) {
 			if _, err := parseCanonicalNativeInt(value, 0, 255); err != nil {
 				return "", unsupportedNativeTextContent("invalid buFont metadata")
 			}
+			if attr == "charset" && value != "0" && value != "2" {
+				return "", unsupportedNativeTextContent("unsupported buFont character encoding")
+			}
 		}
 	}
 	return family, nil

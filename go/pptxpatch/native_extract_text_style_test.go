@@ -49,6 +49,9 @@ func TestNativeAuthoredBulletFontIsSourcePreserved(t *testing.T) {
 			t.Fatalf("not preserve-only: %+v", e)
 		}
 		p := (*e.Paragraphs)[0]
+		if p.BulletFontEncoding == nil || *p.BulletFontEncoding != "windows-symbol-byte-v1" {
+			t.Fatal("source charset was dropped")
+		}
 		if p.BulletFontFamily == nil || *p.BulletFontFamily != "Wingdings" || p.BulletCharacter == nil || *p.BulletCharacter != "q" {
 			t.Fatalf("font/character changed: %+v", p)
 		}
@@ -67,7 +70,7 @@ func TestNativeAuthoredBulletFontIsSourcePreserved(t *testing.T) {
 }
 
 func TestNativeBulletFontRejectsUnknownAndAmbiguousSourceMetadata(t *testing.T) {
-	for _, attrs := range []string{`typeface=""`, `typeface="+mn-lt"`, `typeface="Wingdings" charset="bad"`, `typeface="Wingdings" pitchFamily="256"`, `typeface="Wingdings" panose="unknown"`, `typeface="Wingdings" other="1"`} {
+	for _, attrs := range []string{`typeface=""`, `typeface="+mn-lt"`, `typeface="Wingdings" charset="bad"`, `typeface="Wingdings" charset="128"`, `typeface="Wingdings" pitchFamily="256"`, `typeface="Wingdings" panose="unknown"`, `typeface="Wingdings" other="1"`} {
 		node, err := parseNativeXML([]byte(`<a:buFont xmlns:a="`+nsDrawingTransitional+`" `+attrs+`/>`), "test.xml")
 		if err != nil {
 			continue

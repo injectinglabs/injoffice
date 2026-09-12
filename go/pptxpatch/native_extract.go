@@ -2013,6 +2013,12 @@ func (extractor *nativeExtractor) extractNativeParagraphs(txBody *nativeXMLNode,
 						return nil, err
 					}
 					paragraph.BulletFontFamily = &family
+					if charset, ok := exactNativeAttr(bulletFont, "", "charset"); ok && charset == "2" {
+						if paragraph.BulletCharacter == nil || len(*paragraph.BulletCharacter) != 1 || (*paragraph.BulletCharacter)[0] < 32 || (*paragraph.BulletCharacter)[0] > 126 {
+							return nil, unsupportedNativeTextContent("buFont symbol preview requires an ASCII graphic source byte")
+						}
+						paragraph.BulletFontEncoding = stringPointer("windows-symbol-byte-v1")
+					}
 				}
 				for _, field := range []struct {
 					name   string

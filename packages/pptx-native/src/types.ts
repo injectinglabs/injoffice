@@ -94,6 +94,8 @@ export interface NativeParagraph {
   bulletCharacter?: string
   /** Exact authored marker family; never a Unicode replacement or fallback. */
   bulletFontFamily?: string
+  /** Source charset=2; requires independently qualified font cmap evidence. */
+  bulletFontEncoding?: 'windows-symbol-byte-v1'
   marginLeftEmu?: number
   indentEmu?: number
 }

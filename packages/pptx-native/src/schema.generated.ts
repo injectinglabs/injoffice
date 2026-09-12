@@ -3,7 +3,7 @@
 
 export const PPTX_NATIVE_SCHEMA_ID = "https://injoffice.dev/schemas/pptx-native-v1.schema.json" as const
 export const PPTX_NATIVE_CONTRACT_VERSION = "pptx-native/v1" as const
-export const PPTX_NATIVE_SCHEMA_SHA256 = "3f7a74aac168bcf1e94785411f6d760e4fb92062b72d7b79a18689233bfff6a6" as const
+export const PPTX_NATIVE_SCHEMA_SHA256 = "e0a7aebee5e13fd1ec333c5e4fb980cf04183b7b823aa7e152eb062751f733ca" as const
 export const PPTX_NATIVE_RESOURCE_LIMITS = {
   "maxJsonBytes": 268435456,
   "maxNodes": 1000000,
@@ -205,6 +205,7 @@ export const PPTX_NATIVE_OBJECT_BINDINGS = {
       "align",
       "bullet",
       "bulletCharacter",
+      "bulletFontEncoding",
       "bulletFontFamily",
       "indentEmu",
       "level",
@@ -1089,6 +1090,11 @@ export const PPTX_NATIVE_SCHEMA = {
           "type": "string",
           "minLength": 1,
           "maxLength": 256
+        },
+        "bulletFontEncoding": {
+          "enum": [
+            "windows-symbol-byte-v1"
+          ]
         },
         "marginLeftEmu": {
           "type": "integer",

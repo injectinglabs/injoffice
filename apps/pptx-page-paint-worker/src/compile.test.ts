@@ -53,6 +53,11 @@ describe('actual source-font native PPTX worker',()=>{
   expect(JSON.stringify(rendered.nodes)).toContain('paragraphBullet')
   expect(JSON.stringify(rendered.nodes)).toContain('contentRun')
   expect(JSON.stringify(request)).toBe(before)
+  p.bulletFontEncoding='windows-symbol-byte-v1'
+  const unqualified=await compilePptxPreview(request)
+  expect(unqualified.diagnostics.join(' ')).toContain('symbol bullet font encoding is not qualified')
+  expect(JSON.stringify(unqualified.nodes)).not.toContain('paragraphBullet')
+  delete p.bulletFontEncoding
   p.bulletFontFamily='Missing Symbol Font'
   await expect(compilePptxPreview(request)).rejects.toThrow('Exact operator bullet font unavailable')
  })
