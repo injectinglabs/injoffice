@@ -109,6 +109,8 @@ type nativeExtractor struct {
 	themeSrgbLoaded     bool
 	tableLookLoaded     bool
 	tableLookStyles     map[string]*nativeXMLNode
+	noEndnotesChecked   bool
+	noEndnotesProven    bool
 }
 
 // NativeExtractionOptions lets a caller retain durable identity across source
@@ -2007,7 +2009,7 @@ func (extractor *nativeExtractor) extractParagraphProperties(partName, paragraph
 			if !nativeExactParagraphMarkProperties(child, extractor.wordNS) {
 				unsafe = true
 				extractor.addUnsupported("UNMODELED_PARAGRAPH_MARK_PROPERTIES", "paragraph-properties", paragraphID, partName, child, "Paragraph-mark formatting has unknown, duplicate, or noncanonical source structure")
-			} else if _, invalid := extractor.extractRunProperties(partName, paragraphID, child); invalid {
+			} else if _, invalid, _ := extractor.extractRunPropertiesState(partName, paragraphID, child); invalid {
 				unsafe = true
 			}
 		case "ind":
@@ -2971,6 +2973,13 @@ func nativeVerticalAlignmentValue(node *nativeXMLNode, wordNS string) (string, b
 }
 
 func (extractor *nativeExtractor) extractRunProperties(partName, paragraphID string, node *nativeXMLNode) (*NativeRunPropertiesV1, bool) {
+	properties, unsafe, preserveOnly := extractor.extractRunPropertiesState(partName, paragraphID, node)
+	return properties, unsafe || preserveOnly
+}
+
+// Keep source-layout invalidity separate from valid but noneditable metadata.
+// Paragraph marks already retain a read-only policy even when fully qualified.
+func (extractor *nativeExtractor) extractRunPropertiesState(partName, paragraphID string, node *nativeXMLNode) (*NativeRunPropertiesV1, bool, bool) {
 	properties := &NativeRunPropertiesV1{}
 	unsafe := false
 	preserveOnly := false
@@ -3090,7 +3099,7 @@ func (extractor *nativeExtractor) extractRunProperties(partName, paragraphID str
 	if unsafe {
 		extractor.addUnsupported("PARTIAL_RUN_PROPERTIES", "run-properties", paragraphID, partName, node, "Only the conservative v1 run-property subset is exposed")
 	}
-	return properties, unsafe || preserveOnly
+	return properties, unsafe, preserveOnly
 }
 
 func nativeOnOff(node *nativeXMLNode, namespace string) (bool, bool) {
@@ -3625,7 +3634,7 @@ func (extractor *nativeExtractor) extractSection(node *nativeXMLNode, startsAtBl
 			extractor.addUnsupported("FOREIGN_SECTION_MARKUP", "sections", id, extractor.mainPart, child, "Foreign section markup is preserved verbatim")
 			continue
 		}
-		if child.Name.Local == "type" || child.Name.Local == "titlePg" || child.Name.Local == "pgNumType" || child.Name.Local == "pgSz" || child.Name.Local == "pgMar" || child.Name.Local == "cols" || child.Name.Local == "docGrid" {
+		if child.Name.Local == "type" || child.Name.Local == "titlePg" || child.Name.Local == "pgNumType" || child.Name.Local == "pgSz" || child.Name.Local == "pgMar" || child.Name.Local == "cols" || child.Name.Local == "docGrid" || child.Name.Local == "formProt" || child.Name.Local == "noEndnote" {
 			if seenSingleton[child.Name.Local] {
 				extractor.addUnsupported("DUPLICATE_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Duplicate modeled section-property singletons make exact pagination geometry ambiguous")
 				continue
@@ -3633,6 +3642,17 @@ func (extractor *nativeExtractor) extractSection(node *nativeXMLNode, startsAtBl
 			seenSingleton[child.Name.Local] = true
 		}
 		switch child.Name.Local {
+		case "formProt":
+			value, present := nativeAttr(child, extractor.wordNS, "val")
+			enabled, valid := nativeOnOff(child, extractor.wordNS)
+			if !present || value == "" || !valid || enabled || !nativeExactLeaf(child, xml.Name{Space: extractor.wordNS, Local: "val"}) {
+				extractor.addUnsupported("UNMODELED_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Only exact explicitly disabled section form protection is layout-neutral")
+			}
+		case "noEndnote":
+			_, valid := nativeOnOff(child, extractor.wordNS)
+			if !valid || !nativeExactLeaf(child, xml.Name{Space: extractor.wordNS, Local: "val"}) || !extractor.proveNoContentEndnotes() {
+				extractor.addUnsupported("UNMODELED_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Endnote placement remains unqualified unless the package proves no content endnotes or references")
+			}
 		case "docGrid":
 			if !nativeInactiveSectionGrid(child, extractor.wordNS) {
 				extractor.addUnsupported("UNMODELED_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Active or unqualified document-grid markup remains unsupported")

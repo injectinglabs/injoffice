@@ -46,6 +46,9 @@ func TestNativeDirectScriptSlotsRemainContextQualified(t *testing.T) {
 				if tc.safe && strings.Contains(string(encoded), `"code":"PARTIAL_RUN_PROPERTIES"`) {
 					t.Fatalf("inactive source slot still refused: %s", encoded)
 				}
+				if strings.Contains(string(encoded), `"code":"PARTIAL_PARAGRAPH_PROPERTIES"`) == tc.safe {
+					t.Fatalf("paragraph mark confused preservation with invalidity: %s", encoded)
+				}
 				if doc.Body.Blocks[0].Paragraph.EditPolicy.Mode != "read-only" || !bytes.Equal(before, data) {
 					t.Fatal("source authority changed")
 				}
