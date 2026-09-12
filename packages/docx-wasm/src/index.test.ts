@@ -104,6 +104,19 @@ const success = (request: NativeWasmWorkerRequest, result?: unknown): NativeWasm
 } as NativeWasmWorkerResponse)
 
 describe('DOCX WASM package client', () => {
+  it('validates optional equation evidence before returning browser math data',async()=>{
+    const bytes=new Uint8Array([1,2,3]),hash='sha256:'+createHash('sha256').update(bytes).digest('hex'),document=structuredClone(fixtureDocument)
+    document.source.package_sha256=hash
+    const p=document.body.blocks[0]!.paragraph!,anchor={...p.anchor,path:p.anchor.path+'/ns12345678:oMath[1]',start_byte:p.anchor.start_byte+1,end_byte:p.anchor.end_byte-1}
+    document.unsupported=[{id:'equation:1',code:'UNMODELED_PARAGRAPH_CONTENT',scope_id:p.id,anchor,capability:'run-structure',preservation:'preserve-verbatim',message:'Equation'}]
+    const resolved_layout={protocol:'injoffice.docx.resolved-layout',version:1,document_id:document.document_id,revision:document.revision,source_parts:{main_part:document.source.main_part},paragraphs:[{paragraph_id:p.id,applied_styles:[],properties:{},paragraph_mark_properties:{}}],runs:[],tables:[],fonts:[],diagnostics:[]}
+    const equation={package_sha256:hash,paragraph_id:p.id,anchor,diagnostic_id:'equation:1',status:'supported',tree:{kind:'text',text:'x'}}
+    const envelope={protocol:'injoffice.docx.partial-source',version:1,package_sha256:hash,document,resolved_layout,equations:[equation]}
+    const worker=new FakeWorker(JSON.stringify(envelope)),client=createDocxWasmClient({workerFactory:()=>worker})
+    expect((await client.inspectPartialContent(bytes)).equations).toEqual([equation]);client.terminate()
+    const badWorker=new FakeWorker(JSON.stringify({...envelope,equations:[{...equation,diagnostic_id:'wrong'}]})),bad=createDocxWasmClient({workerFactory:()=>badWorker})
+    await expect(bad.inspectPartialContent(bytes)).rejects.toThrow();expect(badWorker.terminated).toBe(true)
+  })
   it('inspects same-byte source and layout with an independent package digest join',async()=>{
     const bytes=new Uint8Array([1,2,3]),hash='sha256:'+createHash('sha256').update(bytes).digest('hex'),document=structuredClone(fixtureDocument)
     document.source.package_sha256=hash

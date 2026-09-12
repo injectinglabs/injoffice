@@ -2,6 +2,18 @@
 
 ### Read-only partial source-content projection
 
+The optional same-byte DOCX inspection response also carries source-bound basic
+equation evidence. `createNativeDocxEquationPreviewsV1` validates its package,
+paragraph, original unsupported diagnostic and exact anchor before exposing a
+bounded JSON tree. Rows, literal math text, fractions, superscripts, subscripts
+and explicit square roots can be shown by a host through fixed MathML elements.
+Unknown formatting, revisions, attributes, constructs, malformed child order or
+unqualified visibility omit the whole equation. This is browser math layout,
+not Word typography, font fidelity or native pagination. The demo lists these
+equations separately under its explicit read-only partial-text preview. Strict
+painting and equation-paragraph mutations remain refused. No HTML strings,
+links, arbitrary MathML attributes or source font assets are exposed.
+
 `createNativeDocxPartialContentPreviewV1(document,
 { policy: 'source-text-with-omissions-v1', read_only: true }, resolvedLayout?)`
 is available from the browser-safe `@injoffice/docs/native-docx` entry. It

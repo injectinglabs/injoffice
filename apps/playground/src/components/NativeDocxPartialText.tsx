@@ -1,10 +1,19 @@
-import {useEffect,useRef,useState} from 'react'
+import {createElement,useEffect,useRef,useState} from 'react'
 import {createDocxWasmClient} from '@injoffice/docx-wasm'
-import {createNativeDocxPartialContentPreviewV1,type NativeDocxPartialContentV1,type NativeDocxPartialParagraphV1} from '@injoffice/docs/native-docx'
+import {createNativeDocxPartialContentPreviewV1,type NativeDocxPartialContentV1,type NativeDocxPartialParagraphV1,type NativeDocxMathNodeV1,type NativeDocxEquationPreviewV1} from '@injoffice/docs/native-docx'
 import {DsButton} from '../design-system/primitives'
 
 function Paragraph({paragraph}:{paragraph:NativeDocxPartialParagraphV1}){
  return <p style={{whiteSpace:'pre-wrap'}}>{paragraph.segments.map((segment,index)=>segment.kind==='omission'?<span key={index}>[{segment.code}]</span>:segment.kind==='alternative-text'?<span key={index}>[Authored drawing description: {segment.text}]</span>:<span key={index}>{segment.text}</span>)}</p>
+}
+function MathNode({node}:{node:NativeDocxMathNodeV1}):React.ReactNode{
+ if(node.kind==='text')return createElement('mtext',null,node.text)
+ const tag={row:'mrow',fraction:'mfrac',superscript:'msup',subscript:'msub',radical:'msqrt'}[node.kind]
+ return createElement(tag,null,node.children.map((child,index)=><MathNode key={index} node={child}/>))
+}
+export function NativeDocxEquationList({equations}:{equations:NativeDocxEquationPreviewV1[]}){
+ if(!equations.length)return null
+ return <section aria-label="Read-only equation approximations"><h4>Equation previews</h4><p>Browser math layout, not Word typography or pagination. Equations are listed separately in source order; the original unsupported-source warnings remain.</p>{equations.map((equation,index)=><div key={equation.diagnostic_id}><p>Equation {index+1}</p>{equation.status==='supported'&&equation.tree?createElement('math',{xmlns:'http://www.w3.org/1998/Math/MathML',display:'block'},<MathNode node={equation.tree}/>):<p>[Equation omitted: {equation.reason}]</p>}</div>)}</section>
 }
 export function NativeDocxPartialTextView({preview}:{preview:NativeDocxPartialContentV1}){
  return <article aria-label="Read-only partial source text">
@@ -18,17 +27,18 @@ export function NativeDocxPartialTextView({preview}:{preview:NativeDocxPartialCo
 export function NativeDocxPartialText({bytes,packageDigest}:{bytes:Uint8Array;packageDigest:string}){
  const active=useRef<AbortController|null>(null)
  const [result,setResult]=useState<NativeDocxPartialContentV1|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ const [equations,setEquations]=useState<NativeDocxEquationPreviewV1[]>([])
  useEffect(()=>{active.current?.abort();active.current=null;setResult(null);setBusy(false);setError('');return()=>{active.current?.abort();active.current=null}},[bytes,packageDigest])
  const run=async()=>{
   const controller=new AbortController();active.current?.abort();active.current=controller
-  setBusy(true);setError('');setResult(null)
+  setBusy(true);setError('');setResult(null);setEquations([])
   let client:ReturnType<typeof createDocxWasmClient>|undefined
   try{
    client=createDocxWasmClient()
    const joined=await client.inspectPartialContent(bytes,{signal:controller.signal})
    if(joined.document.source.package_sha256!==packageDigest)throw new Error('Source changed; reopen the partial text preview.')
    const preview=createNativeDocxPartialContentPreviewV1(joined.document,{policy:'source-text-with-omissions-v1',read_only:true},joined.resolved_layout)
-   if(active.current===controller&&!controller.signal.aborted)setResult(preview)
+   if(active.current===controller&&!controller.signal.aborted){setResult(preview);setEquations(joined.equations??[])}
   }catch(reason){if(active.current===controller&&!controller.signal.aborted)setError(reason instanceof Error?reason.message:'Partial source text could not be qualified.')}
   finally{client?.terminate();if(active.current===controller){active.current=null;setBusy(false)}}
  }
@@ -38,6 +48,6 @@ export function NativeDocxPartialText({bytes,packageDigest}:{bytes:Uint8Array;pa
   {busy&&<DsButton onClick={()=>{active.current?.abort();active.current=null;setBusy(false)}}>Cancel partial text</DsButton>}
   {busy&&<p role="status">Reading source text in the browser…</p>}
   {error&&<p role="status">{error}</p>}
-  {result?.source.package_sha256===packageDigest&&<NativeDocxPartialTextView preview={result}/>}
+  {result?.source.package_sha256===packageDigest&&<><NativeDocxPartialTextView preview={result}/><NativeDocxEquationList equations={equations}/></>}
  </section>
 }

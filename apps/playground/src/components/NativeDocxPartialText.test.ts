@@ -3,8 +3,12 @@ import {describe,it,expect} from 'vitest'
 import {createElement} from 'react'
 import {renderToStaticMarkup} from 'react-dom/server'
 import {createNativeDocxPartialContentPreviewV1,type NativeDocxDocumentV1,type NativeDocxResolvedLayoutInputV1} from '@injoffice/docs/native-docx'
-import {NativeDocxPartialText,NativeDocxPartialTextView} from './NativeDocxPartialText'
+import {NativeDocxPartialText,NativeDocxPartialTextView,NativeDocxEquationList} from './NativeDocxPartialText'
 describe('browser-local partial text UI',()=>{
+ it('uses fixed MathML elements and escapes equation source text',()=>{
+  const html=renderToStaticMarkup(createElement(NativeDocxEquationList,{equations:[{package_sha256:'sha256:'+'a'.repeat(64),paragraph_id:'p:1',diagnostic_id:'equation:1',anchor:{part_name:'word/document.xml',path:'/p/math',start_byte:1,end_byte:2,xml_sha256:'sha256:'+'b'.repeat(64)},status:'supported',tree:{kind:'fraction',children:[{kind:'text',text:'<script>bad</script>'},{kind:'radical',children:[{kind:'text',text:'x'}]}]}}]}))
+  expect(html).toContain('<mfrac>');expect(html).toContain('<msqrt>');expect(html).toContain('&lt;script&gt;');expect(html).not.toContain('<script>');expect(html).toContain('not Word typography or pagination')
+ })
  it('requires explicit request and explains browser-only behavior without upload or edit controls',()=>{
   const html=renderToStaticMarkup(createElement(NativeDocxPartialText,{bytes:new Uint8Array([1]),packageDigest:'sha256:'+'a'.repeat(64)}))
   expect(html).toContain('Show read-only partial text');expect(html).toContain('No file is uploaded')
