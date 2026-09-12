@@ -5494,6 +5494,11 @@
               "signature": "export declare function asciiLower(value: string): string"
             },
             {
+              "name": "canonicalExplicitFontPolicyV1",
+              "kind": "function",
+              "signature": "export declare function canonicalExplicitFontPolicyV1(value: unknown): string"
+            },
+            {
               "name": "classifyNativeOfficeLineBreak",
               "kind": "function",
               "signature": "export declare function classifyNativeOfficeLineBreak(leftClusterText: string, rightClusterText: string): NativeOfficeLineBreakDecision"
@@ -5502,6 +5507,31 @@
               "name": "classifyNativeOfficeLineBreakRanges",
               "kind": "function",
               "signature": "export declare function classifyNativeOfficeLineBreakRanges(leftText: string, leftStartUtf16: number, leftEndUtf16: number, rightText: string, rightStartUtf16: number, rightEndUtf16: number): NativeOfficeLineBreakDecision"
+            },
+            {
+              "name": "decodeExplicitFontPolicyV1",
+              "kind": "function",
+              "signature": "export declare function decodeExplicitFontPolicyV1(value: unknown): ExplicitFontPolicyV1"
+            },
+            {
+              "name": "EXPLICIT_FONT_POLICY_V1",
+              "kind": "const",
+              "signature": "export declare const EXPLICIT_FONT_POLICY_V1: 'explicit-whole-run-font-substitution-v1'"
+            },
+            {
+              "name": "ExplicitFontMappingV1",
+              "kind": "type",
+              "signature": "ExplicitFontMappingV1"
+            },
+            {
+              "name": "ExplicitFontPolicyV1",
+              "kind": "type",
+              "signature": "ExplicitFontPolicyV1"
+            },
+            {
+              "name": "ExplicitFontSelectionV1",
+              "kind": "type",
+              "signature": "ExplicitFontSelectionV1"
             },
             {
               "name": "FaceNames",
@@ -5744,6 +5774,11 @@
               "signature": "export declare function scaleLineMetrics(metrics: FontDesignMetrics, fontSizeMilliPoints: number): ScaledLineMetrics"
             },
             {
+              "name": "selectExplicitFontV1",
+              "kind": "function",
+              "signature": "export declare function selectExplicitFontV1(manifest: NativeFontManifest, run: TextRunInput, policy?: ExplicitFontPolicyV1): ExplicitFontSelectionV1 | null"
+            },
+            {
               "name": "Sha256Digest",
               "kind": "type",
               "signature": "export type Sha256Digest = `sha256:${string}`"
@@ -5830,6 +5865,11 @@
               "signature": "export declare function asciiLower(value: string): string"
             },
             {
+              "name": "canonicalExplicitFontPolicyV1",
+              "kind": "function",
+              "signature": "export declare function canonicalExplicitFontPolicyV1(value: unknown): string"
+            },
+            {
               "name": "classifyNativeOfficeLineBreak",
               "kind": "function",
               "signature": "export declare function classifyNativeOfficeLineBreak(leftClusterText: string, rightClusterText: string): NativeOfficeLineBreakDecision"
@@ -5838,6 +5878,31 @@
               "name": "classifyNativeOfficeLineBreakRanges",
               "kind": "function",
               "signature": "export declare function classifyNativeOfficeLineBreakRanges(leftText: string, leftStartUtf16: number, leftEndUtf16: number, rightText: string, rightStartUtf16: number, rightEndUtf16: number): NativeOfficeLineBreakDecision"
+            },
+            {
+              "name": "decodeExplicitFontPolicyV1",
+              "kind": "function",
+              "signature": "export declare function decodeExplicitFontPolicyV1(value: unknown): ExplicitFontPolicyV1"
+            },
+            {
+              "name": "EXPLICIT_FONT_POLICY_V1",
+              "kind": "const",
+              "signature": "export declare const EXPLICIT_FONT_POLICY_V1: 'explicit-whole-run-font-substitution-v1'"
+            },
+            {
+              "name": "ExplicitFontMappingV1",
+              "kind": "type",
+              "signature": "ExplicitFontMappingV1"
+            },
+            {
+              "name": "ExplicitFontPolicyV1",
+              "kind": "type",
+              "signature": "ExplicitFontPolicyV1"
+            },
+            {
+              "name": "ExplicitFontSelectionV1",
+              "kind": "type",
+              "signature": "ExplicitFontSelectionV1"
             },
             {
               "name": "FontDesignMetrics",
@@ -6028,6 +6093,11 @@
               "name": "scaleLineMetrics",
               "kind": "function",
               "signature": "export declare function scaleLineMetrics(metrics: FontDesignMetrics, fontSizeMilliPoints: number): ScaledLineMetrics"
+            },
+            {
+              "name": "selectExplicitFontV1",
+              "kind": "function",
+              "signature": "export declare function selectExplicitFontV1(manifest: NativeFontManifest, run: TextRunInput, policy?: ExplicitFontPolicyV1): ExplicitFontSelectionV1 | null"
             },
             {
               "name": "Sha256Digest",
