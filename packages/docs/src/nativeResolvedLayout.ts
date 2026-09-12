@@ -56,6 +56,7 @@ export interface NativeDocxResolvedParagraphPropertiesV1 {
 }
 
 export interface NativeDocxResolvedRunPropertiesV1 {
+	kerning_min_size_half_points?: number
   font_family?: string
   font_size_half_points?: number
   bold?: boolean
@@ -166,7 +167,7 @@ export const DOCX_RESOLVED_LAYOUT_V1_BINDING_FIELDS = {
   SourcePartsV1: ['main_part', 'styles_part', 'numbering_part', 'theme_part', 'font_table_part'],
   NumberingSourceV1: ['relationships_part', 'relationships_sha256', 'relationship_id', 'relationship_type', 'relationship_target', 'part_name', 'content_type', 'part_sha256', 'model_sha256'],
   ParagraphPropertiesV1: ['alignment', 'spacing_before_twips', 'spacing_after_twips', 'line', 'line_rule', 'indent_left_twips', 'indent_right_twips', 'indent_start_twips', 'indent_end_twips', 'first_line_twips', 'hanging_twips', 'bidi', 'keep_next', 'keep_lines', 'page_break_before', 'widow_control'],
-  RunPropertiesV1: ['font_family', 'font_size_half_points', 'bold', 'italic', 'underline', 'vertical_alignment', 'color', 'highlight', 'language', 'rtl', 'hidden'],
+  RunPropertiesV1: ['font_family', 'font_size_half_points', 'kerning_min_size_half_points', 'bold', 'italic', 'underline', 'vertical_alignment', 'color', 'highlight', 'language', 'rtl', 'hidden'],
   CounterValueV1: ['level', 'value', 'format'],
   NumberingV1: ['marker_id', 'definition_sha256', 'num_id', 'abstract_num_id', 'level', 'level_style_id', 'start', 'format', 'text', 'suffix', 'alignment', 'restart_after_level', 'never_restart', 'counter_value', 'counter_values', 'resolved_text', 'label_start_twips', 'label_end_twips', 'text_start_twips', 'numbering_tab_twips', 'marker_properties'],
   ParagraphV1: ['paragraph_id', 'style_id', 'applied_styles', 'properties', 'paragraph_mark_properties', 'numbering'],
@@ -332,6 +333,7 @@ function validateRunProperties(value: unknown, path: string, issues: NativeDocxV
   if (!entry) return
   optionalString(entry.font_family, `${path}/font_family`, issues, /[\s\S]+/, 256)
   integer(entry.font_size_half_points, `${path}/font_size_half_points`, issues, 1, 3276)
+  integer(entry.kerning_min_size_half_points, `${path}/kerning_min_size_half_points`, issues, 1, 3276)
   for (const key of ['bold', 'italic', 'rtl', 'hidden']) booleanValue(entry[key], `${path}/${key}`, issues)
   if (entry.underline !== undefined) enumValue(entry.underline, `${path}/underline`, ['none', 'single', 'double', 'words'], issues)
   if (entry.vertical_alignment !== undefined) enumValue(entry.vertical_alignment, `${path}/vertical_alignment`, ['baseline', 'subscript', 'superscript'], issues)
@@ -424,7 +426,7 @@ function unicodeScalarLength(value: string): number | undefined {
 }
 
 function goOrderedRunProperties(properties: NativeDocxResolvedRunPropertiesV1): Record<string, unknown> {
-  return Object.fromEntries((['font_family', 'font_size_half_points', 'bold', 'italic', 'underline', 'vertical_alignment', 'color', 'highlight', 'language', 'rtl', 'hidden'] as const)
+  return Object.fromEntries((['font_family', 'font_size_half_points', 'kerning_min_size_half_points', 'bold', 'italic', 'underline', 'vertical_alignment', 'color', 'highlight', 'language', 'rtl', 'hidden'] as const)
     .flatMap((key) => properties[key] === undefined ? [] : [[key, properties[key]]]))
 }
 

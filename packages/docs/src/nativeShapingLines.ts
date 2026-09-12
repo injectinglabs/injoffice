@@ -729,6 +729,7 @@ function textRunInput(span: SourceSpan, properties: NativeDocxResolvedRunPropert
     version: NATIVE_TEXT_LAYOUT_VERSION,
     text: span.text,
     fontSizeMilliPoints: halfPointsToMilliPoints(properties.font_size_half_points),
+    features: [{ tag: 'kern', value: properties.kerning_min_size_half_points !== undefined && properties.font_size_half_points >= properties.kerning_min_size_half_points ? 1 : 0 }],
     font: {
       families: familyCandidates(properties.font_family, aliases),
       weight: properties.bold ? 700 : 400,

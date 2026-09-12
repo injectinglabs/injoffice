@@ -106,17 +106,18 @@ type NativeResolvedParagraphPropertiesV1 struct {
 }
 
 type NativeResolvedRunPropertiesV1 struct {
-	FontFamily        *string `json:"font_family,omitempty"`
-	FontSizeHalfPoint *int    `json:"font_size_half_points,omitempty"`
-	Bold              *bool   `json:"bold,omitempty"`
-	Italic            *bool   `json:"italic,omitempty"`
-	Underline         *string `json:"underline,omitempty"`
-	VerticalAlignment *string `json:"vertical_alignment,omitempty"`
-	Color             *string `json:"color,omitempty"`
-	Highlight         *string `json:"highlight,omitempty"`
-	Language          *string `json:"language,omitempty"`
-	RTL               *bool   `json:"rtl,omitempty"`
-	Hidden            *bool   `json:"hidden,omitempty"`
+	KerningMinSizeHalfPoints *int    `json:"kerning_min_size_half_points,omitempty"`
+	FontFamily               *string `json:"font_family,omitempty"`
+	FontSizeHalfPoint        *int    `json:"font_size_half_points,omitempty"`
+	Bold                     *bool   `json:"bold,omitempty"`
+	Italic                   *bool   `json:"italic,omitempty"`
+	Underline                *string `json:"underline,omitempty"`
+	VerticalAlignment        *string `json:"vertical_alignment,omitempty"`
+	Color                    *string `json:"color,omitempty"`
+	Highlight                *string `json:"highlight,omitempty"`
+	Language                 *string `json:"language,omitempty"`
+	RTL                      *bool   `json:"rtl,omitempty"`
+	Hidden                   *bool   `json:"hidden,omitempty"`
 }
 
 type NativeResolvedNumberingV1 struct {
@@ -323,6 +324,7 @@ type nativeBoolProperty struct {
 }
 
 type nativeRunProperties struct {
+	kerningMinSize    *int
 	scriptProperties  map[string]nativeDeferredNumberingDiagnostic
 	fontFamily        *string
 	asciiFamily       *string
@@ -1922,7 +1924,7 @@ func (resolver *nativeLayoutResolver) parseRunProperties(partName string, node *
 	modeledSingleton := map[string]bool{
 		"rStyle": true, "rFonts": true, "sz": true, "szCs": true, "b": true, "i": true,
 		"rtl": true, "vanish": true, "bCs": true, "iCs": true, "u": true, "color": true,
-		"highlight": true, "lang": true, "vertAlign": true,
+		"highlight": true, "lang": true, "vertAlign": true, "kern": true,
 	}
 	for _, child := range node.Children {
 		if child.Name.Space != resolver.wordNS {
@@ -2018,6 +2020,12 @@ func (resolver *nativeLayoutResolver) parseRunProperties(partName string, node *
 				if hAnsiFace != "" {
 					properties.hAnsiFamily = nativeString(hAnsiFace)
 				}
+			}
+		case "kern":
+			if value, ok := nativeKerningThreshold(child, resolver.wordNS); ok {
+				properties.kerningMinSize = nativeInt(value)
+			} else {
+				resolver.addDiagnostic("INVALID_KERNING_THRESHOLD", scopeID, partName, child, "Kerning requires one exact bounded half-point threshold; unqualified values remain preserved")
 			}
 		case "sz":
 			if value, ok := nativePositiveIntAttr(child, resolver.wordNS, "val"); ok && value <= 3276 {
@@ -2487,6 +2495,9 @@ func nativeScriptLanguageTag(value string) bool {
 }
 
 func applyNativeRunProperties(target *nativeRunProperties, layer nativeRunProperties, styleToggle bool) {
+	if layer.kerningMinSize != nil {
+		target.kerningMinSize = nativeInt(*layer.kerningMinSize)
+	}
 	if len(layer.scriptProperties) > 0 {
 		merged := make(map[string]nativeDeferredNumberingDiagnostic, len(target.scriptProperties)+len(layer.scriptProperties))
 		for key, value := range target.scriptProperties {
@@ -2572,7 +2583,8 @@ func nativeExportParagraphProperties(properties nativeParagraphProperties) Nativ
 
 func nativeExportRunProperties(properties nativeRunProperties) NativeResolvedRunPropertiesV1 {
 	result := NativeResolvedRunPropertiesV1{
-		FontFamily: properties.fontFamily, FontSizeHalfPoint: properties.fontSize,
+		KerningMinSizeHalfPoints: properties.kerningMinSize,
+		FontFamily:               properties.fontFamily, FontSizeHalfPoint: properties.fontSize,
 		Underline: properties.underline, VerticalAlignment: properties.verticalAlignment, Color: properties.color, Highlight: properties.highlight,
 		Language: properties.language,
 	}
@@ -2933,6 +2945,9 @@ func validateNativeResolvedParagraphProperties(properties NativeResolvedParagrap
 }
 
 func validateNativeResolvedRunProperties(properties NativeResolvedRunPropertiesV1) error {
+	if properties.KerningMinSizeHalfPoints != nil && (*properties.KerningMinSizeHalfPoints < 1 || *properties.KerningMinSizeHalfPoints > 3276) {
+		return fmt.Errorf("invalid kerning threshold")
+	}
 	if properties.FontFamily != nil && !nativeBoundedResolvedString(*properties.FontFamily, 256) {
 		return fmt.Errorf("invalid font family")
 	}

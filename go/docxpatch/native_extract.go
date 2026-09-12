@@ -2081,6 +2081,10 @@ func nativeExactParagraphMarkProperties(node *nativeXMLNode, wordNS string) bool
 			if !nativeExactLeaf(property, xml.Name{Space: wordNS, Local: "val"}) {
 				return false
 			}
+		case "kern":
+			if _, ok := nativeKerningThreshold(property, wordNS); !ok {
+				return false
+			}
 		case "szCs":
 			// Preserve the exact inactive slot. Resolved script context still
 			// decides whether its size is active; RTL/mixed text keeps refusal.
@@ -3036,6 +3040,12 @@ func (extractor *nativeExtractor) extractRunProperties(partName, paragraphID str
 				properties.Language = nativeString(value)
 			} else {
 				unsafe = true
+			}
+		case "kern":
+			preserveOnly = true
+			if _, ok := nativeKerningThreshold(child, extractor.wordNS); !ok || len(directNativeChildren(node, extractor.wordNS, "kern")) != 1 {
+				unsafe = true
+				extractor.addUnsupported("UNMODELED_RUN_PROPERTY", "run-properties", paragraphID, partName, child, "Kerning threshold is malformed, duplicate or outside the bounded whole half-point subset")
 			}
 		case "noProof":
 			preserveOnly = true

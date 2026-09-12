@@ -1,5 +1,7 @@
 # @injoffice/docs
 
+Native DOCX text shaping honors inherited `w:kern` minimum sizes in bounded whole half-points (1–3276). The resolved `kerning_min_size_half_points` threshold enables kerning when the resolved `w:sz` is at least that threshold; absent thresholds explicitly disable kerning, as specified by ECMA-376 §17.3.2.19. Direct kerning markup remains source-preserved and does not grant replacement permission. Unit-bearing, malformed, duplicate, and out-of-range thresholds remain unqualified. This may change advances from earlier previews that inherited HarfBuzz's default kerning without an authored DOCX setting.
+
 Renderer-independent Docs contracts and layout helpers. Native DOCX v1 is the
 strict JSON boundary between authoritative `go/docxpatch` parsing/persistence
 and future browser layout and ProseMirror adapters.
