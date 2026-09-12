@@ -43,7 +43,7 @@ export function createNativeDocxEquationPreviewsV1(source:unknown,layout:unknown
  const document=d.value,resolved=r.value,seen=new Set<string>()
  const paragraphs=document.body.blocks.flatMap(b=>b.paragraph?[b.paragraph]:b.table!.rows.flatMap(row=>row.cells.flatMap(c=>c.paragraphs)))
  let supported=0
- return equations.map(value=>{
+ const validated=equations.map(value=>{
   if(!own(value)||!exact(value,['package_sha256','paragraph_id','anchor','diagnostic_id','status',...(value.status==='supported'?['tree']:['reason'])])||value.package_sha256!==document.source.package_sha256||typeof value.paragraph_id!=='string'||typeof value.diagnostic_id!=='string'||seen.has(value.diagnostic_id))throw new TypeError('Invalid equation source fact')
   seen.add(value.diagnostic_id)
   const p=paragraphs.find(p=>p.id===value.paragraph_id),diagnostic=document.unsupported.find(x=>x.id===value.diagnostic_id)
@@ -51,11 +51,14 @@ export function createNativeDocxEquationPreviewsV1(source:unknown,layout:unknown
   if(!p||!own(anchor)||!exact(anchor,['part_name','path','start_byte','end_byte','xml_sha256'])||!diagnostic?.anchor||diagnostic.code!=='UNMODELED_PARAGRAPH_CONTENT'||diagnostic.scope_id!==p.id||Object.entries(diagnostic.anchor).some(([k,v])=>anchor[k]!==v)||anchor.part_name!==p.anchor.part_name||typeof anchor.path!=='string'||!anchor.path.startsWith(p.anchor.path+'/')||anchor.path.slice(p.anchor.path.length+1).includes('/')||!/:oMath(?:Para)?\[[1-9][0-9]*\]$/.test(anchor.path)||Number(anchor.start_byte)<p.anchor.start_byte||Number(anchor.end_byte)>p.anchor.end_byte)throw new TypeError('Equation source anchor does not join')
   if(value.status==='supported'){if(++supported>100||!validateTree(value.tree,0,{nodes:0,units:0}))throw new TypeError('Invalid bounded equation tree')}
   else if(value.status!=='omitted'||typeof value.reason!=='string'||!value.reason.length||value.reason.length>256)throw new TypeError('Invalid equation omission')
-  const mark=resolved.paragraphs.find(x=>x.paragraph_id===p.id)
+  return structuredClone(value) as unknown as NativeDocxEquationPreviewV1
+ })
+ const qualifiedDiagnosticIDs=new Set(validated.map(e=>e.diagnostic_id))
+ return validated.map(result=>{
+  const mark=resolved.paragraphs.find(x=>x.paragraph_id===result.paragraph_id)
   // Unknown document/style/table visibility remains blocking. Only exact
   // equation-source siblings and already qualified nontext metadata are inert.
-  const unsafe=document.unsupported.some(x=>x.id!==value.diagnostic_id&&!(x.code==='UNMODELED_PARAGRAPH_CONTENT'&&equations.some(e=>own(e)&&e.diagnostic_id===x.id&&e.paragraph_id===p.id)))||resolved.diagnostics.some(x=>!isRenderNeutralLayoutDiagnostic(x,resolved))
-  const result=structuredClone(value) as unknown as NativeDocxEquationPreviewV1
+  const unsafe=document.unsupported.some(x=>!qualifiedDiagnosticIDs.has(x.id))||resolved.diagnostics.some(x=>!isRenderNeutralLayoutDiagnostic(x,resolved))
   if(!mark||mark.paragraph_mark_properties.hidden||unsafe){delete result.tree;result.status='omitted';result.reason='Equation visibility or surrounding source is not qualified'}
   return result
  })

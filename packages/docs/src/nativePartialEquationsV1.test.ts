@@ -12,6 +12,18 @@ function fixture(){
  return {document,resolved,equation}
 }
 describe('source-bound read-only equation preview',()=>{
+ it('recovers independently qualified equations in separate paragraphs without clearing unrelated blockers',()=>{
+  const {document,resolved,equation}=fixture(),p=document.body.blocks[1]!.table!.rows[0]!.cells[0]!.paragraphs[0]!
+  const anchor={...p.anchor,path:p.anchor.path+'/ns12345678:oMath[1]',start_byte:p.anchor.start_byte+1,end_byte:p.anchor.end_byte-1}
+  const other={...equation,paragraph_id:p.id,diagnostic_id:'equation:2',anchor}
+  document.unsupported.push({...document.unsupported[0]!,id:other.diagnostic_id,scope_id:p.id,anchor})
+  resolved.paragraphs.push({paragraph_id:p.id,applied_styles:[],properties:{},paragraph_mark_properties:{}})
+  expect(preview(document,resolved,[equation,other]).map(e=>e.status)).toEqual(['supported','supported'])
+  resolved.paragraphs[1]!.paragraph_mark_properties.hidden=true
+  expect(preview(document,resolved,[equation,other]).map(e=>e.status)).toEqual(['supported','omitted'])
+  document.unsupported.push({...document.unsupported[0]!,id:'unknown',code:'UNKNOWN_VISIBILITY'})
+  expect(preview(document,resolved,[equation,other]).map(e=>e.status)).toEqual(['omitted','omitted'])
+ })
  it('retains strict source and returns only bounded literal tree data',()=>{
   const {document,resolved,equation}=fixture(),before=structuredClone({document,resolved,equation})
   expect(preview(document,resolved,[equation])[0]).toEqual(equation)
