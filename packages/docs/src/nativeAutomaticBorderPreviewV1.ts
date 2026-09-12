@@ -20,6 +20,7 @@ import {
 import type { NativeDocxPagePaintV1 } from "./nativePagePaintV1.js";
 import {
   decodeNativeDocxApproximationEligibilityV1,
+  DOCX_APPROXIMATE_LINE_BOX_WARNING,
   type NativeDocxApproximationEligibilityV1,
 } from "./nativeApproximationV1.js";
 import { DOCX_ABSENT_FONT_SIZE_WARNING, validNativeDocxApproximatedFontSizesV1, type NativeDocxApproximatedFontSizeV1 } from './nativeAbsentFontSizeV1.js'
@@ -374,7 +375,7 @@ export function decodeNativeDocxAutomaticBorderPreviewV1(
         paint.value.provenance.pagination_settings,
       );
       if (
-        eligibility.status !== "eligible" ||
+        eligibility.status !== "eligible" || !input.reasons.includes(DOCX_APPROXIMATE_LINE_BOX_WARNING) ||
         eligibility.reasons.some((reason) => !input.reasons.includes(reason))
       )
         return { ok: false };

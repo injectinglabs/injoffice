@@ -269,6 +269,11 @@ unsupported geometry are not made renderable by this settings policy. The
 result remains a distinct, read-only approximate envelope; strict pagination
 and mutation safety are unchanged.
 
+Current-layout approximation reserves expanded line boxes using natural ascent
+from the top and leaves extra leading below the text. This declared host policy
+is not Word baseline fidelity; strict rendering still requires natural line
+height, and compressed line boxes remain refused in both paths.
+
 The same current-layout approximation can accept an explicit host-selected
 `fontSizePolicy: { kind: 'host-default-size-v1', half_points: 22 }` only for
 native-source-attested missing sizes (`absent_font_sizes` eligibility facts).

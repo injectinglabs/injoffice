@@ -458,6 +458,7 @@ describe('native DOCX page-paint compiler v1', () => {
     expect(result.pages[0]!.commands.some(command => command.kind === 'stroke_table_border')).toBe(true)
     expect(input).toEqual(original)
     expect(decodeNativeDocxAutomaticBorderPreviewV1(result).ok).toBe(true)
+    if (mode !== undefined) expect(decodeNativeDocxAutomaticBorderPreviewV1({...result,reasons:result.reasons.filter(reason=>!reason.includes('natural ascent at the top'))}).ok).toBe(false)
     const cyclic: any = {}; cyclic.self = cyclic
     const huge: any = { reasons: Array(100_001).fill('x') }
     for (const hostile of [cyclic, huge]) {
@@ -498,6 +499,38 @@ describe('native DOCX page-paint compiler v1', () => {
     const input = autoBorderFixture(), doc = input.document as NativeDocxDocumentV1
     doc.unsupported.push({ ...doc.unsupported[0]!, id: 'unsupported:other', code: 'UNKNOWN_SOURCE' })
     expect(projectNativeDocxAutomaticBordersV1(doc, input.resolved_layout).document.unsupported.map(d => d.code)).toEqual(['UNKNOWN_SOURCE'])
+  })
+
+  it.each([120, 480])('keeps strict line-box guards and discloses approximate expanded baseline placement (%s)', async (line) => {
+    const input = fixture(), resolved = input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    resolved.paragraphs[0]!.properties = {...resolved.paragraphs[0]!.properties, line_rule:'auto', line}
+    const original = structuredClone(input)
+    const outlines = createHarfBuzzOutlineProviderV1({bytes:FONT_BYTES,contentDigest:FONT_DIGEST})
+    const provider = {providerId:input.outline_provider.provider_id,providerRevision:input.outline_provider.provider_revision,getGlyphOutline(request:any){const outline=outlines.outline(request.glyph_id);return outline.path.length ? {status:'outlined' as const,...request,...outline} : {status:'empty' as const,...request,units_per_em:outline.units_per_em}}}
+    const prepared = await prepareNativeDocxPagePaintV1(input)
+    const {compileNativeDocxPagePaintV1} = await import('./nativePagePaintV1.js')
+    const strict = await compileNativeDocxPagePaintV1(prepared.page_paint_request,provider)
+    expect(strict.ok && strict.value.status).toBe('refused')
+    const settings = input.pagination_settings as NativeDocxPaginationSettingsV1
+    settings.profile='unsupported';delete settings.compatibility_mode
+    settings.diagnostics=[{code:'COMPATIBILITY_SETTING_UNSUPPORTED',severity:'unsupported',part_name:SETTINGS_PART,path:'/w:settings[1]/w:compat[1]',preservation:'preserve-verbatim',message:'Legacy layout'}]
+    const eligibility={protocol:'injoffice.docx.approximation-eligibility',version:1,document_id:settings.document_id,revision:settings.revision,package_sha256:settings.package_sha256,settings_sha256:settings.settings_sha256,status:'eligible',legacy_compatibility_mode:12,reasons:['Legacy layout approximation']}
+    const approximate = await renderNativeDocxApproximatePagePreviewV1(input,eligibility,provider)
+    expect(approximate.status).toBe(line>240?'painted':'refused')
+    if (line > 240) {
+      const naturalPrepared = await prepareNativeDocxPagePaintV1(fixture())
+      const natural = await compileNativeDocxPagePaintV1(naturalPrepared.page_paint_request,provider)
+      expect(natural.ok && natural.value.status).toBe('painted')
+      if (natural.ok && natural.value.status === 'painted') {
+        const a = approximate.pages[0]!.lines[0]!, b = natural.value.pages[0]!.lines[0]!
+        expect(a.baseline_y_millipoints - a.y_millipoints).toBe(b.baseline_y_millipoints - b.y_millipoints)
+        expect(a.height_millipoints).toBeGreaterThan(b.height_millipoints)
+      }
+    }
+    expect(approximate.reasons.some(reason=>reason.includes('natural ascent at the top'))).toBe(true)
+    expect(decodeNativeDocxApproximatePagePreviewV1({...approximate,reasons:approximate.reasons.filter(reason=>!reason.includes('natural ascent at the top'))}).ok).toBe(false)
+    expect(input.resolved_layout).toEqual(original.resolved_layout)
+    expect(input.document).toEqual(original.document)
   })
 
   it('joins automatic-border whole-part hashes to exactly one preserved source part when available', () => {

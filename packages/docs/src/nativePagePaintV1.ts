@@ -973,7 +973,11 @@ async function compileDecodedPagePaint(request: NativeDocxPagePaintRequestV1, ou
       const coveragePrefix = request.page_field_variants && 'region' in placed ? `${page.id}:` : ''
       selectedParagraphIDs.set(coveragePrefix + paragraph.paragraph_id, { paragraphID: paragraph.paragraph_id, prefix: coveragePrefix, ordinal: page.ordinal })
       if (paragraph.alignment === 'distribute') return { ok: true, value: refusal(provenance, 'unsupported-source', paragraph.paragraph_id, 'Distributed character expansion is outside page-paint v1') }
-      if (line.line_height_millipoints !== line.ascent_millipoints - line.descent_millipoints + line.line_gap_millipoints) return { ok: true, value: refusal(provenance, 'unsupported-source', line.id, 'Page-paint v1 requires natural shaped line height for an exact baseline') }
+      const naturalHeight = line.ascent_millipoints - line.descent_millipoints + line.line_gap_millipoints
+      // Current-layout approximation deliberately anchors natural ascent at
+      // the top of an expanded line box. It does not claim Word leading
+      // distribution or permit clipping/compressed-line semantics.
+      if (line.line_height_millipoints !== naturalHeight && !(approximateLegacySettings && line.line_height_millipoints >= naturalHeight)) return { ok: true, value: refusal(provenance, 'unsupported-source', line.id, 'Page-paint v1 requires natural shaped line height for an exact baseline; only explicit current-layout approximation supports expanded line boxes') }
       if (line.hard_break_after && !coveredLineIDs.has(coveragePrefix + line.id)) sourceHardBreakCounts.set(coveragePrefix + line.hard_break_after.source_run_id, (sourceHardBreakCounts.get(coveragePrefix + line.hard_break_after.source_run_id) ?? 0) + 1)
       coveredLineIDs.add(coveragePrefix + line.id)
       let fragmentX = placed.x_millipoints
