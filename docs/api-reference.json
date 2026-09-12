@@ -3182,6 +3182,11 @@
               "signature": "export declare function createNativeDocxEmbeddedFontResolverV1(inventory: NativeDOCXFontInventoryV1, assetsValue: readonly NativeDocxAuthoritativeFontAssetV1[]): NativeFontResolver"
             },
             {
+              "name": "createNativeDocxPartialContentPreviewV1",
+              "kind": "function",
+              "signature": "export declare function createNativeDocxPartialContentPreviewV1(value: unknown, options: { policy: typeof DOCX_PARTIAL_CONTENT_POLICY; read_only: true; }, resolvedValue?: unknown): NativeDocxPartialContentV1"
+            },
+            {
               "name": "CSS_PX_PER_INCH",
               "kind": "const",
               "signature": "export declare const CSS_PX_PER_INCH = 96"
@@ -3520,6 +3525,16 @@
               "name": "DOCX_PAGINATION_SETTINGS_VERSION",
               "kind": "const",
               "signature": "export declare const DOCX_PAGINATION_SETTINGS_VERSION: 1"
+            },
+            {
+              "name": "DOCX_PARTIAL_CONTENT_LIMITS",
+              "kind": "const",
+              "signature": "export declare const DOCX_PARTIAL_CONTENT_LIMITS:"
+            },
+            {
+              "name": "DOCX_PARTIAL_CONTENT_POLICY",
+              "kind": "const",
+              "signature": "export declare const DOCX_PARTIAL_CONTENT_POLICY: 'source-text-with-omissions-v1'"
             },
             {
               "name": "DOCX_PROSEMIRROR_PROJECTION_SCHEMA",
@@ -4157,6 +4172,26 @@
               "signature": "export interface NativeDocxParagraphV1"
             },
             {
+              "name": "NativeDocxPartialContentV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxPartialContentV1"
+            },
+            {
+              "name": "NativeDocxPartialOmissionCode",
+              "kind": "type",
+              "signature": "export type NativeDocxPartialOmissionCode = 'unsupported-source' | 'unqualified-text-visibility' | 'hidden-text' | 'drawing' | 'field' | 'reference' | 'control' | 'table' | 'nonbody-story' | 'block-limit' | 'text-limit'"
+            },
+            {
+              "name": "NativeDocxPartialSegmentV1",
+              "kind": "type",
+              "signature": "export type NativeDocxPartialSegmentV1 ="
+            },
+            {
+              "name": "NativeDocxPartialSourceV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxPartialSourceV1"
+            },
+            {
               "name": "NativeDocxPassthroughPartV1",
               "kind": "interface",
               "signature": "export interface NativeDocxPassthroughPartV1"
@@ -4723,6 +4758,11 @@
               "signature": "export declare function adaptNativeDocxProseMirrorTransactionWithHostV1<Transaction>(document: NativeDocxDocumentV1, transaction: Transaction, projector: NativeDocxProseMirrorTransactionProjectorV1<Transaction>): NativeDocxTransactionAdapterResultV1"
             },
             {
+              "name": "createNativeDocxPartialContentPreviewV1",
+              "kind": "function",
+              "signature": "export declare function createNativeDocxPartialContentPreviewV1(value: unknown, options: { policy: typeof DOCX_PARTIAL_CONTENT_POLICY; read_only: true; }, resolvedValue?: unknown): NativeDocxPartialContentV1"
+            },
+            {
               "name": "decodeNativeDocxDocument",
               "kind": "function",
               "signature": "export declare function decodeNativeDocxDocument(value: unknown): DecodeNativeDocxResult"
@@ -4771,6 +4811,16 @@
               "name": "DOCX_NATIVE_VERSION",
               "kind": "const",
               "signature": "export declare const DOCX_NATIVE_VERSION: 1"
+            },
+            {
+              "name": "DOCX_PARTIAL_CONTENT_LIMITS",
+              "kind": "const",
+              "signature": "export declare const DOCX_PARTIAL_CONTENT_LIMITS:"
+            },
+            {
+              "name": "DOCX_PARTIAL_CONTENT_POLICY",
+              "kind": "const",
+              "signature": "export declare const DOCX_PARTIAL_CONTENT_POLICY: 'source-text-with-omissions-v1'"
             },
             {
               "name": "DOCX_PROSEMIRROR_PROJECTION_SCHEMA",
@@ -4886,6 +4936,26 @@
               "name": "NativeDocxParagraphV1",
               "kind": "interface",
               "signature": "export interface NativeDocxParagraphV1"
+            },
+            {
+              "name": "NativeDocxPartialContentV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxPartialContentV1"
+            },
+            {
+              "name": "NativeDocxPartialOmissionCode",
+              "kind": "type",
+              "signature": "export type NativeDocxPartialOmissionCode = 'unsupported-source' | 'unqualified-text-visibility' | 'hidden-text' | 'drawing' | 'field' | 'reference' | 'control' | 'table' | 'nonbody-story' | 'block-limit' | 'text-limit'"
+            },
+            {
+              "name": "NativeDocxPartialSegmentV1",
+              "kind": "type",
+              "signature": "export type NativeDocxPartialSegmentV1 ="
+            },
+            {
+              "name": "NativeDocxPartialSourceV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxPartialSourceV1"
             },
             {
               "name": "NativeDocxPassthroughPartV1",
