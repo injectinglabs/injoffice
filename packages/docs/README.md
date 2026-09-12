@@ -269,6 +269,18 @@ unsupported geometry are not made renderable by this settings policy. The
 result remains a distinct, read-only approximate envelope; strict pagination
 and mutation safety are unchanged.
 
+`renderNativeDocxAutomaticBorderPreviewV1` is a separate opt-in read-only
+contrast policy for native-source-qualified automatic table borders. It uses
+black only on a proven white preview surface with absent or exact white
+effective table/cell fills. Unknown backgrounds, conflicting borders and
+unqualified style effects remain refused. The source model and strict
+diagnostics are unchanged; the distinct `injoffice.docx.auto-border-preview`
+envelope retains the policy, source-bound evidence and original diagnostic
+identities. Consumers must render its pages on the declared opaque white
+surface and display its approximation warning. This is not a claim of Word
+automatic-color fidelity. Optional legacy-settings eligibility is validated
+independently; this rendering policy does not grant a settings exception.
+
 Approximate body `PAGE`/`NUMPAGES` fields use the same bounded fixed-point solver
 as strict layout: field text derives from final page placement, not cached
 values, with cycle detection and an eight-pass limit. Original field source,

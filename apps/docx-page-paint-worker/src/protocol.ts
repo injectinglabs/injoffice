@@ -3,6 +3,7 @@ import {
   completeNativeDocxPagePaintV1,
   prepareNativeDocxPagePaintV1,
   renderNativeDocxApproximatePagePreviewV1,
+  renderNativeDocxAutomaticBorderPreviewV1,
   type NativeDocxAuthoritativeFontAssetV1,
   type NativeDocxAuthoritativeMediaAssetV1,
   type NativeDocxPagePaintCompleteInputV1,
@@ -33,7 +34,7 @@ export interface NativeDocxPagePaintWorkerRequestV1 {
   protocol: typeof DOCX_PAGE_PAINT_WORKER_PROTOCOL
   version: typeof DOCX_PAGE_PAINT_WORKER_VERSION
   id: string
-  op: 'prepare' | 'complete' | 'render' | 'ping'
+  op: 'prepare' | 'complete' | 'render' | 'render-approximate' | 'render-auto-borders' | 'ping'
   input?: unknown
 }
 
@@ -127,13 +128,14 @@ export async function dispatchNativeDocxPagePaintWorkerRequestV1(value: unknown,
   try {
     if (!record(value) || !exactKeys(value, ['protocol', 'version', 'id', 'op', 'input']) || value.protocol !== DOCX_PAGE_PAINT_WORKER_PROTOCOL || value.version !== DOCX_PAGE_PAINT_WORKER_VERSION || candidateID === 'invalid') throw new TypeError('worker request envelope is invalid')
     if (value.op === 'ping') return { ...base, ok: true, result: { status: 'ready' } }
-    if (value.op === 'render-approximate') {
-      if (!record(value.input) || !exactFieldSet(value.input, ['prepare', 'eligibility'])) throw new TypeError('approximate render requires exact prepare and eligibility fields')
+    if (value.op === 'render-approximate' || value.op === 'render-auto-borders') {
+      const automatic = value.op === 'render-auto-borders'
+      if (!record(value.input) || !exactFieldSet(value.input, automatic ? ('legacy_eligibility' in value.input ? ['prepare', 'legacy_eligibility'] : ['prepare']) : ['prepare', 'eligibility'])) throw new TypeError('approximate render requires exact prepare and eligibility fields')
       const input = prepareInput(value.input.prepare)
       if (input.outline_provider.provider_id !== 'injoffice.harfbuzz-outline' || input.outline_provider.provider_revision !== 'v1') throw new TypeError('approximate render requires the pinned outline provider')
       const fonts = hostFontManifestPath ? await loadHostFonts(input, hostFontManifestPath) : undefined
       const providers = new Map<string, ReturnType<typeof createHarfBuzzOutlineProviderV1>>()
-      const result = await renderNativeDocxApproximatePagePreviewV1(input, value.input.eligibility, {
+      const outlineProvider: Parameters<typeof renderNativeDocxAutomaticBorderPreviewV1>[1] = {
         providerId: 'injoffice.harfbuzz-outline', providerRevision: 'v1',
         getGlyphOutline(request) {
           const asset = input.font_assets.find(asset => asset.face_id === request.face.face_id && asset.content_digest === request.face.content_digest && (asset.collection_index ?? undefined) === request.face.collection_index)
@@ -148,7 +150,11 @@ export async function dispatchNativeDocxPagePaintWorkerRequestV1(value: unknown,
           const outline = provider.outline(request.glyph_id)
           return outline.path.length ? { status: 'outlined' as const, ...request, ...outline } : { status: 'empty' as const, ...request, units_per_em: outline.units_per_em }
         },
-      }, { createShaper: workerShaper, fonts })
+      }
+      const runtime = { createShaper: workerShaper, fonts }
+      const result = automatic
+        ? await renderNativeDocxAutomaticBorderPreviewV1(input, outlineProvider, runtime, value.input.legacy_eligibility)
+        : await renderNativeDocxApproximatePagePreviewV1(input, value.input.eligibility, outlineProvider, runtime)
       return { ...base, ok: true, result }
     }
     if (value.op === 'prepare') {

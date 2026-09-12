@@ -25,6 +25,9 @@ import { decodeNativeDocxShapedLines } from './nativeShapedLinesContract.js'
 import { decodeNativeDocxPagePaintForRequestV1, decodeNativeDocxPagePaintRequestV1, nativeDocxPagePaintShapedLinesSha256V1, decodeNativeDocxApproximateComputedPagePaintV1, nativeDocxPagePaintPaginatedLayoutSha256V1 } from './nativePagePaintV1.js'
 import { nativeDocxPageFieldDocumentV1 } from './nativePageFieldsV1.js'
 import {deriveNativeSquareWrapPlanV1} from './nativeSquareWrapV1.js'
+import { renderNativeDocxAutomaticBorderPreviewV1 } from './nativePagePaintCompilerV1.js'
+import { projectNativeDocxAutomaticBordersV1, decodeNativeDocxAutomaticBorderPreviewV1 } from './nativeAutomaticBorderPreviewV1.js'
+import { DOCX_AUTO_BORDER_POLICY, DOCX_AUTO_BORDER_WARNING } from './nativeAutomaticBorderEvidenceV1.js'
 
 const require = createRequire(import.meta.url)
 const FONT_BYTES = new Uint8Array(readFileSync(require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf')))
@@ -368,6 +371,108 @@ function combinedNoteImageTableHeaderFixture(): NativeDocxPagePaintPrepareInputV
   return input
 }
 describe('native DOCX page-paint compiler v1', () => {
+  function autoBorderFixture() {
+    const input = tableFixture()
+    const document = input.document as NativeDocxDocumentV1
+    const resolved = input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    const table = document.body.blocks[0]!.table!
+    const borders = table.borders!
+    delete table.borders
+    delete table.rows[0]!.cells[0]!.shading_rgb
+    const path = `${table.anchor.path}/w:tblPr[1]/w:tblBorders[1]`
+    const diagnostic = { code: 'UNMODELED_TABLE_PROPERTY', scope_id: table.id, part_name: 'word/document.xml', path }
+    document.unsupported.push({ id: 'unsupported:auto', code: diagnostic.code, scope_id: table.id, capability: 'table-properties', anchor: anchor(path, 91, 94), preservation: 'preserve-verbatim', message: 'Automatic border color remains unsupported by strict source paint' })
+    resolved.tables[0]!.automatic_border_preview = {
+      policy: DOCX_AUTO_BORDER_POLICY, read_only: true, package_sha256: HASH,
+      page_background: 'absent-on-white-preview', background_rgb: 'FFFFFF', source_part: 'word/document.xml', source_path: path, source_sha256: HASH,
+      borders, automatic_edges: ['top', 'right', 'bottom', 'left'], cell_ids: ['cell:1'], source_diagnostics: [diagnostic],
+    }
+    return input
+  }
+
+  it.each([undefined, 12] as const)('renders source-qualified automatic borders only as a distinct white-background approximation (legacy %s)', async (mode) => {
+    const input = autoBorderFixture()
+    const settings = input.pagination_settings as NativeDocxPaginationSettingsV1
+    let eligibility: unknown
+    if (mode !== undefined) {
+      settings.profile = 'unsupported'
+      delete settings.compatibility_mode
+      settings.diagnostics = [{ code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]', preservation: 'preserve-verbatim', message: 'Legacy Word mode 12 requires different semantics' }]
+      eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: settings.package_sha256, settings_sha256: settings.settings_sha256, status: 'eligible', legacy_compatibility_mode: mode, reasons: ['Legacy Word mode 12 is approximated using current layout'] }
+    }
+    const original = structuredClone(input)
+    const outlines = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+    const result = await renderNativeDocxAutomaticBorderPreviewV1(input, {
+      providerId: input.outline_provider.provider_id, providerRevision: input.outline_provider.provider_revision,
+      getGlyphOutline(request) {
+        const outline = outlines.outline(request.glyph_id)
+        return outline.path.length ? { status: 'outlined' as const, ...request, ...outline } : { status: 'empty' as const, ...request, units_per_em: outline.units_per_em }
+      },
+    }, undefined, eligibility)
+    expect(result.status).toBe('painted')
+    expect(result).toMatchObject({ fidelity: 'approximate', read_only: true, page_background_rgb: 'FFFFFF' })
+    expect(result.reasons).toContain(DOCX_AUTO_BORDER_WARNING)
+    expect(result.source_diagnostics.document).toHaveLength(1)
+    expect(result.pages[0]!.commands.some(command => command.kind === 'stroke_table_border')).toBe(true)
+    expect(input).toEqual(original)
+    expect(decodeNativeDocxAutomaticBorderPreviewV1(result).ok).toBe(true)
+    if (mode !== undefined) expect(decodeNativeDocxAutomaticBorderPreviewV1({ ...result, legacy_eligibility: undefined }).ok).toBe(false)
+    for (const mutation of [
+      { reasons: [] }, { page_background_rgb: '000000' }, { approximated_render_properties: [] },
+      { source_diagnostics: { document: [], resolved: [] } },
+      { source: { ...result.source, package_sha256: `sha256:${'f'.repeat(64)}` } },
+      { fidelity: 'exact' }, { unexpected: true },
+    ]) expect(decodeNativeDocxAutomaticBorderPreviewV1({ ...result, ...mutation }).ok).toBe(false)
+    const strict = await prepareNativeDocxPagePaintV1(input)
+    expect(strict.page_paint_request.paginated_layout).toMatchObject({ status: 'refused', pages: [] })
+  }, 20000)
+
+  it('refuses forged automatic-border evidence and keeps unrelated source diagnostics', () => {
+    const mutations: ((document: NativeDocxDocumentV1, resolved: NativeDocxResolvedLayoutInputV1) => void)[] = [
+      (_, r) => { r.tables[0]!.automatic_border_preview!.package_sha256 = `sha256:${'f'.repeat(64)}` },
+      (_, r) => { r.tables[0]!.automatic_border_preview!.cell_ids = ['cell:other'] },
+      (_, r) => { r.tables[0]!.automatic_border_preview!.source_diagnostics[0]!.code = 'UNKNOWN_SOURCE' },
+      (_, r) => { r.tables[0]!.automatic_border_preview!.source_path = '/w:document[1]/w:body[1]/w:tbl[2]/w:tblPr[1]/w:tblBorders[1]' },
+      (d) => { d.body.blocks[0]!.table!.rows[0]!.cells[0]!.shading_rgb = '000000' },
+      (d) => { d.body.blocks[0]!.table!.rows[0]!.cells[0]!.grid_span = 2 },
+      (d) => { d.body.blocks[0]!.table!.borders = { top: { style: 'single', size_eighth_points: 8, color_rgb: 'FF0000' } } },
+      (_, r) => { r.tables[0]!.automatic_border_preview!.borders.top!.color_rgb = 'FFFFFF' },
+      (_, r) => { r.tables[0]!.automatic_border_preview!.automatic_edges.push('top') },
+    ]
+    for (const mutate of mutations) {
+      const input = autoBorderFixture()
+      mutate(input.document as NativeDocxDocumentV1, input.resolved_layout as NativeDocxResolvedLayoutInputV1)
+      expect(() => projectNativeDocxAutomaticBordersV1(input.document, input.resolved_layout)).toThrow()
+    }
+    const input = autoBorderFixture(), doc = input.document as NativeDocxDocumentV1
+    doc.unsupported.push({ ...doc.unsupported[0]!, id: 'unsupported:other', code: 'UNKNOWN_SOURCE' })
+    expect(projectNativeDocxAutomaticBordersV1(doc, input.resolved_layout).document.unsupported.map(d => d.code)).toEqual(['UNKNOWN_SOURCE'])
+  })
+
+  it('joins automatic-border whole-part hashes to exactly one preserved source part when available', () => {
+    const input = autoBorderFixture()
+    const document = input.document as NativeDocxDocumentV1
+    const resolved = input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    document.passthrough_parts.push({ part_name: 'word/document.xml', content_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml', byte_length: 3000, sha256: HASH, policy: 'preserve-verbatim' })
+    // Strict source wire forbids representing a modeled story as passthrough.
+    expect(() => projectNativeDocxAutomaticBordersV1(document, resolved)).toThrow('valid original')
+    document.passthrough_parts.pop()
+    document.unsupported = []
+    const evidence = resolved.tables[0]!.automatic_border_preview!
+    evidence.source_part = 'word/styles.xml'
+    evidence.source_path = '/w:styles[1]/w:style[1]/w:tblPr[1]/w:tblBorders[1]'
+    evidence.source_diagnostics = [{ code: 'TABLE_STYLE_EFFECTS_PRESERVED', scope_id: 'table:1', part_name: evidence.source_part, path: '/w:styles[1]/w:style[1]/w:tblPr[1]' }]
+    resolved.source_parts.styles_part = evidence.source_part
+    resolved.diagnostics = [{ ...evidence.source_diagnostics[0]!, severity: 'unsupported', preservation: 'preserve-verbatim', message: 'Automatic border source remains strict-refused' }]
+    expect(() => projectNativeDocxAutomaticBordersV1(document, resolved)).toThrow('digest')
+    document.passthrough_parts.push({ part_name: evidence.source_part, content_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml', byte_length: 1000, sha256: HASH, policy: 'preserve-verbatim' })
+    expect(() => projectNativeDocxAutomaticBordersV1(document, resolved)).not.toThrow()
+    document.passthrough_parts.at(-1)!.sha256 = `sha256:${'f'.repeat(64)}`
+    expect(() => projectNativeDocxAutomaticBordersV1(document, resolved)).toThrow('digest')
+    document.passthrough_parts.at(-1)!.sha256 = HASH
+    document.passthrough_parts.push({ ...document.passthrough_parts.at(-1)! })
+    expect(() => projectNativeDocxAutomaticBordersV1(document, resolved)).toThrow()
+  })
   // Each case includes a real HarfBuzz cold start. Bound it independently of
   // the default five-second unit-test timeout on shared CI runners.
   it.each([12, 14] as const)('renders approximate mode %s through real HarfBuzz without changing strict preparation', async (mode) => {
