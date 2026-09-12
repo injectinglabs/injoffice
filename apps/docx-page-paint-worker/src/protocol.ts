@@ -4,6 +4,7 @@ import {
   prepareNativeDocxPagePaintV1,
   renderNativeDocxApproximatePagePreviewV1,
   renderNativeDocxAutomaticBorderPreviewV1,
+  validNativeDocxHostDefaultSizePolicyV1,
   type NativeDocxAuthoritativeFontAssetV1,
   type NativeDocxAuthoritativeMediaAssetV1,
   type NativeDocxPagePaintCompleteInputV1,
@@ -130,7 +131,12 @@ export async function dispatchNativeDocxPagePaintWorkerRequestV1(value: unknown,
     if (value.op === 'ping') return { ...base, ok: true, result: { status: 'ready' } }
     if (value.op === 'render-approximate' || value.op === 'render-auto-borders') {
       const automatic = value.op === 'render-auto-borders'
-      if (!record(value.input) || !exactFieldSet(value.input, automatic ? ('legacy_eligibility' in value.input ? ['prepare', 'legacy_eligibility'] : ['prepare']) : ['prepare', 'eligibility'])) throw new TypeError('approximate render requires exact prepare and eligibility fields')
+      if (!record(value.input)) throw new TypeError('approximate render requires an input object')
+      const fields = automatic ? ('legacy_eligibility' in value.input ? ['prepare', 'legacy_eligibility'] : ['prepare']) : ['prepare', 'eligibility']
+      if ('font_size_policy' in value.input) fields.push('font_size_policy')
+      if (!exactFieldSet(value.input, fields)) throw new TypeError('approximate render requires exact prepare and eligibility fields')
+      const fontSizePolicy = value.input.font_size_policy
+      if (fontSizePolicy !== undefined && !validNativeDocxHostDefaultSizePolicyV1(fontSizePolicy)) throw new TypeError('Host default size policy is invalid')
       const input = prepareInput(value.input.prepare)
       if (input.outline_provider.provider_id !== 'injoffice.harfbuzz-outline' || input.outline_provider.provider_revision !== 'v1') throw new TypeError('approximate render requires the pinned outline provider')
       const fonts = hostFontManifestPath ? await loadHostFonts(input, hostFontManifestPath) : undefined
@@ -151,7 +157,7 @@ export async function dispatchNativeDocxPagePaintWorkerRequestV1(value: unknown,
           return outline.path.length ? { status: 'outlined' as const, ...request, ...outline } : { status: 'empty' as const, ...request, units_per_em: outline.units_per_em }
         },
       }
-      const runtime = { createShaper: workerShaper, fonts }
+      const runtime = { createShaper: workerShaper, fonts, fontSizePolicy }
       const result = automatic
         ? await renderNativeDocxAutomaticBorderPreviewV1(input, outlineProvider, runtime, value.input.legacy_eligibility)
         : await renderNativeDocxApproximatePagePreviewV1(input, value.input.eligibility, outlineProvider, runtime)

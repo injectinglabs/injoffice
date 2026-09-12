@@ -28,6 +28,7 @@ import {deriveNativeSquareWrapPlanV1} from './nativeSquareWrapV1.js'
 import { renderNativeDocxAutomaticBorderPreviewV1 } from './nativePagePaintCompilerV1.js'
 import { projectNativeDocxAutomaticBordersV1, decodeNativeDocxAutomaticBorderPreviewV1 } from './nativeAutomaticBorderPreviewV1.js'
 import { DOCX_AUTO_BORDER_POLICY, DOCX_AUTO_BORDER_WARNING } from './nativeAutomaticBorderEvidenceV1.js'
+import { DOCX_ABSENT_FONT_SIZE_WARNING, projectNativeDocxAbsentFontSizesV1 } from './nativeAbsentFontSizeV1.js'
 
 const require = createRequire(import.meta.url)
 const FONT_BYTES = new Uint8Array(readFileSync(require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf')))
@@ -371,6 +372,47 @@ function combinedNoteImageTableHeaderFixture(): NativeDocxPagePaintPrepareInputV
   return input
 }
 describe('native DOCX page-paint compiler v1', () => {
+  it('applies a declared host size only to source-proven omissions in the existing approximate envelope', async () => {
+    const input = fixture()
+    const document = input.document as NativeDocxDocumentV1
+    const resolved = input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    const settings = input.pagination_settings as NativeDocxPaginationSettingsV1
+    const paragraph = document.body.blocks[0]!.paragraph!
+    paragraph.runs[0]!.text = ''
+    delete resolved.paragraphs[0]!.paragraph_mark_properties!.font_size_half_points
+    settings.profile = 'unsupported'
+    delete settings.compatibility_mode
+    settings.diagnostics = [{ code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]', preservation: 'preserve-verbatim', message: 'Legacy mode 12' }]
+    const absent = [{ scope_kind: 'paragraph-mark' as const, scope_id: paragraph.id, part_name: paragraph.anchor.part_name, path: paragraph.anchor.path, package_sha256: HASH }]
+    const eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: HASH, settings_sha256: settings.settings_sha256, status: 'eligible', legacy_compatibility_mode: 12, reasons: ['Legacy mode 12 uses current layout'], absent_font_sizes: absent }
+    const provider = createHarfBuzzOutlineProviderV1({ bytes: FONT_BYTES, contentDigest: FONT_DIGEST })
+    const outline = { providerId: input.outline_provider.provider_id, providerRevision: input.outline_provider.provider_revision, getGlyphOutline(request: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineRequestV1) { const value = provider.outline(request.glyph_id); return value.path.length ? { status: 'outlined' as const, ...request, ...value } : { status: 'empty' as const, ...request, units_per_em: value.units_per_em } } }
+    const original = structuredClone(input)
+    const withoutPolicy = await renderNativeDocxApproximatePagePreviewV1(input, eligibility, outline)
+    expect(withoutPolicy.status).toBe('refused')
+    const result = await renderNativeDocxApproximatePagePreviewV1(input, eligibility, outline, { fontSizePolicy: { kind: 'host-default-size-v1', half_points: 22 } })
+    expect(result.status).toBe('painted')
+    expect(result.protocol).toBe('injoffice.docx.approximate-page-preview')
+    expect(result.approximated_font_sizes).toEqual([{ ...absent[0], chosen_half_points: 22 }])
+    expect(result.source_absent_font_sizes).toEqual(absent)
+    expect(result.reasons).toContain(DOCX_ABSENT_FONT_SIZE_WARNING)
+    expect(input).toEqual(original)
+    expect(decodeNativeDocxApproximatePagePreviewV1(result).ok).toBe(true)
+    for (const mutation of [{ approximated_font_sizes: undefined }, { source_absent_font_sizes: [] }, { reasons: result.reasons.filter(r => r !== DOCX_ABSENT_FONT_SIZE_WARNING) }, { approximated_font_sizes: [{ ...absent[0], chosen_half_points: 24 }] }]) expect(decodeNativeDocxApproximatePagePreviewV1({ ...result, ...mutation }).ok).toBe(false)
+    expect(() => projectNativeDocxAbsentFontSizesV1(document, original.resolved_layout, [{ ...absent[0]!, path: '/wrong' }], { kind: 'host-default-size-v1', half_points: 22 })).toThrow()
+    const authored = structuredClone(resolved); authored.paragraphs[0]!.paragraph_mark_properties!.font_size_half_points = 20
+    expect(() => projectNativeDocxAbsentFontSizesV1(document, authored, absent, { kind: 'host-default-size-v1', half_points: 22 })).toThrow('override')
+    const unrelated = structuredClone(resolved)
+    unrelated.diagnostics.push({ code: 'INVALID_FONT_SIZE', severity: 'unsupported', scope_id: 'run:1', part_name: 'word/document.xml', path: '/w:document[1]/w:body[1]/w:p[1]/w:r[1]/w:rPr[1]/w:sz[1]', preservation: 'preserve-verbatim', message: 'A malformed independent authored run size must remain refused' })
+    expect(projectNativeDocxAbsentFontSizesV1(document, unrelated, absent, { kind: 'host-default-size-v1', half_points: 22 }).resolved.diagnostics).toEqual(unrelated.diagnostics)
+    expect(() => projectNativeDocxAbsentFontSizesV1(document, resolved, absent, { kind: 'host-default-size-v1', half_points: 24 })).toThrow('explicit')
+    const tableInput = tableFixture()
+    const tableResolved = tableInput.resolved_layout as NativeDocxResolvedLayoutInputV1
+    delete tableResolved.paragraphs[0]!.paragraph_mark_properties!.font_size_half_points
+    expect(() => projectNativeDocxAbsentFontSizesV1(tableInput.document, tableResolved, absent, { kind: 'host-default-size-v1', half_points: 22 })).toThrow('scope anchor')
+    const strict = await prepareNativeDocxPagePaintV1(input)
+    expect(strict.page_paint_request.paginated_layout.status).toBe('refused')
+  }, 20000)
   function autoBorderFixture() {
     const input = tableFixture()
     const document = input.document as NativeDocxDocumentV1

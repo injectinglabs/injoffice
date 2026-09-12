@@ -22,6 +22,7 @@ import {
   decodeNativeDocxApproximationEligibilityV1,
   type NativeDocxApproximationEligibilityV1,
 } from "./nativeApproximationV1.js";
+import { DOCX_ABSENT_FONT_SIZE_WARNING, validNativeDocxApproximatedFontSizesV1, type NativeDocxApproximatedFontSizeV1 } from './nativeAbsentFontSizeV1.js'
 
 export const DOCX_AUTO_BORDER_PREVIEW_PROTOCOL =
   "injoffice.docx.auto-border-preview" as const;
@@ -43,6 +44,7 @@ export interface NativeDocxAutomaticBorderPreviewV1 {
   };
   reasons: string[];
   legacy_eligibility?: NativeDocxApproximationEligibilityV1;
+  approximated_font_sizes?: NativeDocxApproximatedFontSizeV1[];
   status: NativeDocxPagePaintV1["status"];
   pages: NativeDocxPagePaintV1["pages"];
   resources: NativeDocxPagePaintV1["resources"];
@@ -255,7 +257,7 @@ export function decodeNativeDocxAutomaticBorderPreviewV1(
     if (legacy !== undefined) input.legacy_eligibility = legacy;
     if (
       Object.keys(input)
-        .filter((key) => key !== "legacy_eligibility")
+        .filter((key) => key !== "legacy_eligibility" && key !== 'approximated_font_sizes')
         .sort()
         .join(",") !==
         [
@@ -376,8 +378,12 @@ export function decodeNativeDocxAutomaticBorderPreviewV1(
         eligibility.reasons.some((reason) => !input.reasons.includes(reason))
       )
         return { ok: false };
+      const absent = eligibility.absent_font_sizes ?? []
+      if (input.approximated_font_sizes !== undefined) {
+        if (!validNativeDocxApproximatedFontSizesV1(input.approximated_font_sizes, absent, input.source.package_sha256) || !input.reasons.includes(DOCX_ABSENT_FONT_SIZE_WARNING)) return { ok: false }
+      } else if (input.status === 'painted' && absent.length > 0) return { ok: false }
     } else if (
-      paint.value.provenance.pagination_settings.diagnostics.length !== 0
+      paint.value.provenance.pagination_settings.diagnostics.length !== 0 || input.approximated_font_sizes !== undefined
     )
       return { ok: false };
     return { ok: true, value: input };

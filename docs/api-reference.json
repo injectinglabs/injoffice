@@ -3667,9 +3667,24 @@
               "signature": "export declare const NATIVE_DOCX_FONT_INVENTORY_VERSION: 1"
             },
             {
+              "name": "NativeDocxAbsentFontSizeV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxAbsentFontSizeV1"
+            },
+            {
+              "name": "NativeDocxApproximatedFontSizeV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxApproximatedFontSizeV1 extends NativeDocxAbsentFontSizeV1"
+            },
+            {
               "name": "NativeDocxApproximatePagePreviewV1",
               "kind": "type",
               "signature": "export interface NativeDocxApproximatePagePreviewV1"
+            },
+            {
+              "name": "NativeDocxApproximateRuntimeV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxApproximateRuntimeV1"
             },
             {
               "name": "NativeDocxApproximationEligibilityV1",
@@ -3870,6 +3885,11 @@
               "name": "NativeDocxHeaderFooterRegionV1",
               "kind": "type",
               "signature": "export type NativeDocxHeaderFooterRegionV1 = 'header' | 'footer'"
+            },
+            {
+              "name": "NativeDocxHostDefaultSizePolicyV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxHostDefaultSizePolicyV1"
             },
             {
               "name": "NativeDocxHostFontsV1",
@@ -4639,12 +4659,12 @@
             {
               "name": "renderNativeDocxApproximatePagePreviewV1",
               "kind": "function",
-              "signature": "export declare function renderNativeDocxApproximatePagePreviewV1(input: NativeDocxPagePaintPrepareInputV1, eligibility: unknown, outlineProvider: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineProviderV1, runtime?: { createShaper?: (sourceRevision: string) => HarfBuzzTextShaperV1; fonts?: NativeDocxHostFontsV1; }): Promise<import('./nativeApproximationV1.js').NativeDocxApproximatePagePreviewV1>"
+              "signature": "export declare function renderNativeDocxApproximatePagePreviewV1(input: NativeDocxPagePaintPrepareInputV1, eligibilityValue: unknown, outlineProvider: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineProviderV1, runtime?: NativeDocxApproximateRuntimeV1): Promise<import('./nativeApproximationV1.js').NativeDocxApproximatePagePreviewV1>"
             },
             {
               "name": "renderNativeDocxAutomaticBorderPreviewV1",
               "kind": "function",
-              "signature": "export declare function renderNativeDocxAutomaticBorderPreviewV1(input: NativeDocxPagePaintPrepareInputV1, outlineProvider: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineProviderV1, runtime?: { createShaper?: (sourceRevision: string) => HarfBuzzTextShaperV1; fonts?: NativeDocxHostFontsV1; }, legacyEligibility?: unknown): Promise<NativeDocxAutomaticBorderPreviewV1>"
+              "signature": "export declare function renderNativeDocxAutomaticBorderPreviewV1(input: NativeDocxPagePaintPrepareInputV1, outlineProvider: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineProviderV1, runtime?: NativeDocxApproximateRuntimeV1, legacyEligibility?: unknown): Promise<NativeDocxAutomaticBorderPreviewV1>"
             },
             {
               "name": "ShapeNativeDocxLinesResult",
@@ -4680,6 +4700,11 @@
               "name": "validateNativeDocxPaginatedLayoutSourceV1",
               "kind": "function",
               "signature": "export declare function validateNativeDocxPaginatedLayoutSourceV1(output: NativeDocxPaginatedLayoutV1, request: NativeDocxPaginationRequestV1): NativeDocxValidationIssue[]"
+            },
+            {
+              "name": "validNativeDocxHostDefaultSizePolicyV1",
+              "kind": "export",
+              "signature": "validNativeDocxHostDefaultSizePolicyV1"
             }
           ]
         },
@@ -5104,9 +5129,24 @@
               "signature": "export declare const DOCX_PAGE_PAINT_COMPILER_VERSION: 1"
             },
             {
+              "name": "NativeDocxAbsentFontSizeV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxAbsentFontSizeV1"
+            },
+            {
+              "name": "NativeDocxApproximatedFontSizeV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxApproximatedFontSizeV1 extends NativeDocxAbsentFontSizeV1"
+            },
+            {
               "name": "NativeDocxApproximatePagePreviewV1",
               "kind": "type",
               "signature": "export interface NativeDocxApproximatePagePreviewV1"
+            },
+            {
+              "name": "NativeDocxApproximateRuntimeV1",
+              "kind": "interface",
+              "signature": "export interface NativeDocxApproximateRuntimeV1"
             },
             {
               "name": "NativeDocxApproximationEligibilityV1",
@@ -5132,6 +5172,11 @@
               "name": "NativeDocxAutomaticBorderPreviewV1",
               "kind": "type",
               "signature": "NativeDocxAutomaticBorderPreviewV1"
+            },
+            {
+              "name": "NativeDocxHostDefaultSizePolicyV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxHostDefaultSizePolicyV1"
             },
             {
               "name": "NativeDocxHostFontsV1",
@@ -5166,12 +5211,17 @@
             {
               "name": "renderNativeDocxApproximatePagePreviewV1",
               "kind": "function",
-              "signature": "export declare function renderNativeDocxApproximatePagePreviewV1(input: NativeDocxPagePaintPrepareInputV1, eligibility: unknown, outlineProvider: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineProviderV1, runtime?: { createShaper?: (sourceRevision: string) => HarfBuzzTextShaperV1; fonts?: NativeDocxHostFontsV1; }): Promise<import('./nativeApproximationV1.js').NativeDocxApproximatePagePreviewV1>"
+              "signature": "export declare function renderNativeDocxApproximatePagePreviewV1(input: NativeDocxPagePaintPrepareInputV1, eligibilityValue: unknown, outlineProvider: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineProviderV1, runtime?: NativeDocxApproximateRuntimeV1): Promise<import('./nativeApproximationV1.js').NativeDocxApproximatePagePreviewV1>"
             },
             {
               "name": "renderNativeDocxAutomaticBorderPreviewV1",
               "kind": "function",
-              "signature": "export declare function renderNativeDocxAutomaticBorderPreviewV1(input: NativeDocxPagePaintPrepareInputV1, outlineProvider: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineProviderV1, runtime?: { createShaper?: (sourceRevision: string) => HarfBuzzTextShaperV1; fonts?: NativeDocxHostFontsV1; }, legacyEligibility?: unknown): Promise<NativeDocxAutomaticBorderPreviewV1>"
+              "signature": "export declare function renderNativeDocxAutomaticBorderPreviewV1(input: NativeDocxPagePaintPrepareInputV1, outlineProvider: import('./nativePagePaintV1.js').NativeDocxGlyphOutlineProviderV1, runtime?: NativeDocxApproximateRuntimeV1, legacyEligibility?: unknown): Promise<NativeDocxAutomaticBorderPreviewV1>"
+            },
+            {
+              "name": "validNativeDocxHostDefaultSizePolicyV1",
+              "kind": "export",
+              "signature": "validNativeDocxHostDefaultSizePolicyV1"
             }
           ]
         },

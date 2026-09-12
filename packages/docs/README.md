@@ -269,6 +269,14 @@ unsupported geometry are not made renderable by this settings policy. The
 result remains a distinct, read-only approximate envelope; strict pagination
 and mutation safety are unchanged.
 
+The same current-layout approximation can accept an explicit host-selected
+`fontSizePolicy: { kind: 'host-default-size-v1', half_points: 22 }` only for
+native-source-attested missing sizes (`absent_font_sizes` eligibility facts).
+This is an 11 pt consumer choice, not an authored or Microsoft default.
+The output retains the source omissions, chosen sizes and a visible warning;
+existing sizes and malformed/unsupported source diagnostics are never replaced.
+Strict rendering continues to refuse missing required font metrics.
+
 `renderNativeDocxAutomaticBorderPreviewV1` is a separate opt-in read-only
 contrast policy for native-source-qualified automatic table borders. It uses
 black only on a proven white preview surface with absent or exact white
