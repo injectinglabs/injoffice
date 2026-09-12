@@ -346,6 +346,7 @@ type nativeRunProperties struct {
 }
 
 type nativeParagraphProperties struct {
+	customTabs      []nativeDeferredNumberingDiagnostic
 	numbering       nativeNumberingProperties
 	alignment       *string
 	spacingBefore   *int64
@@ -1590,6 +1591,11 @@ func (resolver *nativeLayoutResolver) resolveParagraph(paragraph *NativeParagrap
 	resolvedNumbering, numberingP, markerR := resolver.resolveNumbering(numberingReference, levelStyleID, paragraph.ID, numberingState)
 	applyNativeParagraphProperties(&p, numberingP)
 	applyNativeParagraphProperties(&p, directP)
+	if len(p.customTabs) > 0 && (numberingReference.present || !nativePlainParagraphWithoutTabs(paragraphNode, resolver.wordNS)) {
+		for _, tabs := range p.customTabs {
+			resolver.addDiagnostic("UNMODELED_PARAGRAPH_PROPERTY", paragraph.ID, tabs.partName, tabs.node, "Custom tab stops remain unqualified for active or uncertain tab consumers")
+		}
+	}
 	paragraphMark := runBase
 	var directParagraphMark nativeRunProperties
 	if directPPr != nil {
@@ -2151,7 +2157,7 @@ func (resolver *nativeLayoutResolver) parseParagraphProperties(partName string, 
 	modeledSingleton := map[string]bool{
 		"pStyle": true, "numPr": true, "rPr": true, "sectPr": true, "jc": true,
 		"spacing": true, "ind": true, "keepNext": true, "keepLines": true,
-		"pageBreakBefore": true, "widowControl": true, "bidi": true,
+		"pageBreakBefore": true, "widowControl": true, "bidi": true, "tabs": true,
 	}
 	for _, child := range node.Children {
 		if child.Name.Space != resolver.wordNS {
@@ -2168,6 +2174,12 @@ func (resolver *nativeLayoutResolver) parseParagraphProperties(partName string, 
 		switch child.Name.Local {
 		case "pStyle", "rPr", "sectPr":
 			// Consumed elsewhere by the style/section cascade.
+		case "tabs":
+			if nativeExactContainer(node) && nativeExactInactiveTabCandidates(child, resolver.wordNS) {
+				properties.customTabs = append(properties.customTabs, nativeDeferredNumberingDiagnostic{partName: partName, node: child})
+			} else {
+				resolver.addDiagnostic("UNMODELED_PARAGRAPH_PROPERTY", scopeID, partName, child, "Custom tab stop markup is malformed or outside the bounded inactive subset")
+			}
 		case "numPr":
 			properties.numbering = resolver.parseNumberingProperties(partName, child, scopeID)
 		case "jc":
@@ -2411,6 +2423,9 @@ func nativeRunPropertiesFromContract(properties *NativeRunPropertiesV1) nativeRu
 }
 
 func applyNativeParagraphProperties(target *nativeParagraphProperties, layer nativeParagraphProperties) {
+	if len(layer.customTabs) > 0 {
+		target.customTabs = append(append([]nativeDeferredNumberingDiagnostic{}, target.customTabs...), layer.customTabs...)
+	}
 	applyNativeNumberingProperties(&target.numbering, layer.numbering)
 	if layer.alignment != nil {
 		target.alignment = nativeString(*layer.alignment)

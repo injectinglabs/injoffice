@@ -2,6 +2,13 @@
 
 `docxpatch` surgically edits WordprocessingML paragraphs and selected document features without regenerating unrelated DOCX parts.
 
+Custom style/default tab stops do not block proven plain-text paragraphs that
+contain no tab controls, literal tabs, fields, or numbering. This source-consumer
+qualification covers bounded non-bar stops without leaders only; it does not
+implement active custom tab layout or remove the original stops. Direct table,
+field, drawing, or uncertain consumers retain existing refusal diagnostics and
+editing permissions are unchanged.
+
 Font-table matching hints remain source-preserved. Native layout accepts bounded
 ANSI/East-European charset hints only with exact supplied faces; it does not use
 them for font substitution. Valid symbol/legacy descriptors on demonstrably
