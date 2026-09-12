@@ -3555,7 +3555,7 @@ func (extractor *nativeExtractor) extractSection(node *nativeXMLNode, startsAtBl
 			extractor.addUnsupported("FOREIGN_SECTION_MARKUP", "sections", id, extractor.mainPart, child, "Foreign section markup is preserved verbatim")
 			continue
 		}
-		if child.Name.Local == "type" || child.Name.Local == "titlePg" || child.Name.Local == "pgNumType" || child.Name.Local == "pgSz" || child.Name.Local == "pgMar" || child.Name.Local == "cols" {
+		if child.Name.Local == "type" || child.Name.Local == "titlePg" || child.Name.Local == "pgNumType" || child.Name.Local == "pgSz" || child.Name.Local == "pgMar" || child.Name.Local == "cols" || child.Name.Local == "docGrid" {
 			if seenSingleton[child.Name.Local] {
 				extractor.addUnsupported("DUPLICATE_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Duplicate modeled section-property singletons make exact pagination geometry ambiguous")
 				continue
@@ -3563,6 +3563,10 @@ func (extractor *nativeExtractor) extractSection(node *nativeXMLNode, startsAtBl
 			seenSingleton[child.Name.Local] = true
 		}
 		switch child.Name.Local {
+		case "docGrid":
+			if !nativeInactiveSectionGrid(child, extractor.wordNS) {
+				extractor.addUnsupported("UNMODELED_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Active or unqualified document-grid markup remains unsupported")
+			}
 		case "type":
 			if !nativeExactLeaf(child, xml.Name{Space: extractor.wordNS, Local: "val"}) {
 				extractor.addUnsupported("UNMODELED_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Section break markup has attributes or children outside the exact v1 subset")
