@@ -1,5 +1,14 @@
 # @injoffice/docx-wasm
 
+`client.inspectPartialContent(bytes, { signal? })` is a separate read-only
+inspection operation. The matching Go worker extracts a native document and
+resolved style model from the same bytes; the client checks their identity join
+and independently hashes an owned byte snapshot. It returns
+`{ document, resolved_layout }` for the explicit partial source-content API in
+`@injoffice/docs/native-docx`. Neither font bytes nor mutations are produced.
+The response is bounded to 16 MiB and malformed/mismatched responses retire the
+worker. Existing extract/apply request and response contracts are unchanged.
+
 Optional browser distribution of InjOffice's native DOCX extraction and text
 mutation engine. It runs the same `go/docxpatch` implementation used by the
 server inside a Web Worker; TypeScript does not become a second OOXML writer.

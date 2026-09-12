@@ -260,6 +260,39 @@ func TestWASMExtractMatchesInProcessGo(t *testing.T) {
 	}
 }
 
+func TestWASMPartialInspectionMatchesSameByteGoSource(t *testing.T) {
+	wasm, wasmExec, script := requireNodeHarness(t)
+	original := buildContractDOCX(t)
+	before := append([]byte(nil), original...)
+	wanted, err := docxpatch.InspectNativePartialSourceV1(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalPath, _ := writeContractInputs(t, original, []byte(`{}`))
+	got, err := exec.Command("node", script, "inspect", "--wasm", wasm, "--wasm-exec", wasmExec, "--input", originalPath).Output()
+	if err != nil {
+		t.Fatalf("WASM inspection: %v\n%s", err, stderrFrom(err))
+	}
+	if !bytes.Equal(bytes.TrimSpace(got), wanted) || !bytes.Equal(original, before) {
+		t.Fatal("read-only inspection changed source or disagreed with Go")
+	}
+	var envelope struct {
+		Protocol      string                                `json:"protocol"`
+		PackageSHA256 string                                `json:"package_sha256"`
+		Document      docxpatch.NativeDocumentV1            `json:"document"`
+		Resolved      docxpatch.NativeResolvedLayoutInputV1 `json:"resolved_layout"`
+	}
+	if err := json.Unmarshal(got, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Protocol != "injoffice.docx.partial-source" || envelope.PackageSHA256 != envelope.Document.Source.PackageSHA256 || envelope.Document.DocumentID != envelope.Resolved.DocumentID || envelope.Document.Revision != envelope.Resolved.Revision {
+		t.Fatal("partial source identity mismatch")
+	}
+	if _, err := docxpatch.InspectNativePartialSourceV1([]byte("not a zip")); err == nil {
+		t.Fatal("malformed bytes accepted")
+	}
+}
+
 func TestWASMApplyMatchesInProcessGo(t *testing.T) {
 	wasm, wasmExec, script := requireNodeHarness(t)
 	original := buildContractDOCX(t)

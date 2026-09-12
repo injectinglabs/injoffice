@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import {createHash} from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
   NATIVE_WASM_WORKER_PROTOCOL,
@@ -69,7 +70,7 @@ class FakeWorker implements NativeWasmWorker {
     const request = value as NativeWasmWorkerRequest
     this.requests.push(request)
     if (request.op === 'init') this.respond(success(request))
-    else if (request.op === 'extract') this.respond(success(request, { contractJson: this.extractJson }))
+    else if (request.op === 'extract'||request.op==='inspect') this.respond(success(request, { contractJson: this.extractJson }))
     else this.respond(success(request, { bytes: new Uint8Array([4, 5, 6]).buffer }))
   }
 
@@ -103,6 +104,28 @@ const success = (request: NativeWasmWorkerRequest, result?: unknown): NativeWasm
 } as NativeWasmWorkerResponse)
 
 describe('DOCX WASM package client', () => {
+  it('inspects same-byte source and layout with an independent package digest join',async()=>{
+    const bytes=new Uint8Array([1,2,3]),hash='sha256:'+createHash('sha256').update(bytes).digest('hex'),document=structuredClone(fixtureDocument)
+    document.source.package_sha256=hash
+    const layout={protocol:'injoffice.docx.resolved-layout',version:1,document_id:document.document_id,revision:document.revision,source_parts:{main_part:document.source.main_part},paragraphs:[],runs:[],tables:[],fonts:[],diagnostics:[]}
+    const envelope={protocol:'injoffice.docx.partial-source',version:1,package_sha256:hash,document,resolved_layout:layout}
+    const worker=new FakeWorker(JSON.stringify(envelope)),client=createDocxWasmClient({workerFactory:()=>worker})
+    const promise=client.inspectPartialContent(bytes);bytes[0]=99
+    expect(await promise).toEqual({document,resolved_layout:layout})
+    expect(worker.requests.map(r=>r.op)).toEqual(['init','inspect'])
+    expect(bytes[0]).toBe(99);client.terminate()
+    for(const invalid of [{...envelope,package_sha256:'sha256:'+'0'.repeat(64)},{...envelope,resolved_layout:{...layout,revision:'stale'}},{...envelope,extra:true},'not-json']){
+      const badWorker=new FakeWorker(typeof invalid==='string'?invalid:JSON.stringify(invalid)),bad=createDocxWasmClient({workerFactory:()=>badWorker})
+      await expect(bad.inspectPartialContent(new Uint8Array([1,2,3]))).rejects.toThrow();expect(badWorker.terminated).toBe(true)
+    }
+    const abort=new AbortController(),cancelWorker=new FakeWorker(JSON.stringify(envelope)),cancel=createDocxWasmClient({workerFactory:()=>cancelWorker})
+    const pending=cancel.inspectPartialContent(new Uint8Array([1,2,3]),{signal:abort.signal});abort.abort()
+    await expect(pending).rejects.toMatchObject({name:'AbortError'});cancel.terminate()
+    const largeWorker=new FakeWorker('x'.repeat(16*1024*1024+1)),large=createDocxWasmClient({workerFactory:()=>largeWorker})
+    await expect(large.inspectPartialContent(new Uint8Array([1]))).rejects.toThrow('response budget');expect(largeWorker.terminated).toBe(true)
+    const smallWorker=new FakeWorker(),small=createDocxWasmClient({workerFactory:()=>smallWorker,maxPackageBytes:1})
+    await expect(small.inspectPartialContent(new Uint8Array([1,2]))).rejects.toThrow();expect(smallWorker.requests).toHaveLength(0);small.terminate()
+  })
   it('resolves package-relative defaults and exact explicit overrides', () => {
     const defaults = resolveDocxWasmAssetUrls()
     expect(defaults.workerUrl).toMatch(/\/docxnative\.worker\.js$/)

@@ -4172,6 +4172,11 @@
               "signature": "export interface NativeDocxParagraphV1"
             },
             {
+              "name": "NativeDocxPartialCellV1",
+              "kind": "type",
+              "signature": "export type NativeDocxPartialCellV1 ="
+            },
+            {
               "name": "NativeDocxPartialContentV1",
               "kind": "interface",
               "signature": "export interface NativeDocxPartialContentV1"
@@ -4179,7 +4184,12 @@
             {
               "name": "NativeDocxPartialOmissionCode",
               "kind": "type",
-              "signature": "export type NativeDocxPartialOmissionCode = 'unsupported-source' | 'unqualified-text-visibility' | 'hidden-text' | 'drawing' | 'field' | 'reference' | 'control' | 'table' | 'nonbody-story' | 'block-limit' | 'text-limit'"
+              "signature": "export type NativeDocxPartialOmissionCode = 'unsupported-source' | 'unqualified-text-visibility' | 'hidden-text' | 'drawing' | 'field' | 'reference' | 'control' | 'table' | 'nonbody-story' | 'block-limit' | 'text-limit' | 'merged-cell' | 'cell-limit'"
+            },
+            {
+              "name": "NativeDocxPartialParagraphV1",
+              "kind": "type",
+              "signature": "export type NativeDocxPartialParagraphV1 ="
             },
             {
               "name": "NativeDocxPartialSegmentV1",
@@ -4783,6 +4793,11 @@
               "signature": "export declare function decodeNativeDocxProseMirrorTransactionV1(value: unknown): NativeDocxProseMirrorTransactionV1 | NativeDocxTransactionAdapterIssueV1[]"
             },
             {
+              "name": "decodeNativeDocxResolvedLayout",
+              "kind": "function",
+              "signature": "export declare function decodeNativeDocxResolvedLayout(value: unknown): DecodeNativeDocxResolvedLayoutResult"
+            },
+            {
               "name": "DecodeNativeDocxResult",
               "kind": "type",
               "signature": "export type DecodeNativeDocxResult ="
@@ -4938,6 +4953,11 @@
               "signature": "export interface NativeDocxParagraphV1"
             },
             {
+              "name": "NativeDocxPartialCellV1",
+              "kind": "type",
+              "signature": "export type NativeDocxPartialCellV1 ="
+            },
+            {
               "name": "NativeDocxPartialContentV1",
               "kind": "interface",
               "signature": "export interface NativeDocxPartialContentV1"
@@ -4945,7 +4965,12 @@
             {
               "name": "NativeDocxPartialOmissionCode",
               "kind": "type",
-              "signature": "export type NativeDocxPartialOmissionCode = 'unsupported-source' | 'unqualified-text-visibility' | 'hidden-text' | 'drawing' | 'field' | 'reference' | 'control' | 'table' | 'nonbody-story' | 'block-limit' | 'text-limit'"
+              "signature": "export type NativeDocxPartialOmissionCode = 'unsupported-source' | 'unqualified-text-visibility' | 'hidden-text' | 'drawing' | 'field' | 'reference' | 'control' | 'table' | 'nonbody-story' | 'block-limit' | 'text-limit' | 'merged-cell' | 'cell-limit'"
+            },
+            {
+              "name": "NativeDocxPartialParagraphV1",
+              "kind": "type",
+              "signature": "export type NativeDocxPartialParagraphV1 ="
             },
             {
               "name": "NativeDocxPartialSegmentV1",
@@ -5006,6 +5031,11 @@
               "name": "NativeDocxRefusalV1",
               "kind": "interface",
               "signature": "export interface NativeDocxRefusalV1"
+            },
+            {
+              "name": "NativeDocxResolvedLayoutInputV1",
+              "kind": "type",
+              "signature": "export interface NativeDocxResolvedLayoutInputV1"
             },
             {
               "name": "NativeDocxRunPropertiesV1",
