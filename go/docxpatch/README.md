@@ -9,6 +9,12 @@ unused entries do not block unrelated text. Actual runs, paragraph marks, and
 numbering markers participate in that usage check; missing or uncertain font
 resolution keeps the refusal. Unknown metadata remains unsupported.
 
+Native read-only layout recognizes exact `w:noProof` spelling/grammar preferences
+and explicitly disabled `w:autoSpaceDE` / `w:autoSpaceDN` spacing. These properties
+stay in the source and keep affected paragraphs preservation-only; they do not
+grant mutation support. Enabled East Asian automatic spacing, malformed values,
+duplicates, and unknown markup remain unsupported.
+
 ```bash
 go get github.com/injectinglabs/injoffice/go/docxpatch
 ```
