@@ -618,7 +618,7 @@ export default function PdfPage() {
                   <option value="Courier">Generate with Courier</option>
                 </DsSelect>
               </DsField>
-              <p className="ds-muted">Choose a font to save fresh appearances for supported single-line text fields using printable ASCII. This replaces the text font; it does not preserve the original typography. Unsupported text fields are skipped. Other field types may still depend on the PDF viewer.</p>
+              <p className="ds-muted">Choose a font to save fresh appearances for supported single-line text fields using printable ASCII. This replaces the text font; it does not preserve the original typography. Long text may clip in a fixed-size field. Unsupported text fields are skipped. Other field types may still depend on the PDF viewer.</p>
               {formNotice && <p role="status" className="ds-muted" aria-live="polite">{formNotice}</p>}
               {unsavedFormNames.length > 0 && <p role="status" className="ds-muted">Unsaved drafts: {unsavedFormNames.join(', ')}. These values are not in the downloaded PDF. Change the input or appearance mode and apply again.</p>}
               {fields.length === 0 ? <p className="ds-muted">No form fields in this file.</p> : fields.map((field, index) => (
