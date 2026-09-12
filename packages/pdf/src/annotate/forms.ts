@@ -1,4 +1,4 @@
-import { PDFCheckBox, PDFDocument, PDFDropdown, PDFName, PDFOptionList, PDFRadioGroup, PDFTextField, StandardFonts } from 'pdf-lib'
+import { PDFCheckBox, PDFDict, PDFDocument, PDFDropdown, PDFName, PDFOptionList, PDFRadioGroup, PDFTextField, StandardFonts } from 'pdf-lib'
 import type { FormValueSpec } from './types.js'
 
 export interface FormValueFailure {
@@ -31,6 +31,20 @@ export interface FormValuesOptions {
 }
 
 function qualifyTextAppearance(doc: PDFDocument, field: PDFTextField, value: string): void {
+  // Inspect ancestors before calling helpers that recursively inherit flags.
+  const ancestors = new Set<PDFDict>()
+  let ancestor: PDFDict | undefined = field.acroField.dict
+  while (ancestor) {
+    if (ancestors.has(ancestor) || ancestors.size >= 100) throw new Error('invalid text field ancestry')
+    ancestors.add(ancestor)
+    if (ancestor.has(PDFName.of('AA')) || ancestor.has(PDFName.of('A'))) {
+      throw new Error('text appearances with field actions are unsupported')
+    }
+    if (!ancestor.has(PDFName.of('Parent'))) break
+    const resolved: unknown = doc.context.lookup(ancestor.get(PDFName.of('Parent')))
+    if (!(resolved instanceof PDFDict)) throw new Error('invalid text field ancestry')
+    ancestor = resolved
+  }
   if (/[^\x20-\x7e]/.test(value)) throw new Error('text appearances support printable ASCII only')
   if (field.isMultiline() || field.isCombed() || field.isPassword() || field.isFileSelector() || field.isRichFormatted()) {
     throw new Error('text appearances require a plain single-line field')
@@ -38,9 +52,6 @@ function qualifyTextAppearance(doc: PDFDocument, field: PDFTextField, value: str
   if (doc.getForm().acroForm.dict.has(PDFName.of('XFA'))) throw new Error('XFA text appearances are unsupported')
   const widgets = field.acroField.getWidgets()
   if (widgets.length === 0) throw new Error('text appearance requires a page widget')
-  if (field.acroField.dict.has(PDFName.of('AA')) || field.acroField.dict.has(PDFName.of('A'))) {
-    throw new Error('text appearances with field actions are unsupported')
-  }
   const fields = doc.getForm().getFields()
   if (fields.filter(candidate => candidate.getName() === field.getName()).length !== 1) {
     throw new Error('ambiguous text field name')

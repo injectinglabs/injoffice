@@ -1,4 +1,4 @@
-import { decodePDFRawStream, PDFArray, PDFBool, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
+import { decodePDFRawStream, PDFArray, PDFBool, PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
 import { applyFormValues } from './forms.js';
 import type { FormValueSpec } from './types.js';
@@ -135,6 +135,17 @@ describe('applyFormValues', () => {
     const loaded = await PDFDocument.load(result.bytes);
     expect(loaded.getForm().getTextField('name').getText()).toBeUndefined();
     expect(widgetStreams(loaded, 'name')).toEqual(widgetStreams(await PDFDocument.load(source), 'name'));
+  });
+
+  it('refuses actions on a non-terminal field ancestor', async () => {
+    const doc = await PDFDocument.create();
+    const field = doc.getForm().createTextField('group.name');
+    field.addToPage(doc.addPage(), { x: 10, y: 10, width: 100, height: 20 });
+    field.acroField.dict.lookup(PDFName.of('Parent'), PDFDict).set(PDFName.of('AA'), doc.context.obj({}));
+    const source = await doc.save();
+    const result = await applyFormValues(source, [{ name: 'group.name', kind: 'text', value: 'AFTER' }], portable);
+    expect(result.bytes).toBe(source);
+    expect(result.skipped).toEqual([{ name: 'group.name', reason: 'text appearances with field actions are unsupported' }]);
   });
 
   it('fills a text field', async () => {
