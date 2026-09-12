@@ -5,7 +5,7 @@ package pptxpatch
 
 const NativePPTXContractVersion = "pptx-native/v1"
 const NativePPTXSchemaID = "https://injoffice.dev/schemas/pptx-native-v1.schema.json"
-const NativePPTXSchemaSHA256 = "e996f800463c37d6604e9e3d6b05cc4b2d10cd1adf4c9aa7e39a49153359fe88"
+const NativePPTXSchemaSHA256 = "3f7a74aac168bcf1e94785411f6d760e4fb92062b72d7b79a18689233bfff6a6"
 const nativeMaxJsonBytes = 268435456
 const nativeMaxNodes = 1000000
 const nativeMaxDepth = 64
@@ -75,7 +75,7 @@ var nativePPTXBindingShapes = map[string]nativePPTXBindingShape{
 		Required:   []string{"chartPart", "opaqueRef", "relationshipId"},
 	},
 	"NativeParagraph": {
-		Properties: []string{"align", "bullet", "bulletCharacter", "indentEmu", "level", "marginLeftEmu", "runs"},
+		Properties: []string{"align", "bullet", "bulletCharacter", "bulletFontFamily", "indentEmu", "level", "marginLeftEmu", "runs"},
 		Required:   []string{"runs"},
 	},
 	"NativePassthroughRef": {

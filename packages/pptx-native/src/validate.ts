@@ -380,6 +380,9 @@ function validateElement(
 
 function validateParagraphMarkers(paragraphs: readonly NativeParagraph[], path: string, issues: NativeValidationIssue[]): void {
   for (const [i, paragraph] of paragraphs.entries()) {
+    if (paragraph.bulletFontFamily !== undefined && (paragraph.bullet !== true || !paragraph.bulletCharacter || paragraph.bulletFontFamily.trim() !== paragraph.bulletFontFamily || paragraph.bulletFontFamily.startsWith('+') || /[\u0000-\u001f\u007f-\u009f]/u.test(paragraph.bulletFontFamily))) {
+      add(issues, `${path}[${i}].bulletFontFamily`, 'native.bulletFontFamily', 'requires an exact family and authored bullet character')
+    }
     if (paragraph.bulletCharacter !== undefined && (paragraph.bullet !== true || [...paragraph.bulletCharacter].length !== 1 || /[\u0000-\u001f\u007f-\u009f]/u.test(paragraph.bulletCharacter))) {
       add(issues, `${path}[${i}].bulletCharacter`, 'native.bulletCharacter', 'requires one authored non-control character and bullet=true')
     }

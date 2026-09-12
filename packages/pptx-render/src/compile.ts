@@ -990,10 +990,10 @@ function refusedRun(
   }
 }
 
-async function shapeRun(nativeRun: NativeTextRun, context: NativePptxTextRunContext, state: CompileState): Promise<ShapedRunResult> {
+async function shapeRun(nativeRun: NativeTextRun, context: NativePptxTextRunContext, state: CompileState, exactFamily?: string): Promise<ShapedRunResult> {
   const override = state.resolveRun?.(context) ?? {}
-  const families = [...(override.fontFamilies ?? (nativeRun.fontFamily ? [nativeRun.fontFamily] : state.textDefaults.fontFamilies))]
-  const fallbackChainIds = override.fallbackChainIds ?? state.textDefaults.fallbackChainIds
+  const families = exactFamily ? [exactFamily] : [...(override.fontFamilies ?? (nativeRun.fontFamily ? [nativeRun.fontFamily] : state.textDefaults.fontFamilies))]
+  const fallbackChainIds = exactFamily ? undefined : override.fallbackChainIds ?? state.textDefaults.fallbackChainIds
   const input: TextRunInput = deepFreeze({
     version: NATIVE_TEXT_LAYOUT_VERSION,
     text: nativeRun.text,
@@ -1036,6 +1036,7 @@ async function shapeRun(nativeRun: NativeTextRun, context: NativePptxTextRunCont
     if (!providerIdentityStable(state.providers)) throw new TextBodyLayoutRefusal('text.refused', 'the injected provider changed its snapshotted identity during resolution')
     const normalizedResolution = normalizeResolution(resolvedLive, state, `${path}.resolution`, input.text.length)
     if (normalizedResolution.status === 'refused') throw new TextBodyLayoutRefusal('text.refused', 'the injected font resolver refused the complete native paragraph')
+    if (exactFamily && (normalizedResolution.face.family !== exactFamily || normalizedResolution.face.resolution !== 'exact')) throw new TextBodyLayoutRefusal('text.refused', 'authored bullet requires its exact font face without substitution')
     if (!faceBackedByManifest(normalizedResolution.face, state.fontManifest, input)) throw new TextBodyLayoutRefusal('text.refused', 'the injected resolver returned a face that is not exactly backed by the snapshotted font manifest')
     if (decisionsBlockLayout(normalizedResolution.decisions)) throw new TextBodyLayoutRefusal('text.refused', 'the injected resolver reported a blocking shaping decision')
     resolution = normalizedResolution
@@ -1553,8 +1554,8 @@ async function compileParagraphs(paragraphs: readonly NativeParagraph[], context
     let shapedMarker:ShapedRunResult|undefined
     if(measuredParagraph&&paragraph.bullet){
       if(!paragraph.bulletCharacter||!paragraph.runs[0])throw new TextBodyLayoutRefusal('text.paragraphSemanticsUnavailable','native bullet needs one explicit authored character and a source font run')
-      const markerRun={...paragraph.runs[0],text:paragraph.bulletCharacter}
-      shapedMarker=await shapeRun(markerRun,{slideId:state.slide.id,elementId:context.elementId,elementKind:context.elementKind,paragraphIndex,runIndex:0,text:paragraph.bulletCharacter},state)
+      const markerRun={...paragraph.runs[0],text:paragraph.bulletCharacter,...(paragraph.bulletFontFamily ? {fontFamily:paragraph.bulletFontFamily} : {})}
+      shapedMarker=await shapeRun(markerRun,{slideId:state.slide.id,elementId:context.elementId,elementKind:context.elementKind,paragraphIndex,runIndex:0,text:paragraph.bulletCharacter},state,paragraph.bulletFontFamily)
       if(shapedMarker.direction!=='ltr'||shapedMarker.run.status!=='shaped'||indent+shapedMarker.run.advanceInlineEmu>0)throw new TextBodyLayoutRefusal('text.paragraphSemanticsUnavailable','authored hanging indent does not fit the exact shaped marker before the text origin')
     }
     const directions = new Set(shaped.map((item) => item.direction))

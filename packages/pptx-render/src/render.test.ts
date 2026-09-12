@@ -676,6 +676,13 @@ describe('native PPTX RenderTree', () => {
     expect(JSON.stringify(deck)).toBe(before)
   })
 
+  it('does not substitute an authored marker face through resolver aliases or caller overrides', async () => {
+    const element=nativeTextElement('exact-bullet','AB',nativeTextBody(),{x:0,y:0,cx:381000,cy:500000})
+    element.paragraphs=[{...element.paragraphs[0]!,bullet:true,bulletCharacter:'q',bulletFontFamily:'Missing Symbol Font',marginLeftEmu:12700,indentEmu:-12700}]
+    const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+    expect(findNode(tree,'text',element.id).textBody.status).toBe('refused')
+  })
+
   it('uses different first/continuation widths for a positive non-list indent and refuses ambiguous bullet geometry', async () => {
     const base=nativeTextElement('indent','AB CD',nativeTextBody(),{x:0,y:0,cx:50800,cy:500000})
     base.paragraphs=[{...base.paragraphs[0]!,marginLeftEmu:12700,indentEmu:12700}]

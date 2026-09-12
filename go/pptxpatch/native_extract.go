@@ -1975,6 +1975,7 @@ func (extractor *nativeExtractor) extractNativeParagraphs(txBody *nativeXMLNode,
 				}
 				if err := requireOnlyNativeChildren(child,
 					xml.Name{Space: dialect.drawing, Local: "buNone"},
+					xml.Name{Space: dialect.drawing, Local: "buFont"},
 					xml.Name{Space: dialect.drawing, Local: "buChar"}); err != nil {
 					return nil, fmt.Errorf("pptxpatch: native extract: unmodeled paragraph metadata: %w", err)
 				}
@@ -1998,6 +1999,20 @@ func (extractor *nativeExtractor) extractNativeParagraphs(txBody *nativeXMLNode,
 					}
 					paragraph.Bullet = boolPointer(true)
 					paragraph.BulletCharacter = &marker
+				}
+				bulletFont, fontErr := nativeSingleton(child, dialect.drawing, "buFont", false)
+				if fontErr != nil {
+					return nil, fontErr
+				}
+				if bulletFont != nil {
+					if buChar == nil {
+						return nil, unsupportedNativeTextContent("authored bullet font requires an explicit character")
+					}
+					family, err := nativeBulletFontFamily(bulletFont)
+					if err != nil {
+						return nil, err
+					}
+					paragraph.BulletFontFamily = &family
 				}
 				for _, field := range []struct {
 					name   string

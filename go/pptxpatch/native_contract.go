@@ -102,13 +102,14 @@ type NativeTextRun struct {
 }
 
 type NativeParagraph struct {
-	Runs            []NativeTextRun  `json:"runs"`
-	Align           *NativeTextAlign `json:"align,omitempty"`
-	Level           *int64           `json:"level,omitempty"`
-	Bullet          *bool            `json:"bullet,omitempty"`
-	BulletCharacter *string          `json:"bulletCharacter,omitempty"`
-	MarginLeftEmu   *int64           `json:"marginLeftEmu,omitempty"`
-	IndentEmu       *int64           `json:"indentEmu,omitempty"`
+	Runs             []NativeTextRun  `json:"runs"`
+	Align            *NativeTextAlign `json:"align,omitempty"`
+	Level            *int64           `json:"level,omitempty"`
+	Bullet           *bool            `json:"bullet,omitempty"`
+	BulletCharacter  *string          `json:"bulletCharacter,omitempty"`
+	BulletFontFamily *string          `json:"bulletFontFamily,omitempty"`
+	MarginLeftEmu    *int64           `json:"marginLeftEmu,omitempty"`
+	IndentEmu        *int64           `json:"indentEmu,omitempty"`
 }
 
 // NativeTextBodyLayout is the exact v1 horizontal text-frame slice. Extraction

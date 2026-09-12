@@ -92,6 +92,8 @@ export interface NativeParagraph {
   bullet?: boolean
   /** One authored Unicode marker. Native exact marker/font layout may still refuse. */
   bulletCharacter?: string
+  /** Exact authored marker family; never a Unicode replacement or fallback. */
+  bulletFontFamily?: string
   marginLeftEmu?: number
   indentEmu?: number
 }
