@@ -16,7 +16,7 @@ func nativeLevelTextFixture(t *testing.T, strict bool, localLevel bool, ambiguou
 		if strict {
 			drawing = nsDrawingStrict
 		}
-		style := `<p:defaultTextStyle xmlns:a="` + drawing + `"><a:lvl1pPr algn="l" marL="0" indent="0"><a:buNone/><a:defRPr b="0" i="0" sz="2000"><a:latin typeface="Arial"/><a:solidFill><a:srgbClr val="112233"/></a:solidFill></a:defRPr></a:lvl1pPr></p:defaultTextStyle>`
+		style := `<p:defaultTextStyle xmlns:a="` + drawing + `"><a:lvl1pPr algn="l" marL="0" indent="0"><a:buNone/><a:defRPr b="0" i="0" sz="2000"><a:solidFill><a:srgbClr val="112233"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr></a:lvl1pPr></p:defaultTextStyle>`
 		parts["relocated/deck.xml"] = strings.Replace(parts["relocated/deck.xml"], `</p:presentation>`, style+`</p:presentation>`, 1)
 		part := "relocated/slides/slide-a.xml"
 		slide := parts[part]
