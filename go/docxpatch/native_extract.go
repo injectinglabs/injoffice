@@ -3604,9 +3604,18 @@ func (extractor *nativeExtractor) extractSection(node *nativeXMLNode, startsAtBl
 			}
 			section.TitlePage = nativeBool(value)
 		case "pgSz":
-			if !nativeExactLeaf(child, xml.Name{Space: extractor.wordNS, Local: "w"}, xml.Name{Space: extractor.wordNS, Local: "h"}, xml.Name{Space: extractor.wordNS, Local: "orient"}) {
+			if !nativeExactLeaf(child, xml.Name{Space: extractor.wordNS, Local: "w"}, xml.Name{Space: extractor.wordNS, Local: "h"}, xml.Name{Space: extractor.wordNS, Local: "orient"}, xml.Name{Space: extractor.wordNS, Local: "code"}) {
 				extractor.addUnsupported("UNMODELED_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Page-size markup has attributes or children outside the exact v1 subset")
 				continue
+			}
+			// MS-OE376 2.1.219: code selects printer paper; w/h remain the
+			// authored page geometry. Retain the source code, never derive size
+			// from a platform-specific printer table. Word bounds code to 0..118.
+			if _, present := nativeAttr(child, extractor.wordNS, "code"); present {
+				if code, ok := nativeNonnegativeInt64Attr(child, extractor.wordNS, "code"); !ok || code > 118 {
+					extractor.addUnsupported("UNMODELED_SECTION_PROPERTY", "sections", id, extractor.mainPart, child, "Printer paper code is outside the qualified Word subset")
+					continue
+				}
 			}
 			if value, ok := nativeNonnegativeInt64Attr(child, extractor.wordNS, "w"); ok && value > 0 {
 				section.Page.WidthTwips = nativeInt64(value)
