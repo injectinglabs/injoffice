@@ -372,6 +372,25 @@ function combinedNoteImageTableHeaderFixture(): NativeDocxPagePaintPrepareInputV
   return input
 }
 describe('native DOCX page-paint compiler v1', () => {
+  it('limits note host-size policy to clean empty reserved separator paragraphs', () => {
+    const input = noteFixture()
+    const document = input.document as NativeDocxDocumentV1
+    const resolved = input.resolved_layout as NativeDocxResolvedLayoutInputV1
+    const paragraph = document.notes[0]!.blocks[0]!.paragraph!
+    const target = resolved.paragraphs.find(p => p.paragraph_id === paragraph.id)!
+    target.paragraph_mark_properties = { ...target.paragraph_mark_properties }
+    delete target.paragraph_mark_properties.font_size_half_points
+    const fact = { scope_kind: 'paragraph-mark' as const, scope_id: paragraph.id, part_name: paragraph.anchor.part_name, path: paragraph.anchor.path, package_sha256: HASH }
+    const policy = { kind: 'host-default-size-v1', half_points: 22 }
+    expect(projectNativeDocxAbsentFontSizesV1(document, resolved, [fact], policy).applied).toEqual([{ ...fact, chosen_half_points: 22 }])
+    expect(target.paragraph_mark_properties.font_size_half_points).toBeUndefined()
+    const content = structuredClone(document)
+    content.notes[0]!.note_role = 'content'; content.notes[0]!.native_story_id = '3'
+    expect(() => projectNativeDocxAbsentFontSizesV1(content, resolved, [fact], policy)).toThrow('scope anchor')
+    const malformed = structuredClone(document)
+    malformed.unsupported.push({ id: 'unsupported:note', code: 'UNMODELED_NOTE_MARKUP', capability: 'notes', scope_id: document.notes[0]!.id, anchor: paragraph.anchor, preservation: 'preserve-verbatim', message: 'Malformed instruction remains refused' })
+    expect(() => projectNativeDocxAbsentFontSizesV1(malformed, resolved, [fact], policy)).toThrow('scope anchor')
+  })
   it('applies a declared host size only to source-proven omissions in the existing approximate envelope', async () => {
     const input = fixture()
     const document = input.document as NativeDocxDocumentV1

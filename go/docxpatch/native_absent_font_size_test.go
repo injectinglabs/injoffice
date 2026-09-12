@@ -6,6 +6,48 @@ import (
 	"testing"
 )
 
+func TestAbsentFontSizeReservedNotesOnly(t *testing.T) {
+	for _, malformed := range []bool{false, true} {
+		parts := nativeNotePagePaintParts()
+		parts["[Content_Types].xml"] = strings.Replace(parts["[Content_Types].xml"], `</Types>`, `<Override PartName="/Custom/Styles.XML" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`, 1)
+		parts["Custom/_RELS/Main.XML.RELS"] = strings.Replace(parts["Custom/_RELS/Main.XML.RELS"], `</Relationships>`, `<Relationship Id="rStyles" Type="`+relBaseTransitional+`styles" Target="Styles.XML"/></Relationships>`, 1)
+		parts["Custom/Styles.XML"] = `<w:styles xmlns:w="` + testW + `"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"/></w:styles>`
+		for _, name := range []string{"Custom/Notes/Foot.XML", "Custom/Notes/End.XML"} {
+			parts[name] = strings.ReplaceAll(parts[name], `<w:t>---</w:t>`, `<w:separator/>`)
+			parts[name] = strings.ReplaceAll(parts[name], `<w:t>continued</w:t>`, `<w:continuationSeparator/>`)
+			if malformed {
+				parts[name] = strings.ReplaceAll(parts[name], `<w:separator/>`, `<w:separator extra="bad"/>`)
+			}
+		}
+		data := buildNativeDOCX(t, nativeEntries(parts))
+		before := bytes.Clone(data)
+		facts, err := nativeAbsentFontSizes(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := 0
+		for _, fact := range facts {
+			if !strings.Contains(fact.PartName, "Notes/") {
+				continue
+			}
+			count++
+			if fact.ScopeKind != "paragraph-mark" || strings.Contains(fact.Path, "note[3]") {
+				t.Fatalf("content note qualified: %#v", fact)
+			}
+		}
+		want := 4
+		if malformed {
+			want = 0
+		}
+		if count != want {
+			t.Fatalf("note facts=%d want%d: %#v", count, want, facts)
+		}
+		if !bytes.Equal(data, before) {
+			t.Fatal("source mutated")
+		}
+	}
+}
+
 func TestAbsentFontSizeOwnerRejectsAmbiguousAndForeignLayers(t *testing.T) {
 	for _, markup := range []string{
 		`<w:rPr/><w:rPr/>`,

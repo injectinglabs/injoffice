@@ -38,6 +38,24 @@ func nativeAbsentFontSizes(data []byte) ([]NativeDocxAbsentFontSizeV1, error) {
 	}
 	stories := append([]NativeStoryV1{r.doc.Body}, r.doc.Headers...)
 	stories = append(stories, r.doc.Footers...)
+	for _, note := range r.doc.Notes {
+		if note.Anchor == nil || note.NativeStoryID == nil || !(note.NoteRole == "separator" && *note.NativeStoryID == "-1" || note.NoteRole == "continuation-separator" && *note.NativeStoryID == "0") {
+			continue
+		}
+		node := r.nodeForAnchor(*note.Anchor)
+		if node == nil || !nativeExactNoteSentinel(node, r.wordNS, note.NoteRole) {
+			continue
+		}
+		clean := true
+		for _, diagnostic := range r.doc.Unsupported {
+			if diagnostic.ScopeID == note.ID || diagnostic.Anchor != nil && diagnostic.Anchor.PartName == note.PartName {
+				clean = false
+			}
+		}
+		if clean {
+			stories = append(stories, note)
+		}
+	}
 	for _, story := range stories {
 		for _, block := range story.Blocks {
 			// Table cascade exceptions are deliberately outside this first policy.

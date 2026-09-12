@@ -127,6 +127,15 @@ export function projectNativeDocxAbsentFontSizesV1(
     ...document.value.body.blocks,
     ...document.value.headers.flatMap((s) => s.blocks),
     ...document.value.footers.flatMap((s) => s.blocks),
+    // Raw sentinel qualification is performed by the source producer. Retain
+    // the decoded reserved identity, empty content and clean-part boundaries.
+    ...document.value.notes.filter((s) =>
+      ((s.note_role === "separator" && s.native_story_id === "-1") ||
+        (s.note_role === "continuation-separator" && s.native_story_id === "0")) &&
+      s.blocks.length === 1 &&
+      s.blocks[0]?.paragraph?.runs.length === 0 &&
+      !document.value.unsupported.some((d) => d.scope_id === s.id || d.anchor?.part_name === s.part_name)
+    ).flatMap((s) => s.blocks),
   ].flatMap((block) => block.paragraph ? [block.paragraph] : []);
   const resolved = structuredClone(layout.value);
   const applied: NativeDocxApproximatedFontSizeV1[] = [];
