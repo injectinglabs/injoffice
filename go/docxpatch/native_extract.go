@@ -2463,8 +2463,21 @@ func (extractor *nativeExtractor) extractDrawing(partName, paragraphID string, n
 	if !okWidth || !okHeight {
 		return refuse("INVALID_DRAWING_EXTENT", "Picture extent must contain positive safe cx/cy values", extent)
 	}
-	if effects := directNativeChildren(container, wpNS, "effectExtent"); len(effects) > 1 || (len(effects) == 1 && !nativeZeroExtent(effects[0])) {
-		return refuse("DRAWING_EFFECTS_PRESERVED", "Non-zero DrawingML effect extents are preserved but not projected", container)
+	var inlineEffects *NativeDrawingCropV1
+	if effects := directNativeChildren(container, wpNS, "effectExtent"); len(effects) > 0 {
+		if len(effects) != 1 {
+			return refuse("DRAWING_EFFECTS_PRESERVED", "Ambiguous drawing effect extents", container)
+		}
+		if !nativeZeroExtent(effects[0]) {
+			if container.Name.Local != "inline" {
+				return refuse("DRAWING_EFFECTS_PRESERVED", "Floating drawing effect extents remain unqualified", container)
+			}
+			var valid bool
+			inlineEffects, valid = nativeInlineEffectExtents(effects[0])
+			if !valid {
+				return refuse("DRAWING_EFFECTS_PRESERVED", "Inline effect extents must be exact bounded nonnegative EMUs", container)
+			}
+		}
 	}
 	for _, attrName := range []string{"distT", "distB", "distL", "distR"} {
 		if raw, present := nativeUnqualifiedAttr(container, attrName); present && raw != "0" {
@@ -2529,8 +2542,9 @@ func (extractor *nativeExtractor) extractDrawing(partName, paragraphID string, n
 		ID: extractor.objectID("drawing", partName, node, ""), Anchor: extractor.anchor(partName, node),
 		RelationshipID: nativeString(relID), MediaPart: nativeString(mediaPart), ContentType: nativeString(contentType),
 		Placement: "inline", WidthEMU: nativeInt64(width), HeightEMU: nativeInt64(height),
-		SourceCrop: crop,
-		EditPolicy: nativeReadOnlyPolicy("EXTRACT_ONLY", "Native picture extraction does not yet expose guarded drawing replacement"),
+		SourceCrop:            crop,
+		InlineEffectExtentEMU: inlineEffects,
+		EditPolicy:            nativeReadOnlyPolicy("EXTRACT_ONLY", "Native picture extraction does not yet expose guarded drawing replacement"),
 	}
 	xfrm := firstDirectNativeChild(firstDirectNativeChild(picture, picNS, "spPr"), aNS, "xfrm")
 	if rotation, ok := nativeUnqualifiedAttr(xfrm, "rot"); ok {
@@ -2791,6 +2805,9 @@ func nativePositiveInt64Attr(node *nativeXMLNode, namespace, local string) (int6
 }
 
 func nativeZeroExtent(node *nativeXMLNode) bool {
+	if !nativeExactLeaf(node, xml.Name{Local: "l"}, xml.Name{Local: "t"}, xml.Name{Local: "r"}, xml.Name{Local: "b"}) {
+		return false
+	}
 	for _, name := range []string{"l", "t", "r", "b"} {
 		value, ok := nativeUnqualifiedAttr(node, name)
 		if !ok || value != "0" {

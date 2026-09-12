@@ -1434,16 +1434,16 @@ async function shapeAuthoredRun(context: NativeShapingContext, paragraphID: stri
     const direction = (level & 1) === 1 ? 'rtl' : 'ltr'
     const metrics: ScaledLineMetrics = {
       fontSizeMilliPoints: image.height_millipoints,
-      ascentMilliPoints: image.height_millipoints,
-      descentMilliPoints: 0,
+      ascentMilliPoints: image.layout_ascent_millipoints,
+      descentMilliPoints: image.layout_descent_millipoints,
       lineGapMilliPoints: 0,
-      lineHeightMilliPoints: image.height_millipoints,
+      lineHeightMilliPoints: image.layout_ascent_millipoints - image.layout_descent_millipoints,
     }
     return [{ kind: 'atom', atom: {
       sourceKind: 'image', sourceID: run.id, startUtf16: 0, endUtf16: 0, text: '',
       direction, bidiLevel: level, script: 'Zyyy', language: resolved.properties.language ?? 'und',
       whitespace: false, unsafeToBreak: false, breakAfter: false, dynamicTab: false,
-      advance: image.floating ? 0 : image.width_millipoints, metrics: image.floating ? emptyMetrics() : metrics, glyphs: [],
+      advance: image.floating ? 0 : image.layout_width_millipoints, metrics: image.floating ? emptyMetrics() : metrics, glyphs: [],
     } }]
   }
   if (run.kind === 'reference') {

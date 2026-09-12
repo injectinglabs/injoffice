@@ -1028,9 +1028,9 @@ async function compileDecodedPagePaint(request: NativeDocxPagePaintRequestV1, ou
             const image = qualified.value
             const asset = mediaAssets.get(image.asset_id)
             if (!asset || asset.part_name !== image.part_name || asset.content_type !== image.content_type || asset.content_digest !== image.content_digest) return { ok: true, value: refusal(provenance, 'identity-mismatch', fragment.id, 'Image fragment does not exact-join one canonical content-addressed media asset') }
-            if (fragment.advance_inline_millipoints !== (image.floating ? 0 : image.width_millipoints) || fragment.ascent_millipoints !== (image.floating ? 0 : image.height_millipoints) || fragment.descent_millipoints !== 0 || fragment.line_gap_millipoints !== 0) return { ok: true, value: refusal(provenance, 'identity-mismatch', fragment.id, 'Image fragment geometry changed after exact EMU projection') }
+            if (fragment.advance_inline_millipoints !== (image.floating ? 0 : image.layout_width_millipoints) || fragment.ascent_millipoints !== (image.floating ? 0 : image.layout_ascent_millipoints) || fragment.descent_millipoints !== (image.floating ? 0 : image.layout_descent_millipoints) || fragment.line_gap_millipoints !== 0) return { ok: true, value: refusal(provenance, 'identity-mismatch', fragment.id, 'Image fragment geometry changed after exact EMU projection') }
             const y = image.floating?.y_millipoints ?? baselineY - image.height_millipoints
-            const x = image.floating?.x_millipoints ?? fragmentX
+            const x = image.floating?.x_millipoints ?? fragmentX + image.content_offset_x_millipoints
             if (image.floating && (x + image.width_millipoints > page.width_millipoints || y + image.height_millipoints > page.height_millipoints)) return { ok: true, value: refusal(provenance, 'unsupported-source', fragment.id, 'Floating image must fit entirely inside its anchor paragraph page') }
             if (!Number.isSafeInteger(y) || y < 0) return { ok: true, value: refusal(provenance, 'resource-limit', fragment.id, 'Image placement exceeds bounded non-negative page coordinates') }
             contentCommands.push({
@@ -1295,7 +1295,7 @@ export function decodeNativeDocxPagePaintForRequestV1(value: unknown, requestVal
             if (fragment.source_kind === 'image') {
               const run = nativeRuns.get(fragment.source_id)
               const qualified = run?.drawing ? qualifyNativeDocxInlineImageV1(request.value.pagination_request.document, run.id, run.drawing) : undefined
-              if (qualified?.ok) expectedImages.push({ floating: qualified.value.floating, pageIndex, pageID: page.id, placedLineID: placed.id, lineID: line.id, fragmentID: fragment.id, sourceID: fragment.source_id, drawingID: qualified.value.drawing_id, assetID: qualified.value.asset_id, x: qualified.value.floating?.x_millipoints ?? fragmentX, y: qualified.value.floating?.y_millipoints ?? placed.y_millipoints + line.ascent_millipoints - qualified.value.height_millipoints, width: qualified.value.width_millipoints, height: qualified.value.height_millipoints, transform: qualified.value.transform, crop: qualified.value.source_crop })
+              if (qualified?.ok) expectedImages.push({ floating: qualified.value.floating, pageIndex, pageID: page.id, placedLineID: placed.id, lineID: line.id, fragmentID: fragment.id, sourceID: fragment.source_id, drawingID: qualified.value.drawing_id, assetID: qualified.value.asset_id, x: qualified.value.floating?.x_millipoints ?? fragmentX + qualified.value.content_offset_x_millipoints, y: qualified.value.floating?.y_millipoints ?? placed.y_millipoints + line.ascent_millipoints - qualified.value.height_millipoints, width: qualified.value.width_millipoints, height: qualified.value.height_millipoints, transform: qualified.value.transform, crop: qualified.value.source_crop })
             }
             fragmentX += fragment.advance_inline_millipoints
           })

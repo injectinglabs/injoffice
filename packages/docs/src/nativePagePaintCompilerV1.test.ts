@@ -1000,6 +1000,25 @@ describe('native DOCX page-paint compiler v1', () => {
     })
   })
 
+  it('reserves exact inline effect extents without resizing image content', async () => {
+    const input = imageFixture(), doc = input.document as NativeDocxDocumentV1
+    doc.body.blocks[0]!.paragraph!.runs[0]!.drawing!.inline_effect_extent_emu = { left: 12_700, top: 25_400, right: 38_100, bottom: 50_800 }
+    const prepared = await prepareNativeDocxPagePaintV1(input)
+    const fragment = prepared.page_paint_request.pagination_request.shaped_lines.paragraphs[0]!.lines[0]!.fragments.find(f => f.source_kind === 'image')!
+    expect(fragment).toMatchObject({ advance_inline_millipoints: 14_000, ascent_millipoints: 12_000, descent_millipoints: -4_000 })
+    const completed = await completeNativeDocxPagePaintV1({ prepared, outline_results: prepared.outline_requests.map(outline => ({ status: 'outlined' as const, face: outline.face, glyph_id: outline.glyph_id, units_per_em: 2_048, path: [{ kind: 'move_to' as const, x: 0, y: 0 }, { kind: 'line_to' as const, x: 1000, y: 0 }, { kind: 'line_to' as const, x: 1000, y: 1000 }, { kind: 'close_path' as const }] })) })
+    expect(completed.page_paint_output.status).toBe('painted')
+    expect(completed.page_paint_output.pages.flatMap(p => p.commands).find(c => c.kind === 'paint_inline_image')).toMatchObject({ x_millipoints: 73_000, width_millipoints: 10_000, height_millipoints: 10_000 })
+    const invalid = imageFixture()
+    ;(invalid.document as NativeDocxDocumentV1).body.blocks[0]!.paragraph!.runs[0]!.drawing!.inline_effect_extent_emu = { left: 1, top: 0, right: 0, bottom: 0 }
+    await expect(prepareNativeDocxPagePaintV1(invalid)).rejects.toThrow('authoritative media assets')
+    const overflow = imageFixture(), overflowDoc = overflow.document as NativeDocxDocumentV1
+    const drawing = overflowDoc.body.blocks[0]!.paragraph!.runs[0]!.drawing!
+    drawing.width_emu = 12_700_000_000
+    drawing.inline_effect_extent_emu = {left:127,top:0,right:0,bottom:0}
+    expect(qualifyNativeDocxInlineImageV1(overflowDoc,'run:image',drawing)).toMatchObject({ok:false,code:'resource-limit'})
+  })
+
   it('orders an inline image as an attested UAX #9 object inside an RTL paragraph', async () => {
     const input = imageFixture()
     const document = input.document as NativeDocxDocumentV1
