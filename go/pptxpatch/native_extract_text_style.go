@@ -119,7 +119,7 @@ func resolveNativeLocalTextStyles(body *nativeXMLNode, dialect nativeExtractDial
 }
 
 func validateNativeTextStyleProperties(node *nativeXMLNode, dialect nativeExtractDialect, paragraph bool, theme nativeResolvedTheme) error {
-	attrs := []xml.Name{{Local: "b"}, {Local: "i"}, {Local: "sz"}, {Local: "dirty"}, {Local: "smtClean"}, {Local: "lang"}}
+	attrs := []xml.Name{{Local: "b"}, {Local: "i"}, {Local: "sz"}, {Local: "dirty"}, {Local: "smtClean"}, {Local: "err"}, {Local: "lang"}}
 	names := []string{"latin", "ea", "cs", "solidFill"}
 	if paragraph {
 		attrs = []xml.Name{{Local: "algn"}, {Local: "lvl"}, {Local: "marL"}, {Local: "indent"}}
@@ -136,7 +136,7 @@ func validateNativeTextStyleProperties(node *nativeXMLNode, dialect nativeExtrac
 			if !validNativeLanguage(attr.Value) {
 				err = fmt.Errorf("invalid authored language tag")
 			}
-		case "b", "i", "dirty", "smtClean":
+		case "b", "i", "dirty", "smtClean", "err":
 			_, err = nativeBool(attr.Value)
 		case "sz":
 			_, err = parseCanonicalNativeInt(attr.Value, 1, 400000)
@@ -201,13 +201,13 @@ func validateNativeTextStyleProperties(node *nativeXMLNode, dialect nativeExtrac
 	return nil
 }
 
-// These two Boolean flags track spelling/smart-tag checking, not glyph layout.
+// These Boolean flags track spelling/smart-tag checking, not glyph layout.
 // They are validated before cascade resolution and omitted only from the owned
 // paint projection. Language is retained for shaping; kumimoji remains strict.
 func nativeTextPaintAttrs(attrs []xml.Attr) []xml.Attr {
 	result := make([]xml.Attr, 0, len(attrs))
 	for _, attr := range attrs {
-		if attr.Name.Space == "" && (attr.Name.Local == "dirty" || attr.Name.Local == "smtClean") {
+		if attr.Name.Space == "" && (attr.Name.Local == "dirty" || attr.Name.Local == "smtClean" || attr.Name.Local == "err") {
 			continue
 		}
 		result = append(result, attr)
@@ -221,7 +221,7 @@ func nativeHasTextCheckingMetadata(node *nativeXMLNode, dialect nativeExtractDia
 	}
 	if node.Name.Space == dialect.drawing && (node.Name.Local == "rPr" || node.Name.Local == "defRPr") {
 		for _, attr := range node.Attrs {
-			if attr.Name.Space == "" && (attr.Name.Local == "dirty" || attr.Name.Local == "smtClean") {
+			if attr.Name.Space == "" && (attr.Name.Local == "dirty" || attr.Name.Local == "smtClean" || attr.Name.Local == "err") {
 				return true
 			}
 		}

@@ -82,7 +82,7 @@ func TestNativeTextCheckingFlagsPreviewWithoutMutationPermission(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, metadata := range []string{`dirty="0" smtClean="1"`, `dirty="true" smtClean="false"`} {
+		for _, metadata := range []string{`dirty="0" smtClean="1"`, `dirty="true" smtClean="false"`, `err="1"`, `err="0"`, `err="true" dirty="0"`, `err="false" smtClean="0"`} {
 			original := nativeTextCheckingFixture(t, strict, metadata)
 			before := bytes.Clone(original)
 			deck, err := ExtractNativePPTX(original, nativeMutationExtractOptions())
@@ -112,7 +112,7 @@ func TestNativeTextCheckingFlagsPreviewWithoutMutationPermission(t *testing.T) {
 }
 
 func TestNativeTextCheckingFlagsRemainStrict(t *testing.T) {
-	for _, metadata := range []string{`dirty="yes"`, `smtClean="2"`, `dirty="0" dirty="1"`, `kumimoji="1"`, `lang="en_US"`, `unknown="0"`, `x:dirty="0" xmlns:x="urn:other"`} {
+	for _, metadata := range []string{`dirty="yes"`, `smtClean="2"`, `dirty="0" dirty="1"`, `err="yes"`, `err="2"`, `err="0" err="1"`, `x:err="0" xmlns:x="urn:other"`, `kumimoji="1"`, `lang="en_US"`, `unknown="0"`, `x:dirty="0" xmlns:x="urn:other"`} {
 		deck, err := ExtractNativePPTX(nativeTextCheckingFixture(t, false, metadata), nativeTestExtractOptions())
 		if err == nil {
 			for _, element := range deck.Slides[0].Elements {
