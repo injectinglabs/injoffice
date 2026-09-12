@@ -3,7 +3,7 @@
 
 export const PPTX_NATIVE_SCHEMA_ID = "https://injoffice.dev/schemas/pptx-native-v1.schema.json" as const
 export const PPTX_NATIVE_CONTRACT_VERSION = "pptx-native/v1" as const
-export const PPTX_NATIVE_SCHEMA_SHA256 = "3104d3f0d0980bcf3838045808206f58294efa6712acdfb51d3657de7d6dc5ce" as const
+export const PPTX_NATIVE_SCHEMA_SHA256 = "dc4354cecc353c33a22b297fb72f28a5e87094924676b15e44b184e8f1af40fd" as const
 export const PPTX_NATIVE_RESOURCE_LIMITS = {
   "maxJsonBytes": 268435456,
   "maxNodes": 1000000,
@@ -249,6 +249,7 @@ export const PPTX_NATIVE_OBJECT_BINDINGS = {
     "properties": [
       "animation",
       "assetId",
+      "clip",
       "compatibility",
       "crop",
       "id",
@@ -1650,6 +1651,9 @@ export const PPTX_NATIVE_SCHEMA = {
         },
         "crop": {
           "$ref": "#/$defs/pictureCrop"
+        },
+        "clip": {
+          "const": "roundRect"
         },
         "animation": {
           "$ref": "#/$defs/animation"

@@ -1847,6 +1847,9 @@ async function compileElement(element: NativeElement, zIndex: number, depth: num
         ...(element.headEnd?{headEnd:{...element.headEnd}}:{}),...(element.tailEnd?{tailEnd:{...element.tailEnd}}:{}),
       }
     case 'picture': {
+      if (element.compatibility.diagnostics.some((diagnostic) => diagnostic.code === 'pptx.picture-geometry-unavailable')) {
+        return { kind: 'placeholder', ...base, reason: 'preserveOnly', label: 'Unsupported picture geometry preserved' }
+      }
       if (element.compatibility.diagnostics.some((diagnostic) => diagnostic.code === 'pptx.picture-crop-unavailable')) {
         return { kind: 'placeholder', ...base, reason: 'preserveOnly', label: 'Unsupported picture crop preserved' }
       }
@@ -1855,6 +1858,7 @@ async function compileElement(element: NativeElement, zIndex: number, depth: num
         kind: 'image', ...base, role: 'picture', assetId: asset.id, contentType: asset.contentType, sha256: asset.sha256,
         byteLength: asset.byteLength, resolutionSource: asset.dataBase64 === undefined ? 'host' : 'sourceDeck',
         ...(element.crop ? { crop: { ...element.crop } } : {}),
+        ...(element.clip === 'roundRect' ? { clip: { kind: 'roundRect' as const, rect: base.bounds, radiusEmu: Math.round(Math.min(base.bounds.cx, base.bounds.cy) * 16667 / 100000) } } : {}),
       }
       return image
     }

@@ -212,6 +212,7 @@ type NativeElement struct {
 	FlipH          *bool                  `json:"flipH,omitempty"`
 	AssetID        *string                `json:"assetId,omitempty"`
 	Crop           *NativePictureCrop     `json:"crop,omitempty"`
+	Clip           *string                `json:"clip,omitempty"`
 	Table          *NativeTable           `json:"table,omitempty"`
 	Chart          *NativeOpaqueChart     `json:"chart,omitempty"`
 	ChildTransform *NativeTransform       `json:"childTransform,omitempty"`

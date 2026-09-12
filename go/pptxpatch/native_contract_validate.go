@@ -339,6 +339,9 @@ func (v *nativeValidator) element(origin NativeOrigin, element NativeElement, p 
 		if !asset && element.Crop != nil {
 			v.add(p+".crop", "native.elementUnion", "is not allowed for this element kind")
 		}
+		if !asset && element.Clip != nil {
+			v.add(p+".clip", "native.elementUnion", "is not allowed for this element kind")
+		}
 		if !table && element.Table != nil {
 			v.add(p+".table", "native.elementUnion", "is not allowed for this element kind")
 		}
@@ -416,6 +419,9 @@ func (v *nativeValidator) element(origin NativeOrigin, element NativeElement, p 
 		}
 	case NativeElementKindPicture:
 		commonForbidden(false, false, false, false, false, true, false, false, false, false)
+		if element.Clip != nil && *element.Clip != "roundRect" {
+			v.add(p+".clip", "schema.const", "only the default roundRect picture clip is supported")
+		}
 		if crop := element.Crop; crop != nil {
 			valid := true
 			for _, side := range []struct {

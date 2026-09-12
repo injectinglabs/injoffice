@@ -255,6 +255,26 @@ function findNode<T extends RenderNode['kind']>(tree: Awaited<ReturnType<typeof 
 }
 
 describe('native PPTX RenderTree', () => {
+  it('clips source-cropped pictures to exact default roundRect in their transformed local frame', async () => {
+    const deck=structuredClone(parsedFull)
+    const picture=deck.slides[0]!.elements.find(e=>e.kind==='picture')!
+    if(picture.kind!=='picture')throw new Error('picture fixture')
+    picture.clip='roundRect';picture.crop={left:10000,top:20000,right:30000,bottom:0}
+    picture.transform.cx=3000000;picture.transform.cy=2000000
+    const before=JSON.stringify(deck)
+    const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+    const image=findNode(tree,'image',picture.id)
+    expect(image.clip).toEqual({kind:'roundRect',rect:{x:0,y:0,cx:3000000,cy:2000000},radiusEmu:333340})
+    const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+    const commands=surface.finish(), index=commands.findIndex(c=>c.kind==='image'&&c.sourceElementId===picture.id)
+    expect(commands[index-1]).toEqual({kind:'clipRoundRect',rect:image.bounds,radiusEmu:333340})
+    expect(commands[index-2]).toEqual({kind:'transform',transform:image.transform})
+    expect(commands[index]).toMatchObject({crop:picture.crop,rect:image.bounds})
+    expect(JSON.stringify(deck)).toBe(before)
+    picture.compatibility={status:'preserveOnly',diagnostics:[{severity:'warning',code:'pptx.picture-geometry-unavailable',message:'Unsupported adjusted mask'}]}
+    const refused=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+    expect(findNode(refused,'placeholder',picture.id).label).toBe('Unsupported picture geometry preserved')
+  })
   it('preserves strict refusal for marker layout and inherited paragraph margins', async () => {
     for (const override of [{ bullet: true, bulletCharacter: '▪' }, { marginLeftEmu: 300000 }, { indentEmu: -100000 }]) {
       const element = nativeTextElement('styled-paragraph', 'Hello', nativeTextBody())
@@ -419,6 +439,7 @@ describe('native PPTX RenderTree', () => {
           passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
         }, {
           kind: 'picture', id: 'nested-native-picture', provenance: 'authored', assetId: 'nested-picture-asset',
+          clip: 'roundRect',
           transform: { x: 24, y: 34, cx: 10, cy: 5 }, passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
         }],
         passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
@@ -437,6 +458,7 @@ describe('native PPTX RenderTree', () => {
     expect(outer).not.toHaveProperty('clip')
     expect(outer).toMatchObject({ transform: { aPpm: 20_000_000_000, dPpm: 20_000_000_000, txEmu: -1_000_000, tyEmu: -2_000_000 } })
     expect(inner).not.toHaveProperty('clip')
+    expect(children[2]?.clip).toEqual({kind:'roundRect',rect:{x:0,y:0,cx:10,cy:5},radiusEmu:1})
     expect(inner).toMatchObject({ kind: 'group', transform: { aPpm: 2_000_000, dPpm: 2_000_000, txEmu: 130, tyEmu: 210 } })
     expect(children.map((child) => [child.sourceElementId, child.kind])).toEqual([
       ['nested-native-shape', 'shape'], ['nested-native-text', 'text'], ['nested-native-picture', 'image'],

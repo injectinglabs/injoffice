@@ -213,6 +213,8 @@ export interface NativePictureElement extends NativeElementBase {
   kind: 'picture'
   assetId: string
   crop?: NativePictureCrop
+  /** Exact DrawingML roundRect preset with its default (empty avLst) adjustment. */
+  clip?: 'roundRect'
 }
 
 export interface NativeTableElement extends NativeElementBase {

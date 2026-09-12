@@ -54,7 +54,7 @@ export interface RenderTransform {
   readonly tyEmu: number
 }
 
-export interface RenderClip { readonly kind: 'rect'; readonly rect: RenderRect }
+export type RenderClip = { readonly kind: 'rect'; readonly rect: RenderRect } | { readonly kind: 'roundRect'; readonly rect: RenderRect; readonly radiusEmu: number }
 
 export type RenderPathCommand =
   | { readonly kind: 'moveTo'; readonly x: number; readonly y: number }
