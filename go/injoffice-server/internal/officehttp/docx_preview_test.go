@@ -273,6 +273,26 @@ func TestDOCXPreviewRealWorker(t *testing.T) {
 	})
 }
 
+func TestApproximateHostFontSizePolicyRequiresEligibleAbsence(t *testing.T) {
+	for _, status := range []string{"eligible", "ineligible"} {
+		eligibility := &docxpatch.NativeDocxApproximationEligibilityV1{Status: status, AbsentFontSizes: []docxpatch.NativeDocxAbsentFontSizeV1{{ScopeKind: "paragraph-mark", ScopeID: "paragraph:one"}}}
+		operation, input := docxApproximateWorkerInput(map[string]any{}, eligibility)
+		if operation != "render-approximate" {
+			t.Fatal(operation)
+		}
+		policy, exists := input["font_size_policy"]
+		if exists != (status == "eligible") {
+			t.Fatalf("unqualified host policy: %s %#v", status, input)
+		}
+		if exists {
+			value := policy.(map[string]any)
+			if value["kind"] != "host-default-size-v1" || value["half_points"] != 22 {
+				t.Fatal(value)
+			}
+		}
+	}
+}
+
 func assertDOCXPreviewPainted(t *testing.T, data []byte, options DOCXPreviewOptions) {
 	t.Helper()
 	handler := NewHandlerWithDOCXPreview(nil, options)

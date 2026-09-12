@@ -183,6 +183,21 @@ func ResolveNativeDocumentLayout(data []byte) (*NativeResolvedLayoutInputV1, err
 // ResolveNativeDocumentLayoutV1WithOptions preserves the extractor's durable
 // identity options while returning a separate, derived layout-input model.
 func ResolveNativeDocumentLayoutV1WithOptions(data []byte, options NativeExtractionOptions) (*NativeResolvedLayoutInputV1, error) {
+	resolver, err := newNativeLayoutResolver(data, options)
+	if err != nil {
+		return nil, err
+	}
+	result, err := resolver.resolve()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := EncodeNativeResolvedLayoutInputV1(result); err != nil {
+		return nil, fmt.Errorf("docxpatch: native style resolution output is invalid: %w", err)
+	}
+	return result, nil
+}
+
+func newNativeLayoutResolver(data []byte, options NativeExtractionOptions) (*nativeLayoutResolver, error) {
 	doc, err := ExtractNativeDocumentV1WithOptions(data, options)
 	if err != nil {
 		return nil, err
@@ -210,14 +225,7 @@ func ResolveNativeDocumentLayoutV1WithOptions(data []byte, options NativeExtract
 	if err := resolver.loadParts(); err != nil {
 		return nil, err
 	}
-	result, err := resolver.resolve()
-	if err != nil {
-		return nil, err
-	}
-	if _, err := EncodeNativeResolvedLayoutInputV1(result); err != nil {
-		return nil, fmt.Errorf("docxpatch: native style resolution output is invalid: %w", err)
-	}
-	return result, nil
+	return resolver, nil
 }
 
 // EncodeNativeResolvedLayoutInputV1 validates and deterministically encodes a

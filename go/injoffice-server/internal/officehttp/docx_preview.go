@@ -260,6 +260,13 @@ func handleDOCXPreviewMode(w http.ResponseWriter, r *http.Request, options DOCXP
 }
 
 func docxApproximateWorkerInput(input map[string]any, eligibility *docxpatch.NativeDocxApproximationEligibilityV1) (string, map[string]any) {
+	addFontPolicy := func(request map[string]any) map[string]any {
+		if eligibility != nil && eligibility.Status == "eligible" && len(eligibility.AbsentFontSizes) > 0 {
+			// A declared preview-host choice, never an authored or Word default.
+			request["font_size_policy"] = map[string]any{"kind": "host-default-size-v1", "half_points": 22}
+		}
+		return request
+	}
 	layout, _ := input["resolved_layout"].(*docxpatch.NativeResolvedLayoutInputV1)
 	if layout != nil {
 		for _, table := range layout.Tables {
@@ -271,8 +278,8 @@ func docxApproximateWorkerInput(input map[string]any, eligibility *docxpatch.Nat
 			if settings == nil || settings.Profile != "word-modern-default" {
 				request["legacy_eligibility"] = eligibility
 			}
-			return "render-auto-borders", request
+			return "render-auto-borders", addFontPolicy(request)
 		}
 	}
-	return "render-approximate", map[string]any{"prepare": input, "eligibility": eligibility}
+	return "render-approximate", addFontPolicy(map[string]any{"prepare": input, "eligibility": eligibility})
 }
