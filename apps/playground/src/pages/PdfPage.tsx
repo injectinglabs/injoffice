@@ -10,6 +10,7 @@ import {
 } from '../design-system/primitives'
 import '../design-system/live-create-edit.css'
 import type { MarkupType } from '../../../../packages/pdf/src/annotate/types'
+import type { TextAppearanceFont } from '../../../../packages/pdf/src/annotate/forms'
 import type { PdfDocumentInfo } from '../../../../packages/pdf/src/types'
 import {
   configurePdfWorker,
@@ -125,6 +126,7 @@ export default function PdfPage() {
   const [annots, setAnnots] = useState<PdfAnnot[]>([])
   const [fields, setFields] = useState<PdfFormField[]>([])
   const [formNotice, setFormNotice] = useState<string | null>(null)
+  const [formAppearanceFont, setFormAppearanceFont] = useState<TextAppearanceFont | 'viewer'>('viewer')
   const [noteText, setNoteText] = useState('Shared note')
   const [hostOld, setHostOld] = useState('InjOffice')
   const [hostNew, setHostNew] = useState('InjOffice PDF')
@@ -194,7 +196,7 @@ export default function PdfPage() {
     setInfo('')
     setFormNotice(null)
     try {
-      const result = await applyPdfFormValues(bytes, fields)
+      const result = await applyPdfFormValues(bytes, fields, formAppearanceFont === 'viewer' ? undefined : { textAppearance: { font: formAppearanceFont } })
       const message = pdfFormResultMessage(result)
       setFormNotice(message)
       if (result.applied > 0) await applyBytes(result.bytes, message)
@@ -376,6 +378,7 @@ export default function PdfPage() {
       const candidate = await PdfViewerDocument.load(nextBytes, getPdfLoadOptions())
       try { await candidate.getPage(1) } finally { await candidate.destroy() }
       setFileName(file.name || 'document.pdf')
+      setFormAppearanceFont('viewer')
       setEdited(false)
       setHistory({ past: [], future: [] })
       setPage(1)
@@ -587,6 +590,18 @@ export default function PdfPage() {
           {inspector === 'forms' && (
             <div className="ioc-panel ds-panel">
               <span className="ds-eyebrow">Fill form fields</span>
+              <DsField label="Saved text appearance">
+                <DsSelect aria-label="Saved text appearance" value={formAppearanceFont} disabled={locked} onChange={(event) => {
+                  setFormAppearanceFont(event.target.value as TextAppearanceFont | 'viewer')
+                  setFormNotice(null)
+                }}>
+                  <option value="viewer">Let the PDF viewer generate it</option>
+                  <option value="Helvetica">Generate with Helvetica</option>
+                  <option value="Times-Roman">Generate with Times Roman</option>
+                  <option value="Courier">Generate with Courier</option>
+                </DsSelect>
+              </DsField>
+              <p className="ds-muted">Choose a font to save fresh appearances for supported single-line text fields using printable ASCII. This replaces the text font; it does not preserve the original typography. Unsupported text fields are skipped. Other field types may still depend on the PDF viewer.</p>
               {formNotice && <p role="status" className="ds-muted" aria-live="polite">{formNotice}</p>}
               {fields.length === 0 ? <p className="ds-muted">No form fields in this file.</p> : fields.map((field, index) => (
                 <DsField key={field.name} label={field.name}>
