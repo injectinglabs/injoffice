@@ -3390,6 +3390,7 @@ func (extractor *nativeExtractor) extractTable(partName string, node *nativeXMLN
 					table.Borders = borders
 				} else {
 					unsafe = true
+					extractor.addUnsupported("UNMODELED_TABLE_PROPERTY", "table-properties", id, partName, property, "Table borders do not have an exact supported source color and structure")
 				}
 			} else {
 				unsafe = true

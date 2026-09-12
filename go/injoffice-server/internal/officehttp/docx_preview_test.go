@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/injectinglabs/injoffice/go/docxpatch"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -73,11 +74,30 @@ func TestDOCXPreviewOperationIsSelectedByRoute(t *testing.T) {
 	if err := os.WriteFile(worker, []byte(code), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, operation := range []string{"render", "render-approximate"} {
+	for _, operation := range []string{"render", "render-approximate", "render-auto-borders"} {
 		result, err := compilePreviewWorkerOperation(context.Background(), worker, "injoffice.docx.page-paint-worker", operation, map[string]any{"op": "caller-cannot-override"}, 1024, 1024)
 		if err != nil || string(result) != fmt.Sprintf(`{"operation":%q}`, operation) {
 			t.Fatalf("wrong operation: %s %v", result, err)
 		}
+	}
+}
+
+func TestDOCXAutoBorderWorkerRoutingRetainsLegacySettingsGate(t *testing.T) {
+	eligibility := &docxpatch.NativeDocxApproximationEligibilityV1{Status: "ineligible"}
+	input := map[string]any{"resolved_layout": &docxpatch.NativeResolvedLayoutInputV1{Tables: []docxpatch.NativeResolvedTableV1{{AutomaticBorderPreview: &docxpatch.NativeAutomaticTableBorderPreviewV1{Policy: docxpatch.NativeAutomaticTableBorderPolicyV1}}}}, "pagination_settings": &docxpatch.NativePaginationSettingsV1{Profile: "word-modern-default"}}
+	operation, request := docxApproximateWorkerInput(input, eligibility)
+	if operation != "render-auto-borders" || request["legacy_eligibility"] != nil {
+		t.Fatal("modern border policy unexpectedly reclassified settings")
+	}
+	input["pagination_settings"] = &docxpatch.NativePaginationSettingsV1{Profile: "unsupported"}
+	operation, request = docxApproximateWorkerInput(input, eligibility)
+	if operation != "render-auto-borders" || request["legacy_eligibility"] != eligibility {
+		t.Fatal("ineligible settings must reach unchanged rejecting validator")
+	}
+	input["resolved_layout"] = &docxpatch.NativeResolvedLayoutInputV1{}
+	operation, request = docxApproximateWorkerInput(input, eligibility)
+	if operation != "render-approximate" || request["eligibility"] != eligibility {
+		t.Fatal("existing legacy path changed")
 	}
 }
 

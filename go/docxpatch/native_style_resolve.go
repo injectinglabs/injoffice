@@ -79,11 +79,12 @@ type NativeResolvedRunV1 struct {
 }
 
 type NativeResolvedTableV1 struct {
-	Geometry       *NativeResolvedTableGeometryV1 `json:"geometry,omitempty"`
-	TableID        string                         `json:"table_id"`
-	StyleID        *string                        `json:"style_id,omitempty"`
-	Borders        *NativeTableBordersV1          `json:"borders,omitempty"`
-	CellShadingRGB *string                        `json:"cell_shading_rgb,omitempty"`
+	AutomaticBorderPreview *NativeAutomaticTableBorderPreviewV1 `json:"automatic_border_preview,omitempty"`
+	Geometry               *NativeResolvedTableGeometryV1       `json:"geometry,omitempty"`
+	TableID                string                               `json:"table_id"`
+	StyleID                *string                              `json:"style_id,omitempty"`
+	Borders                *NativeTableBordersV1                `json:"borders,omitempty"`
+	CellShadingRGB         *string                              `json:"cell_shading_rgb,omitempty"`
 }
 
 type NativeResolvedParagraphPropertiesV1 struct {
@@ -1462,8 +1463,13 @@ func (resolver *nativeLayoutResolver) resolveTableStyle(table *NativeTableV1) (N
 	if !simple {
 		resolved.Borders = nil
 		resolved.CellShadingRGB = nil
+		resolved.AutomaticBorderPreview = resolver.automaticTableBorderPreview(table, chain)
+		if resolved.AutomaticBorderPreview != nil {
+			return resolved, chain
+		}
 		return resolved, nil
 	}
+	resolved.AutomaticBorderPreview = resolver.automaticTableBorderPreview(table, chain)
 	return resolved, chain
 }
 
@@ -2848,6 +2854,9 @@ func ValidateNativeResolvedLayoutInputV1(input *NativeResolvedLayoutInputV1) err
 	}
 	tables := map[string]bool{}
 	for _, table := range input.Tables {
+		if table.AutomaticBorderPreview != nil && !nativeValidAutomaticBorderPreview(table.AutomaticBorderPreview, table.TableID) {
+			return fmt.Errorf("invalid automatic table border preview evidence")
+		}
 		if table.Geometry != nil && !nativeValidResolvedTableGeometry(table.Geometry) {
 			return fmt.Errorf("invalid resolved table geometry")
 		}
