@@ -832,7 +832,7 @@ func encodeNativeParagraphs(paragraphs []NativeParagraph, dialect nativeExtractD
 			if run.Language != nil {
 				language = fmt.Sprintf(` lang=%q`, *run.Language)
 			}
-			fmt.Fprintf(&output, `<a:r><a:rPr b=%q i=%q sz=%q%s><a:latin typeface="%s"/><a:solidFill><a:srgbClr val=%q/></a:solidFill></a:rPr>`, bold, italic, strconv.FormatInt(*run.FontSizeHundredthPt, 10), language, font, *run.Color)
+			fmt.Fprintf(&output, `<a:r><a:rPr b=%q i=%q sz=%q%s><a:solidFill><a:srgbClr val=%q/></a:solidFill><a:latin typeface="%s"/></a:rPr>`, bold, italic, strconv.FormatInt(*run.FontSizeHundredthPt, 10), language, *run.Color, font)
 			if strings.TrimSpace(*run.Text) != *run.Text {
 				output.WriteString(`<a:t xml:space="preserve">`)
 			} else {
