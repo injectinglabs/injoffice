@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.injecting.injoffice</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <name>InjOffice</name>
+  <summary>Edit documents, spreadsheets, presentations and PDFs locally</summary>
+  <developer_name>Injecting Inc.</developer_name>
+  <description>
+    <p>InjOffice is a local desktop editor for DOCX documents, XLSX spreadsheets,
+    PPTX presentations and PDF files. No account or hosted backend is required.</p>
+    <p>This early preview has limited format and layout support. It does not yet
+    include a built-in AI assistant.</p>
+  </description>
+  <launchable type="desktop-id">injoffice.desktop</launchable>
+  <icon type="stock">injoffice</icon>
+  <url type="homepage">https://injoffice.com</url>
+  <url type="bugtracker">https://github.com/injectinglabs/injoffice/issues</url>
+  <categories>
+    <category>Office</category>
+  </categories>
+  <provides>
+    <binary>injoffice</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-09-21" type="development"/>
+  </releases>
+</component>

@@ -46,7 +46,7 @@ jobs:
           cache: false
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm
+        run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools desktop-file-utils appstream
       - run: npm ci
       - run: node --test apps/desktop/tests/release-validation.test.mjs
       - run: npm run desktop:build
@@ -58,6 +58,9 @@ jobs:
         run: npx electron-builder --config electron-builder.release.cjs ${{ matrix.args }} --publish never
       - name: Verify packaged host, renderer and native engines
         run: npm run test:packaged -w @injoffice/desktop
+      - name: Verify Linux installer metadata and icons
+        if: runner.os == 'Linux'
+        run: node apps/desktop/scripts/check-linux-packages.cjs
       - name: Verify notarized Mac applications
         if: runner.os == 'macOS'
         run: |
