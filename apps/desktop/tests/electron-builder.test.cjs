@@ -21,7 +21,12 @@ test('electron-builder packages the Vite renderer and Electron host, not dist/',
   assert.ok(!pkg.build.files.some(pattern => pattern.startsWith('dist/')));
   assert.equal(pkg.build.mac.icon, 'build/icons/icon.icns');
   assert.equal(pkg.build.win.icon, 'build/icons/icon.ico');
-  assert.equal(pkg.build.linux.icon, 'build/icons/icon.png');
+  // Let electron-builder derive the full Linux size set from the macOS ICNS.
+  // A single PNG input installs only that one resolution.
+  assert.equal(pkg.build.linux.icon, undefined);
+  assert.equal(pkg.desktopName, 'injoffice.desktop');
+  assert.equal(pkg.build.linux.syncDesktopName, true);
+  assert.equal(pkg.homepage, 'https://injoffice.com');
   // electron-builder derives the executable from the package name (@injoffice/desktop -> "@injofficedesktop"), which AppImage refuses.
   assert.equal(pkg.build.linux.executableName, 'injoffice');
   // deb/rpm default to ${name}_${version}_${arch}, and the scoped name puts a slash in the file name; fpm cannot write it.

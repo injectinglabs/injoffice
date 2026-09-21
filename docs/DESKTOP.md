@@ -57,7 +57,8 @@ Installer output belongs in `apps/desktop/release/` and is gitignored. Do not
 commit DMGs, NSIS installers, AppImages, or `latest-*.yml`.
 
 Packaging icons live in `apps/desktop/build/icons/`: `icon.png` (1024 × 1024,
-Linux), `icon.icns` (macOS), and `icon.ico` (Windows). They are nearest-neighbor
+window icon), `icon.icns` (macOS and the source of the Linux icon size set), and
+`icon.ico` (Windows). They are nearest-neighbor
 conversions of repository-root `logo.png`. Regenerate on macOS with
 `python3 apps/desktop/build/icons/generate.py`.
 
@@ -112,6 +113,24 @@ writes.
 DEB/RPM users install a new package with their package manager. There is no
 APT/YUM repository and no in-app update for those packages. Linux ARM, Windows
 ARM, beta channels, staged rollouts, and store distribution are out of scope.
+
+### Linux installation and app listings
+
+Use the x64 DEB on Ubuntu or Debian running on Intel/AMD 64-bit hardware. RPM is
+for RPM-based distributions, and AppImage is the portable alternative. There is
+no Linux ARM build in the current matrix.
+
+DEB and RPM packages include the InjOffice launcher, a set of icon resolutions,
+and AppStream metadata naming Injecting Inc. with `https://injoffice.com` as the
+homepage. CI extracts the actual installers to validate those files and fields.
+The package `desktopName` matches the launcher so Linux desktops can associate
+running windows with the installed icon.
+
+These fields identify the app; they do not verify its publisher. A local DEB may
+still be shown as an unknown publisher or potentially unsafe by Ubuntu Software
+or App Center. Traditional DEB/RPM packages do not expose Flatpak-style sandbox
+permission metadata, and this project currently has no trusted APT/YUM feed or
+store listing. Do not advertise metadata changes as removing those warnings.
 
 ## Tests and CI
 

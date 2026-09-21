@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "Local InjOffice desktop editor",
-  "homepage": "https://github.com/injectinglabs/injoffice",
+  "homepage": "https://injoffice.com",
+  "desktopName": "injoffice.desktop",
   "author": "Injecting Inc.",
   "license": "Apache-2.0",
   "main": "electron/main.cjs",
@@ -66,7 +67,9 @@
     },
     "linux": {
       "maintainer": "Injecting Inc.",
+      "vendor": "Injecting Inc.",
       "executableName": "injoffice",
+      "syncDesktopName": true,
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
       "target": [
         "AppImage",
@@ -74,7 +77,18 @@
         "rpm"
       ],
       "category": "Office",
-      "icon": "build/icons/icon.png"
+      "synopsis": "Edit documents, spreadsheets, presentations and PDFs locally"
+    },
+    "deb": {
+      "packageCategory": "editors",
+      "fpm": [
+        "build/linux/com.injecting.injoffice.metainfo.xml=/usr/share/metainfo/com.injecting.injoffice.metainfo.xml"
+      ]
+    },
+    "rpm": {
+      "fpm": [
+        "build/linux/com.injecting.injoffice.metainfo.xml=/usr/share/metainfo/com.injecting.injoffice.metainfo.xml"
+      ]
     },
     "publish": null,
     "electronVersion": "43.7.0",
