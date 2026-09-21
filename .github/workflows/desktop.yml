@@ -90,9 +90,18 @@ jobs:
       - run: npm run typecheck -w @injoffice/desktop
       - name: Package unsigned installers
         working-directory: apps/desktop
-        run: npx electron-builder ${{ matrix.args }} --publish never
+        run: npx electron-builder --config electron-builder.preview.cjs ${{ matrix.args }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify Mac signatures and executable startup
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          apps=(apps/desktop/release/mac*/InjOffice.app)
+          test "${#apps[@]}" -eq 1
+          app="${apps[0]}"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/InjOffice" -e 'console.log("Packaged Electron started:", process.arch, process.versions.electron)'
       - name: Verify the packaged application carries host, renderer and engines
         run: npm run test:packaged -w @injoffice/desktop
       - name: Verify packaged updater dependencies and the absent update channel
