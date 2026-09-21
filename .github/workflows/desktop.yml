@@ -16,18 +16,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go/xlsxpatch/go.mod
           # No root go.mod and no external Go dependencies; cache the build cache below instead.
           cache: false
       - name: Cache the Go build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-build-wasm-${{ hashFiles('go/*/go.mod', 'go/*/go.sum', 'go/**/*.go') }}
@@ -38,7 +38,7 @@ jobs:
         run: npm run build -w @injoffice/docx-wasm -w @injoffice/xlsx-wasm -w @injoffice/pptx-wasm
       - name: Prove the built engines extract a blank document
         run: npm run test:native -w @injoffice/desktop
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: native-engines
           path: packages/*/dist
@@ -65,8 +65,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -75,7 +75,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y rpm
       - run: npm ci
       - name: Use the engines built by the engines job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: native-engines
           path: packages
@@ -99,7 +99,7 @@ jobs:
         run: node apps/desktop/scripts/check-packaged-updater.cjs apps/desktop/release
       - name: Record artifact checksums and source revision
         run: npm run manifest -w @injoffice/desktop
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: injoffice-${{ matrix.platform }}
           path: |

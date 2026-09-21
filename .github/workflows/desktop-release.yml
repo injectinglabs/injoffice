@@ -33,14 +33,14 @@ jobs:
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - name: Validate tag and signing credentials
         run: node apps/desktop/scripts/release-validation.mjs preflight ${{ matrix.platform }}
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go/xlsxpatch/go.mod
           cache: false
@@ -76,7 +76,7 @@ jobs:
             $signature = Get-AuthenticodeSignature $installer.FullName
             if ($signature.Status -ne 'Valid') { throw "Invalid installer signature: $($installer.Name)" }
           }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-release-${{ matrix.platform }}
           path: |
@@ -95,11 +95,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: desktop-release-*
           path: release-assets
