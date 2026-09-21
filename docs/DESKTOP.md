@@ -132,6 +132,13 @@ or App Center. Traditional DEB/RPM packages do not expose Flatpak-style sandbox
 permission metadata, and this project currently has no trusted APT/YUM feed or
 store listing. Do not advertise metadata changes as removing those warnings.
 
+The **Ubuntu installer smoke** workflow accepts a published desktop release tag.
+On Ubuntu 22.04 and 24.04 it verifies the downloaded DEB checksum, installs through
+APT, launches the installed application under Xvfb with its sandbox enabled, and
+creates a blank spreadsheet through the real renderer and native engine. It saves
+startup logs and a screenshot for diagnosis. This checks installation/startup on
+the CI images; it does not certify every Linux distribution, desktop, or GPU.
+
 ## Tests and CI
 
 Desktop **host** tests (Node, no GUI) belong in the `core` shard of

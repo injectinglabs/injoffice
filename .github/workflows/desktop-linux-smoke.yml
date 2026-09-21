@@ -1,0 +1,50 @@
+name: Ubuntu installer smoke
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published desktop release tag to install and test
+        required: true
+        default: desktop-preview-v0.1.0-r2
+        type: string
+permissions:
+  contents: read
+jobs:
+  ubuntu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Download and verify the released Ubuntu installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          mkdir installer
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*linux-x64.deb' --pattern SHA256SUMS --dir installer
+          cd installer
+          sha256sum --ignore-missing --check SHA256SUMS
+      - name: Install the DEB through APT
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          sudo apt-get install -y ./installer/*.deb
+          dpkg-query -W -f='${Status}\n' injoffice
+          ldd /opt/InjOffice/injoffice
+      - name: Launch the installed app and create a spreadsheet
+        timeout-minutes: 4
+        run: xvfb-run --auto-servernum node scripts/smoke-desktop-linux.mjs
+      - name: Preserve startup diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-smoke-${{ matrix.os }}
+          path: desktop-smoke-output/
+          if-no-files-found: ignore
