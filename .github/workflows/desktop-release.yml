@@ -53,10 +53,11 @@ jobs:
       - run: npm run test -w @injoffice/desktop
       - run: npm run test:native -w @injoffice/desktop
       - run: npm run typecheck -w @injoffice/desktop
-      - run: npm run test:packaged -w @injoffice/desktop
       - name: Package signed release installers and update metadata
         working-directory: apps/desktop
         run: npx electron-builder --config electron-builder.release.cjs ${{ matrix.args }} --publish never
+      - name: Verify packaged host, renderer and native engines
+        run: npm run test:packaged -w @injoffice/desktop
       - name: Verify notarized Mac applications
         if: runner.os == 'macOS'
         run: |
