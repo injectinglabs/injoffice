@@ -1,0 +1,282 @@
+name: Test
+
+# Every TypeScript package and Go module, with no private services or secrets.
+# Only the fast gates run here; see main-audit.yml for the post-merge audit.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Superseded PR runs are wasteful. Main runs are kept so every deployable SHA
+  # receives a complete result for the Pages workflow to consume.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Install checksum-pinned Gitleaks
+        run: |
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          cd "$RUNNER_TEMP/gitleaks"
+          curl --fail --silent --show-error --location --retry 3 https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o gitleaks.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz' | sha256sum --check
+          tar -xzf gitleaks.tar.gz gitleaks
+          echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
+      - run: npm run check:secrets
+
+  # Fast gates only. Slow and audit-style checks run after merge in
+  # .github/workflows/main-audit.yml; run them locally before opening a PR
+  # (CONTRIBUTING.md, "Rendering and browser qualification").
+  ts-packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.23'
+          # Go modules in this repository have no external dependencies, and
+          # there is no root go.mod for setup-go's default cache discovery.
+          cache: false
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - name: Verify native Office evidence contracts
+        run: |
+          npm run check:native-office-production-e2e
+          npm run test:native-office-production-e2e
+      - run: npm run check:docs-api
+      - run: npm run check:unicode13
+      - run: npm run check:typescript-version
+      - run: npm run test:dependency-integrity
+      - run: npm run test:declaration-specifiers
+      - run: npm run check:packages
+      - run: npm run check:collab-consumer
+      - name: Every workspace test script is assigned to a ts-tests shard
+        run: node scripts/run-ci-test-shard.mjs --check
+
+  ts-tests:
+    name: ts-tests (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Shard contents live in scripts/ci-test-shards.json; ts-packages
+        # fails if a workspace with a test script is missing from every shard.
+        shard: [docs, pdf-workers, office, core]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # test:native-office-completion (core shard) reads pinned baseline SHA 420424b via git show/ls-tree
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.23'
+          cache: false
+      - run: npm ci
+      - name: Build prerequisites and run the shard
+        run: node scripts/run-ci-test-shard.mjs ${{ matrix.shard }}
+
+  go-modules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        module: [xlsxpatch, docxpatch, pptxpatch, slidesqc, officecompat, collab, injoffice-server]
+    defaults:
+      run:
+        working-directory: go/${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.23'
+          cache: false
+      # docxpatch's image-insertion tests independently validate the
+      # produced .docx with python-docx (never trust your own reader/writer
+      # roundtripping against itself — same discipline as the openpyxl
+      # validation used elsewhere in this project). They skip gracefully
+      # without this, but install it so CI actually exercises the check.
+      - if: matrix.module == 'docxpatch'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - if: matrix.module == 'docxpatch'
+        run: pip install python-docx==1.2.0
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+      - if: matrix.module == 'officecompat'
+        run: go run ./cmd/corpusgen --check
+
+  xlsx-wasm-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.23'
+          cache: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Build XLSX WASM
+        run: ./scripts/build-xlsxnative-wasm.sh
+      - name: Enforce XLSX WASM size ceiling
+        run: |
+          wasm=go/xlsxpatch/cmd/xlsxnativewasm/dist/xlsxnative.wasm
+          actual_bytes=$(wc -c < "$wasm" | tr -d ' ')
+          max_bytes=$(cat go/xlsxpatch/cmd/xlsxnativewasm/max-bytes.txt)
+          echo "xlsxnative.wasm: ${actual_bytes} bytes (maximum ${max_bytes})"
+          if (( actual_bytes > max_bytes )); then
+            echo "xlsxnative.wasm exceeds the 7.25 MiB + 8 KiB size ceiling" >&2
+            exit 1
+          fi
+      - name: Run mandatory XLSX WASM contract
+        working-directory: go/xlsxpatch
+        env:
+          XLSXNATIVE_WASM_REQUIRED: '1'
+          XLSXNATIVE_WASM_SKIP_BUILD: '1'
+        run: go test -v -count=1 ./cmd/xlsxnativewasm
+  docx-wasm-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.23'
+          cache: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Build DOCX WASM and enforce shared size ceiling
+        run: ./go/docxpatch/cmd/docxnativewasm/build.sh
+      - name: Run mandatory DOCX WASM contract
+        working-directory: go/docxpatch
+        env:
+          DOCXNATIVE_WASM_REQUIRED: '1'
+          DOCXNATIVE_WASM_SKIP_BUILD: '1'
+        run: go test -v -count=1 ./cmd/docxnativewasm
+
+  pptx-wasm-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.23'
+          cache: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Build PPTX WASM
+        run: ./go/pptxpatch/cmd/pptxnativewasm/build.sh
+      - name: Enforce PPTX WASM size ceiling
+        run: |
+          wasm=go/pptxpatch/cmd/pptxnativewasm/dist/pptxnative.wasm
+          actual_bytes=$(wc -c < "$wasm" | tr -d ' ')
+          max_bytes=$(cat go/pptxpatch/cmd/pptxnativewasm/max-bytes.txt)
+          echo "pptxnative.wasm: ${actual_bytes} bytes (maximum ${max_bytes})"
+          if (( actual_bytes > max_bytes )); then
+            echo "pptxnative.wasm ${actual_bytes} bytes exceeds the ${max_bytes} byte size ceiling from go/pptxpatch/cmd/pptxnativewasm/max-bytes.txt" >&2
+            exit 1
+          fi
+      - name: Run mandatory PPTX WASM contract
+        working-directory: go/pptxpatch
+        env:
+          PPTXNATIVE_WASM_REQUIRED: '1'
+          PPTXNATIVE_WASM_SKIP_BUILD: '1'
+        run: go test -v -count=1 ./cmd/pptxnativewasm
+
+  office-qualification:
+    name: office-qualification (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: fuzz-package
+            command: go test . -run '^$' -fuzz '^FuzzStructuralInspectDeterministic$' -fuzztime=10s -parallel=4 -timeout=60s
+          - shard: fuzz-xml
+            command: go test . -run '^$' -fuzz '^FuzzStructuralXMLDeterministic$' -fuzztime=10s -parallel=4 -timeout=60s
+    defaults:
+      run:
+        working-directory: go/officecompat
+    env:
+      GOMEMLIMIT: 768MiB
+      GOMAXPROCS: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.23'
+          cache: false
+      - run: ${{ matrix.command }}
+
+  ci-required:
+    name: CI required
+    if: always()
+    needs:
+      - secret-scan
+      - ts-packages
+      - ts-tests
+      - go-modules
+      - xlsx-wasm-contract
+      - docx-wasm-contract
+      - pptx-wasm-contract
+      - office-qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every validation job to pass
+        env:
+          SECRET_SCAN: ${{ needs.secret-scan.result }}
+          TS_PACKAGES: ${{ needs.ts-packages.result }}
+          TS_TESTS: ${{ needs.ts-tests.result }}
+          GO_MODULES: ${{ needs.go-modules.result }}
+          XLSX_WASM: ${{ needs.xlsx-wasm-contract.result }}
+          DOCX_WASM: ${{ needs.docx-wasm-contract.result }}
+          PPTX_WASM: ${{ needs.pptx-wasm-contract.result }}
+          OFFICE_QUALIFICATION: ${{ needs.office-qualification.result }}
+        run: |
+          for result in \
+            "$SECRET_SCAN" \
+            "$TS_PACKAGES" \
+            "$TS_TESTS" \
+            "$GO_MODULES" \
+            "$XLSX_WASM" \
+            "$DOCX_WASM" \
+            "$PPTX_WASM" \
+            "$OFFICE_QUALIFICATION"
+          do
+            if [ "$result" != 'success' ]; then
+              echo "A required validation job finished with: $result" >&2
+              exit 1
+            fi
+          done

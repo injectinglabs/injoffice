@@ -1,0 +1,447 @@
+import type {
+  NativeResolvedWorkbookChart,
+  NativeArrowEnd,
+  NativeCompatibilityStatus,
+  NativeDiagnosticSeverity,
+  NativePictureCrop,
+  NativeShapePreset,
+  NativeTextAlign,
+} from '@injoffice/pptx-native'
+import type {
+  NativeFontManifest,
+  NativeFontResolver,
+  NativeTextDecision,
+  NativeTextShaper,
+  OpenTypeFeature,
+  FontVariation,
+  ShapedGlyph,
+  ShapedCluster,
+  TextDirection,
+} from '@injoffice/font-metrics/layout'
+
+export const PPTX_RENDER_TREE_VERSION = 'pptx-render-tree/v2' as const
+
+export const PPTX_RENDER_LIMITS = Object.freeze({
+  maxDepth: 64,
+  maxNodes: 250_000,
+  // A full two-degree annulus needs 363 commands; retain one fill path.
+  maxPathCommands: 512,
+  maxPaintCommands: 1_000_000,
+  maxGlyphs: 2_000_000,
+  maxClusters: 2_000_000,
+  maxProviderDecisions: 100_000,
+  maxProviderAttemptedFaceIds: 100_000,
+  maxProviderResolveCalls: 250_000,
+  maxProviderLoadCalls: 256,
+  maxProviderShapeCalls: 250_000,
+  maxCachedFontResources: 256,
+  maxTextLines: 100_000,
+  maxTextFragments: 250_000,
+  maxFontResourceBytes: 67_108_864,
+  maxUniqueFontBytes: 134_217_728,
+  maxCoordinateEmu: 281_474_976_710_655,
+  maxAffinePpm: Number.MAX_SAFE_INTEGER,
+  maxReferencedAssetBytes: 536_870_912,
+})
+
+export interface RenderRect { readonly x: number; readonly y: number; readonly cx: number; readonly cy: number }
+
+/** Integer affine transform. Coefficients are parts-per-million; translation is EMU. */
+export interface RenderTransform {
+  /** Explicit rational variant; the six legacy fields must be identity. */
+  readonly sourceAffine?: import('./sourceAffine.js').SourceAffineTransport
+  readonly aPpm: number
+  readonly bPpm: number
+  readonly cPpm: number
+  readonly dPpm: number
+  readonly txEmu: number
+  readonly tyEmu: number
+}
+
+export type RenderClip =
+  | { readonly kind: 'rect'; readonly rect: RenderRect }
+  | { readonly kind: 'roundRect'; readonly rect: RenderRect; readonly radiusEmu: number }
+  /** Source-evaluated DrawingML outline in the node's local frame; `rect` is the frame it was evaluated for. */
+  | { readonly kind: 'path'; readonly rect: RenderRect; readonly path: readonly RenderPathCommand[] }
+
+export type RenderPathCommand =
+  | { readonly kind: 'moveTo'; readonly x: number; readonly y: number }
+  | { readonly kind: 'lineTo'; readonly x: number; readonly y: number }
+  | { readonly kind: 'quadBezierTo'; readonly x: number; readonly y: number; readonly x1:number; readonly y1:number }
+  | { readonly kind: 'cubicBezierTo'; readonly x: number; readonly y: number; readonly x1:number; readonly y1:number; readonly x2:number; readonly y2:number }
+  | { readonly kind: 'arcTo'; readonly x:number; readonly y:number; readonly rx:number; readonly ry:number; readonly largeArc:boolean; readonly clockwise:boolean }
+  | { readonly kind: 'rect'; readonly rect: RenderRect }
+  | { readonly kind: 'roundRect'; readonly rect: RenderRect; readonly radiusEmu: number }
+  | { readonly kind: 'ellipse'; readonly rect: RenderRect }
+  | { readonly kind: 'close' }
+
+export interface RenderPaint { readonly color: string }
+/** One a:gs stop; `positionPct` is 1/1000 of a percent along the gradient axis. */
+export interface RenderGradientStop { readonly positionPct: number; readonly color: string }
+/**
+ * A DrawingML a:gradFill with an a:lin direction. `angle` is 1/60000 of a
+ * degree, clockwise from the positive x axis, and stops are ordered by
+ * strictly increasing position.
+ */
+export interface RenderLinearGradient { readonly angle: number; readonly stops: readonly RenderGradientStop[] }
+export interface RenderStroke extends RenderPaint {
+  readonly widthEmu: number
+  /** Required on native shape/connector strokes; legacy table borders omit these fields. */
+  readonly cap?: 'flat' | 'round' | 'square'
+  readonly join?: 'round' | 'bevel' | 'miter'
+  readonly dash?: 'solid'
+  /** DrawingML ST_CompoundLine; absent is the single line of the full width. */
+  readonly compound?: 'single' | 'double' | 'thickThin' | 'thinThick' | 'triple'
+  readonly miterLimit?: number
+}
+
+export type RenderDiagnosticCode =
+  | 'native.compatibility'
+  | 'native.refused'
+  | 'text.refused'
+  | 'text.overflow'
+  | 'text.layoutMetadataUnavailable'
+  | 'text.bidiUnavailable'
+  | 'text.verticalUnsupported'
+  | 'text.verticalAnchorUnavailable'
+  | 'text.deterministicLayout'
+  | 'text.metricsUnavailable'
+  | 'text.wrapUnavailable'
+  | 'text.sourceFrameAutoFitApproximate'
+  | 'text.emergencyBreakApproximate'
+  | 'text.authoredColumnsApproximate'
+  | 'text.authoredWarpApproximate'
+  | 'text.authoredParagraphSpacingApproximate'
+  | 'text.textColumnsUnavailable'
+  | 'text.paragraphSemanticsUnavailable'
+  | 'text.inheritanceUnavailable'
+  | 'text.providerBudget'
+  | 'chart.missingPreview'
+  | 'asset.hostResolutionRequired'
+  | 'render.preserveOnly'
+
+export interface RenderDiagnostic {
+  readonly severity: NativeDiagnosticSeverity
+  readonly code: RenderDiagnosticCode | string
+  readonly message: string
+  readonly slideId: string
+  readonly elementId?: string
+  readonly sourceCode?: string
+}
+
+export interface RenderGlyph extends ShapedGlyph {
+  readonly xEmu: number
+  readonly yEmu: number
+  readonly advanceXEmu: number
+  readonly advanceYEmu: number
+  readonly offsetXEmu: number
+  readonly offsetYEmu: number
+}
+
+export interface RenderCluster extends Omit<ShapedCluster, 'startUtf16' | 'endUtf16'> {
+  /** UTF-16 offsets into the owning RenderTextRunNode.text fragment. */
+  readonly startUtf16: number
+  readonly endUtf16: number
+  readonly advanceInlineEmu: number
+}
+
+export interface RenderTextRunNode {
+  /** Digest-bound legacy cmap transport; text and clusters retain authored bytes. */
+  readonly symbolEncoding?: {readonly policy:'windows-symbol-byte-v1';readonly sourceByte:number;readonly transportCodePoint:number;readonly glyphId:number;readonly unitsPerEm:number;readonly advanceWidth:number;readonly ascender:number;readonly descender:number;readonly lineGap:number}
+  /** Marker UTF-16 offsets refer to paragraph.bulletCharacter, not a content run. */
+  readonly sourceRole?: 'paragraphBullet'
+  readonly kind: 'textRun'
+  readonly sourceElementId: string
+  readonly paragraphIndex: number
+  readonly runIndex: number
+  /** Original source-run UTF-16 range represented by this (possibly wrapped) fragment. */
+  readonly startUtf16: number
+  readonly endUtf16: number
+  readonly text: string
+  readonly direction: TextDirection
+  readonly fontSizeMilliPoints: number
+  readonly faceId?: string
+  /** Authored-vs-selected evidence; non-exact resolution is always approximate. */
+  readonly fontSelection?: {readonly sourceFamily:string;readonly selectedFamily:string;readonly resolution:'exact'|'substitute'|'fallback'}
+  readonly contentDigest?: string
+  readonly color: string
+  readonly bold: boolean
+  readonly italic: boolean
+  readonly x: number
+  readonly baselineY: number
+  readonly advanceInlineEmu: number
+  readonly lineHeightEmu: number
+  readonly glyphs: readonly RenderGlyph[]
+  readonly clusters: readonly RenderCluster[]
+  readonly decisions: readonly NativeTextDecision[]
+  readonly attemptedFaceIds: readonly string[]
+  readonly status: 'shaped' | 'refused'
+}
+
+export interface RenderParagraphNode {
+  /** Exact fractional layout placement; glyph advances remain unchanged. */
+  readonly transform?: RenderTransform
+  readonly marker?: RenderTextRunNode
+  readonly kind: 'paragraph'
+  readonly sourceElementId: string
+  readonly paragraphIndex: number
+  readonly lineIndex: number
+  readonly align: NativeTextAlign
+  readonly direction: TextDirection
+  readonly level: number
+  readonly bullet: boolean
+  readonly x: number
+  readonly y: number
+  readonly widthEmu: number
+  readonly heightEmu: number
+  readonly runs: readonly RenderTextRunNode[]
+  /** Authored U+0020 ranges consumed only because this soft wrap was taken. */
+  readonly consumedSoftSeparators?: readonly {
+    readonly sourceElementId: string
+    readonly paragraphIndex: number
+    readonly runIndex: number
+    readonly startUtf16: number
+    readonly endUtf16: number
+  }[]
+}
+
+export interface RenderTextBodyNode {
+  readonly kind: 'textBody'
+  /** DrawingML outline flips do not mirror glyph outlines. */
+  readonly orientationTransform?: RenderTransform
+  readonly sourceElementId: string
+  readonly bounds: RenderRect
+  /** Text-only physical mapping; parent shape/group transforms remain separate. */
+  readonly transform?: RenderTransform
+  readonly fidelity: 'native' | 'deterministicNative' | 'approximateSourceFrame' | 'approximateInheritedText' | 'approximateFontSubstitution' | 'nativeUnavailable' | 'legacyUnavailable'
+  /** Explicit InjOffice line-box policy; does not attest Office visual parity. */
+  readonly lineLayoutPolicy?: 'max-run-natural-v1'
+  readonly wrap?: 'square' | 'none'
+  readonly verticalAnchor?: 'top' | 'center' | 'bottom'
+  readonly autoFit?: 'none' | 'shape-source-frame'
+  readonly horizontalOverflow?: 'overflow' | 'clip'
+  readonly verticalOverflow?: 'overflow'
+  /** Modeled a:prstTxWarp; paint warps glyphs along an InjOffice warp envelope. */
+  readonly presetTextWarp?: 'textArchUp' | 'textArchDown' | 'textDeflate' | 'textInflateTop'
+  readonly presetTextWarpAdj?: number
+  readonly status: 'laidOut' | 'refused'
+  readonly paragraphs: readonly RenderParagraphNode[]
+  readonly refusalLabel?: string
+}
+
+interface RenderNodeBase {
+  readonly sourceElementId: string
+  readonly sourceKind: string
+  readonly zIndex: number
+  readonly transform: RenderTransform
+  readonly bounds: RenderRect
+  readonly clip?: RenderClip
+  readonly compatibility: NativeCompatibilityStatus
+}
+
+export interface RenderShapeNode extends RenderNodeBase {
+  readonly kind: 'shape'
+  readonly preset?: NativeShapePreset
+  readonly geometryPaths?: readonly { readonly path:readonly RenderPathCommand[]; readonly fillMode:'norm'|'none'|'darken'|'darkenLess'|'lighten'|'lightenLess'; readonly stroke:boolean }[]
+  readonly path: readonly RenderPathCommand[]
+  readonly fill?: RenderPaint
+  readonly stroke?: RenderStroke
+  readonly textBody?: RenderTextBodyNode
+}
+
+export interface RenderTextNode extends RenderNodeBase {
+  readonly kind: 'text'
+  readonly textBody: RenderTextBodyNode
+}
+
+export interface RenderConnectorNode extends RenderNodeBase {
+  readonly kind: 'connector'
+  readonly path: readonly RenderPathCommand[]
+  readonly stroke?: RenderStroke
+  readonly headArrow: boolean
+  readonly tailArrow: boolean
+  readonly headEnd?: Readonly<NativeArrowEnd>
+  readonly tailEnd?: Readonly<NativeArrowEnd>
+}
+
+export interface RenderImageNode extends RenderNodeBase {
+  readonly kind: 'image'
+  readonly role: 'picture' | 'chartPreview'
+  readonly assetId: string
+  /** Exact DrawingML source-edge insets; adapters must crop before scaling. */
+  readonly crop?: Readonly<NativePictureCrop>
+  readonly contentType: string
+  readonly sha256: string
+  readonly byteLength: number
+  readonly resolutionSource: 'sourceDeck' | 'host'
+}
+
+interface RenderTableCellNodeBase {
+  readonly kind: 'tableCell'
+  readonly sourceElementId: string
+  readonly rowIndex: number
+  readonly columnIndex: number
+  /** Qualified finite cell-local x-strip; text only, source vertical overflow retained. */
+  readonly horizontalTextClip?: RenderRect
+  readonly bounds: RenderRect
+  readonly fill?: RenderPaint
+  readonly border?: RenderStroke
+}
+
+export type RenderTableCellNode = RenderTableCellNodeBase & (
+  | { readonly paragraph: RenderParagraphNode; readonly textBody?: never; readonly textFree?: never }
+  | { readonly paragraph?: never; readonly textBody: RenderTextBodyNode; readonly textFree?: never }
+  /** Legacy cell whose source text is empty: paint-only, no run is shaped. */
+  | { readonly paragraph?: never; readonly textBody?: never; readonly textFree: true }
+)
+
+export interface RenderTableNode extends RenderNodeBase {
+  readonly kind: 'table'
+  readonly rows: number
+  readonly columns: number
+  readonly cells: readonly RenderTableCellNode[]
+}
+
+export interface RenderGroupNode extends RenderNodeBase {
+  readonly kind: 'group'
+  readonly children: readonly RenderNode[]
+}
+
+export interface RenderPlaceholderNode extends RenderNodeBase {
+  readonly kind: 'placeholder'
+  readonly reason: 'refused' | 'preserveOnly' | 'missingPreview' | 'textRefusal'
+  readonly label: string
+}
+
+export type RenderNode =
+  | RenderShapeNode
+  | RenderTextNode
+  | RenderConnectorNode
+  | RenderImageNode
+  | RenderTableNode
+  | RenderGroupNode
+  | RenderPlaceholderNode
+
+export interface RenderAsset {
+  readonly id: string
+  readonly contentType: string
+  readonly sha256: string
+  readonly byteLength: number
+  readonly resolutionSource: 'sourceDeck' | 'host'
+}
+
+export interface SlideRenderTree {
+  readonly version: typeof PPTX_RENDER_TREE_VERSION
+  readonly documentId: string
+  readonly slideId: string
+  readonly slideIndex: number
+  readonly size: { readonly cx: number; readonly cy: number }
+  readonly background: RenderPaint
+  /** Set instead of a flat `background` when the slide's background is a modeled linear gradient. */
+  readonly backgroundGradient?: RenderLinearGradient
+  readonly clip: RenderClip
+  readonly nodes: readonly RenderNode[]
+  readonly assets: readonly RenderAsset[]
+  readonly diagnostics: readonly RenderDiagnostic[]
+}
+
+export interface NativePptxTextDefaults {
+  readonly fontFamilies: readonly string[]
+  readonly fontSizeHundredthPt: number
+  readonly script: string
+  readonly language: string
+  readonly direction: TextDirection
+  readonly fallbackChainIds?: readonly string[]
+}
+
+export interface NativePptxTextRunContext {
+  readonly slideId: string
+  readonly elementId: string
+  readonly elementKind: 'text' | 'shape' | 'table'
+  readonly paragraphIndex: number
+  readonly runIndex: number
+  readonly text: string
+}
+
+export interface NativePptxTextOverride {
+  readonly script?: string
+  readonly language?: string
+  readonly direction?: TextDirection
+  readonly fontFamilies?: readonly string[]
+  readonly fallbackChainIds?: readonly string[]
+  readonly features?: readonly OpenTypeFeature[]
+  readonly variations?: readonly FontVariation[]
+  readonly letterSpacingMilliPoints?: number
+  readonly wordSpacingMilliPoints?: number
+}
+
+/** Conservative font-outline control hull in the returned integer design grid. */
+export interface NativePptxGlyphExtents {
+ readonly faceId:string
+ readonly contentDigest:string
+ readonly glyphId:number
+ readonly unitsPerEm:number
+ readonly bounds: {readonly xMin:number;readonly yMin:number;readonly xMax:number;readonly yMax:number}|null
+}
+export interface NativePptxGlyphExtentsRequest {
+ readonly faceId:string
+ readonly contentDigest:string
+ readonly glyphId:number
+}
+export interface NativePptxTextLayout {
+  readonly manifest: NativeFontManifest
+  readonly resolver: NativeFontResolver
+  readonly shaper: NativeTextShaper
+  /** Optional supplied-font outline hulls; required only for measured chart axis labels. */
+  readonly glyphExtents?: (request:NativePptxGlyphExtentsRequest)=>NativePptxGlyphExtents|Promise<NativePptxGlyphExtents>
+  readonly defaults: NativePptxTextDefaults
+  /** Host-supplied language/script/direction metadata. The core never infers these from characters. */
+  readonly resolveRun?: (context: NativePptxTextRunContext) => NativePptxTextOverride
+}
+
+export interface CompileSlideOptions {
+  /** Explicit immutable source-bound workbook resolutions; omission retains opaque chart fallback. */
+  readonly workbookChartsPreview?: readonly NativeResolvedWorkbookChart[]
+  readonly textLayout: NativePptxTextLayout
+  /** Read-only saved-frame preview of explicitly marked spAutoFit projections; never resizes or qualifies Office fidelity. */
+  readonly sourceFrameAutoFitPreview?: boolean
+  /** Explicit source-literal vector doughnut preview with host annular fitting and polygon arcs. */
+  readonly literalDoughnutPreview?: boolean
+  /** Read-only literal clustered bars using explicit source scales and host frame fitting. Default off. */
+  readonly literalBarPreview?: boolean
+  /** Explicit source literal stacked/percent bar and line preview; default off. */
+  readonly literalStackedPreview?: boolean
+  /** Straight source literal line/XY vectors with exact segment clipping and host plot fitting. Default off. */
+  readonly literalConnectedPreview?: boolean
+  /** Literal standard/filled radar only; bounded source-radial-plot-v1, default off. */
+  readonly literalRadarPreview?: boolean
+  /** Explicit source bubble values with disclosed plot-minor-radius-v1 sizing. */
+  readonly literalBubblePreview?: boolean
+  /** Opt-in exact source literal area bands; standard overlap uses XML series sequence as a host preview policy. */
+  readonly literalAreaPreview?: boolean
+  /** Supplied-font source axis labels with disclosed measured host margins. */
+  readonly chartAxisLabelsPreview?: boolean
+  /** Explicit source-literal vector pie preview with host circle fitting and polygon arcs. */
+  readonly literalPiePreview?: boolean
+	/** Explicit opt-in to the declared source Latin inheritance approximation. */
+	readonly inheritedTextPreview?: boolean
+  /** Opt into measured mixed-run line boxes and anchors, labeled deterministicNative. Omission retains strict qualification. */
+  readonly lineLayoutPolicy?: 'max-run-natural-v1'
+  readonly maxDepth?: number
+  readonly maxNodes?: number
+  readonly maxGlyphs?: number
+  readonly maxClusters?: number
+  readonly maxCoordinateEmu?: number
+}
+
+export class RenderCompileError extends Error {
+  readonly code: string
+  readonly path: string
+
+  constructor(code: string, path: string, message: string) {
+    super(`${path}: ${message}`)
+    this.name = 'RenderCompileError'
+    this.code = code
+    this.path = path
+  }
+}

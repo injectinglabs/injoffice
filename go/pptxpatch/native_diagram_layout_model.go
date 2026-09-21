@@ -1,0 +1,1374 @@
+package pptxpatch
+
+import (
+	"encoding/xml"
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// DrawingML diagram layout evaluation (ECMA-376 Part 1 §21.4). This file
+// holds the two inputs of the layout engine:
+//
+//   - the data model (§21.4.3): dgm:pt points (doc/node/asst/parTrans/sibTrans/
+//     pres) connected by dgm:cxn parOf relationships into one tree rooted at
+//     the doc point;
+//   - the layout definition (§21.4.2): a layoutNode tree whose forEach/choose/if
+//     elements are evaluated over the data model axes (§21.4.7.6) to produce
+//     the presentation tree, and whose constrLst entries (§21.4.2.8) are then
+//     evaluated in document order.
+//
+// Everything is bounded: point count, layout depth, presentation node count,
+// selection operations, and constraint evaluations. Anything outside the
+// implemented subset refuses with a specific code; nothing is guessed.
+const (
+	nativeMaxDiagramLayoutPoints      = 256
+	nativeMaxDiagramLayoutDepth       = 32
+	nativeMaxDiagramLayoutPresNodes   = 2048
+	nativeMaxDiagramLayoutSelections  = 65536
+	nativeMaxDiagramLayoutConstraints = 4096
+
+	nativeDiagramLayoutDataCode       = "pptx.diagram-layout-data-unavailable"
+	nativeDiagramLayoutDefinitionCode = "pptx.diagram-layout-definition-unavailable"
+	nativeDiagramLayoutBudgetCode     = "pptx.diagram-layout-budget-unavailable"
+	nativeDiagramLayoutConstraintCode = "pptx.diagram-layout-constraint-unavailable"
+)
+
+type nativeDiagramPoint struct {
+	id          string
+	kind        string
+	text        *nativeXMLNode
+	placeholder bool
+	parent      *nativeDiagramPoint
+	children    []*nativeDiagramPoint
+	parTrans    *nativeDiagramPoint
+	sibTrans    *nativeDiagramPoint
+	owner       *nativeDiagramPoint
+	depth       int
+	order       int
+}
+
+type nativeDiagramModel struct {
+	// background is the dgm:bg solid fill of the whole diagram (§21.4.3.2),
+	// painted behind every laid-out shape.
+	background *nativeXMLNode
+	doc        *nativeDiagramPoint
+	points     map[string]*nativeDiagramPoint
+	presVars   map[string]map[string]string
+	// presLabels holds the authored presStyleLbl of each presentation point,
+	// keyed by presAssocID and presName, for layout nodes without styleLbl.
+	presLabels map[string]string
+}
+
+// nativeDiagramLayoutVariableDefaults are the values a bare variable element
+// (no val attribute) carries, per the CT_LayoutVariablePropertySet defaults.
+var nativeDiagramLayoutVariableDefaults = map[string]string{"dir": "norm", "hierBranch": "std", "orgChart": "0", "bulletEnabled": "0", "chPref": "-1", "chMax": "-1", "animLvl": "none", "animOne": "none", "resizeHandles": "rel"}
+
+func nativeDiagramLayoutRefuse(code, message string) error {
+	return refuseNativeDiagram(code, message)
+}
+
+// parseNativeDiagramModel builds the data tree from dgm:dataModel (§21.4.2.10).
+func parseNativeDiagramModel(root *nativeXMLNode, diagramNS string, dialect nativeExtractDialect) (*nativeDiagramModel, error) {
+	refuse := func(message string) (*nativeDiagramModel, error) {
+		return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDataCode, message)
+	}
+	dgm := func(local string) xml.Name { return xml.Name{Space: diagramNS, Local: local} }
+	if requireOnlyNativeChildren(root, dgm("ptLst"), dgm("cxnLst"), dgm("bg"), dgm("whole"), dgm("extLst")) != nil {
+		return refuse("diagram data model contains unknown markup")
+	}
+	ptLst, err := nativeSingleton(root, diagramNS, "ptLst", true)
+	if err != nil {
+		return refuse("diagram data model requires one point list")
+	}
+	cxnLst, err := nativeSingleton(root, diagramNS, "cxnLst", false)
+	if err != nil {
+		return refuse("diagram data model has duplicate connection lists")
+	}
+	model := &nativeDiagramModel{points: map[string]*nativeDiagramPoint{}, presVars: map[string]map[string]string{}, presLabels: map[string]string{}}
+	if bg := nativeChild(root, diagramNS, "bg"); bg != nil && len(bg.Children) != 0 {
+		fill := nativeChild(bg, dialect.drawing, "solidFill")
+		if fill == nil || len(bg.Children) != 1 {
+			return refuse("diagram background is not one solid fill")
+		}
+		model.background = fill
+	}
+	points := nativeChildren(ptLst, diagramNS, "pt")
+	if len(points) > nativeMaxDiagramLayoutPoints {
+		return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutBudgetCode, "diagram data model exceeds the bounded point budget")
+	}
+	for index, node := range points {
+		if requireOnlyNativeAttrs(node, xml.Name{Local: "modelId"}, xml.Name{Local: "type"}, xml.Name{Local: "cxnId"}) != nil ||
+			requireOnlyNativeChildren(node, dgm("prSet"), dgm("spPr"), dgm("t"), dgm("extLst")) != nil {
+			return refuse("diagram data point contains unknown markup")
+		}
+		id, ok := exactNativeAttr(node, "", "modelId")
+		if !ok || id == "" || model.points[id] != nil {
+			return refuse("diagram data point requires a unique model id")
+		}
+		point := &nativeDiagramPoint{id: id, kind: "node", order: index}
+		if kind, ok := exactNativeAttr(node, "", "type"); ok {
+			point.kind = kind
+		}
+		switch point.kind {
+		case "doc", "node", "asst", "parTrans", "sibTrans", "pres":
+		default:
+			return refuse("diagram data point type is unknown")
+		}
+		if spPr := nativeChild(node, diagramNS, "spPr"); spPr != nil && !nativeDiagramPointShapePropertiesAreEffectsOnly(spPr, dialect) {
+			return refuse("diagram data point carries authored shape property overrides; layout approximation does not apply them")
+		}
+		if prSet := nativeChild(node, diagramNS, "prSet"); prSet != nil {
+			if err := model.parseNativeDiagramPropertySet(prSet, point, diagramNS); err != nil {
+				return nil, err
+			}
+		}
+		if text := nativeChild(node, diagramNS, "t"); text != nil {
+			point.text = text
+		}
+		if point.kind == "doc" {
+			if model.doc != nil {
+				return refuse("diagram data model has more than one document point")
+			}
+			model.doc = point
+		}
+		model.points[id] = point
+	}
+	if model.doc == nil {
+		return refuse("diagram data model has no document point")
+	}
+	type childLink struct {
+		point *nativeDiagramPoint
+		order int64
+		par   *nativeDiagramPoint
+		sib   *nativeDiagramPoint
+	}
+	links := map[*nativeDiagramPoint][]childLink{}
+	if cxnLst != nil {
+		for _, node := range nativeChildren(cxnLst, diagramNS, "cxn") {
+			if requireOnlyNativeAttrs(node, xml.Name{Local: "modelId"}, xml.Name{Local: "type"}, xml.Name{Local: "srcId"}, xml.Name{Local: "destId"},
+				xml.Name{Local: "srcOrd"}, xml.Name{Local: "destOrd"}, xml.Name{Local: "parTransId"}, xml.Name{Local: "sibTransId"}, xml.Name{Local: "presId"}) != nil ||
+				requireOnlyNativeChildren(node, dgm("extLst")) != nil {
+				return refuse("diagram connection contains unknown markup")
+			}
+			kind, _ := exactNativeAttr(node, "", "type")
+			switch kind {
+			case "", "parOf":
+			case "presOf", "presParOf":
+				// PowerPoint's cached presentation graph is not trusted; the
+				// presentation tree is re-evaluated from the layout definition.
+				continue
+			default:
+				return refuse("diagram connection type is unknown")
+			}
+			srcID, _ := exactNativeAttr(node, "", "srcId")
+			destID, _ := exactNativeAttr(node, "", "destId")
+			src, dest := model.points[srcID], model.points[destID]
+			if src == nil || dest == nil || (dest.kind != "node" && dest.kind != "asst") || (src.kind != "doc" && src.kind != "node" && src.kind != "asst") {
+				return refuse("diagram parent connection references a missing or non-node point")
+			}
+			if dest.parent != nil || dest == model.doc {
+				return refuse("diagram parent connections form a cycle or a shared child")
+			}
+			dest.parent = src
+			orderValue, _ := exactNativeAttr(node, "", "srcOrd")
+			order, err := strconv.ParseInt(orderValue, 10, 32)
+			if orderValue != "" && err != nil {
+				return refuse("diagram connection order is non-canonical")
+			}
+			link := childLink{point: dest, order: order}
+			if id, ok := exactNativeAttr(node, "", "parTransId"); ok && id != "" {
+				if link.par = model.points[id]; link.par == nil || link.par.kind != "parTrans" || link.par.owner != nil {
+					return refuse("diagram parent transition reference is invalid")
+				}
+				link.par.owner = dest
+			}
+			if id, ok := exactNativeAttr(node, "", "sibTransId"); ok && id != "" {
+				if link.sib = model.points[id]; link.sib == nil || link.sib.kind != "sibTrans" || link.sib.owner != nil {
+					return refuse("diagram sibling transition reference is invalid")
+				}
+				link.sib.owner = dest
+			}
+			links[src] = append(links[src], link)
+		}
+	}
+	for parent, list := range links {
+		sort.SliceStable(list, func(a, b int) bool { return list[a].order < list[b].order })
+		for _, link := range list {
+			link.point.parTrans, link.point.sibTrans = link.par, link.sib
+			parent.children = append(parent.children, link.point)
+		}
+	}
+	// Every node must hang below the document point (no orphans, no cycles).
+	reached := 0
+	stack := []*nativeDiagramPoint{model.doc}
+	for len(stack) != 0 {
+		point := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		reached++
+		if reached > len(model.points) {
+			return refuse("diagram parent connections form a cycle")
+		}
+		for _, child := range point.children {
+			child.depth = point.depth + 1
+			if child.parTrans != nil {
+				child.parTrans.depth = child.depth
+			}
+			if child.sibTrans != nil {
+				child.sibTrans.depth = child.depth
+			}
+			stack = append(stack, child)
+		}
+	}
+	// Every node/asst point must be reachable from the document point; a
+	// closed parOf cycle gives every member a parent but never reaches doc.
+	nodes := 0
+	for _, point := range model.points {
+		if point.kind == "node" || point.kind == "asst" {
+			nodes++
+		}
+	}
+	if reached != nodes+1 {
+		return refuse("diagram node points are not all connected to the document point (orphans or a closed cycle)")
+	}
+	return model, nil
+}
+
+// parseNativeDiagramPropertySet reads dgm:prSet (§21.4.3.4). Presentation
+// layout variables on pres points override the layout definition's varLst for
+// the (presAssocID, presName) key. Geometry customizations are refused because
+// the layout would silently differ from the authored result.
+func (model *nativeDiagramModel) parseNativeDiagramPropertySet(prSet *nativeXMLNode, point *nativeDiagramPoint, diagramNS string) error {
+	if requireOnlyNativeChildren(prSet, xml.Name{Space: diagramNS, Local: "presLayoutVars"}, xml.Name{Space: diagramNS, Local: "style"}, xml.Name{Space: diagramNS, Local: "extLst"}) != nil {
+		return nativeDiagramLayoutRefuse(nativeDiagramLayoutDataCode, "diagram property set contains unknown markup")
+	}
+	if style := nativeChild(prSet, diagramNS, "style"); style != nil && len(style.Children) != 0 {
+		return nativeDiagramLayoutRefuse(nativeDiagramLayoutDataCode, "diagram point carries an authored style override; layout approximation does not apply it")
+	}
+	presName := ""
+	presAssoc := ""
+	presLabel := ""
+	for _, attr := range prSet.Attrs {
+		if attr.Name.Space != "" {
+			continue
+		}
+		switch attr.Name.Local {
+		case "phldr":
+			point.placeholder = attr.Value == "1" || attr.Value == "true"
+		case "presName":
+			presName = attr.Value
+		case "presAssocID":
+			presAssoc = attr.Value
+		case "custAng", "custFlipVert", "custFlipHor", "custSzX", "custSzY", "custScaleX", "custScaleY", "custLinFactX", "custLinFactY", "custLinFactNeighborX", "custLinFactNeighborY", "custRadScaleRad", "custRadScaleInc":
+			if attr.Value != "0" && attr.Value != "false" && attr.Value != "100000" {
+				return nativeDiagramLayoutRefuse(nativeDiagramLayoutDataCode, "diagram point carries a geometry customization; layout approximation does not apply it")
+			}
+		case "presStyleLbl":
+			presLabel = attr.Value
+		case "custT", "phldrT", "loTypeId", "loCatId", "qsTypeId", "qsCatId", "csTypeId", "csCatId", "coherent3DOff", "presStyleIdx", "presStyleCnt":
+		default:
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutDataCode, "diagram property set attribute is unknown")
+		}
+	}
+	if point.kind != "pres" || presName == "" || presAssoc == "" {
+		return nil
+	}
+	if presLabel != "" {
+		model.presLabels[presAssoc+"\x00"+presName] = presLabel
+	}
+	vars := nativeChild(prSet, diagramNS, "presLayoutVars")
+	if vars == nil {
+		return nil
+	}
+	values := map[string]string{}
+	for _, variable := range vars.Children {
+		if variable.Name.Space != diagramNS || len(variable.Children) != 0 || requireOnlyNativeAttrs(variable, xml.Name{Local: "val"}) != nil {
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutDataCode, "diagram presentation layout variable is outside the modeled set")
+		}
+		if _, known := nativeDiagramLayoutVariableDefaults[variable.Name.Local]; !known {
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutDataCode, "diagram presentation layout variable "+variable.Name.Local+" is not modeled")
+		}
+		value, ok := exactNativeAttr(variable, "", "val")
+		if !ok {
+			value = nativeDiagramLayoutVariableDefaults[variable.Name.Local]
+		}
+		values[variable.Name.Local] = value
+	}
+	model.presVars[presAssoc+"\x00"+presName] = values
+	return nil
+}
+
+// nativeDiagramPointTypeMatches implements ST_ElementType (§21.4.7.27). A
+// "node" is any data node including assistants (nonAsst excludes them).
+func nativeDiagramPointTypeMatches(ptType string, point *nativeDiagramPoint) bool {
+	switch ptType {
+	case "", "all":
+		return true
+	case "node":
+		return point.kind == "node" || point.kind == "asst"
+	case "asst", "doc", "parTrans", "sibTrans", "pres":
+		return point.kind == ptType
+	case "nonAsst":
+		return point.kind == "node" || point.kind == "doc"
+	case "norm":
+		return point.kind == "node" || point.kind == "asst" || point.kind == "doc"
+	case "nonNorm":
+		return point.kind == "parTrans" || point.kind == "sibTrans"
+	}
+	return false
+}
+
+// nativeDiagramSiblingSequence lists the parent's children with their
+// transitions in the order [parTrans, node, sibTrans]. §21.4.7.6 does not place
+// transitions among siblings; this inferred order is what makes the layout
+// idiom precedSib ptType="parTrans" st="-1" cnt="1" reach the connection
+// point of the context node, and it is disclosed in the group diagnostic.
+func nativeDiagramSiblingSequence(parent *nativeDiagramPoint) []*nativeDiagramPoint {
+	sequence := make([]*nativeDiagramPoint, 0, len(parent.children)*3)
+	for index, child := range parent.children {
+		if child.parTrans != nil {
+			sequence = append(sequence, child.parTrans)
+		}
+		sequence = append(sequence, child)
+		// A sibling transition sits BETWEEN two siblings, so the last child's
+		// sibTrans is not on the axis even though the data model still
+		// records the point. PowerPoint's own cached presentation tree for
+		// chevron1 confirms it: three nodes produce two spacers, not three.
+		if child.sibTrans != nil && index+1 < len(parent.children) {
+			sequence = append(sequence, child.sibTrans)
+		}
+	}
+	return sequence
+}
+
+func nativeDiagramDescendants(point *nativeDiagramPoint, out []*nativeDiagramPoint) []*nativeDiagramPoint {
+	for _, child := range point.children {
+		out = append(out, child)
+		out = nativeDiagramDescendants(child, out)
+	}
+	return out
+}
+
+// nativeDiagramLayoutEvaluator expands the layout definition over the data.
+type nativeDiagramLayoutEvaluator struct {
+	model         *nativeDiagramModel
+	ns            string
+	forEachByName map[string]*nativeXMLNode
+	presNodes     int
+	selections    int
+	constraints   int
+}
+
+type nativeDiagramConstraint struct {
+	typ, forRel, forName, ptType, refType, refFor, refForName, refPtType, op string
+	val                                                                      float64
+	hasVal                                                                   bool
+	fact                                                                     float64
+}
+
+type nativeDiagramRule struct {
+	typ                     string
+	forRel, forName, ptType string
+	val                     float64
+	// unbounded marks an extent rule written val="INF": the constraint it
+	// names is elastic and the algorithm may set that extent freely.
+	unbounded bool
+}
+
+// nativeDiagramPresNode is one evaluated layout node instance.
+type nativeDiagramPresNode struct {
+	evaluator     *nativeDiagramLayoutEvaluator
+	name          string
+	point         *nativeDiagramPoint
+	parent        *nativeDiagramPresNode
+	children      []*nativeDiagramPresNode
+	vars          map[string]string
+	alg           string
+	params        map[string]string
+	hasShape      bool
+	shapeType     string
+	adjust        map[string]int64
+	rotation60000 int64
+	hideGeom      bool
+	zOrderOff     int64
+	styleLbl      string
+	presOf        []*nativeDiagramPoint
+	constraints   []nativeDiagramConstraint
+	rules         []nativeDiagramRule
+	// appliedRules are the rules other nodes aimed at this one, resolved in
+	// the same pass that evaluates constraints.
+	appliedRules []nativeDiagramRule
+	vals         map[string]float64
+	// upper holds the tightest op="lte" bound seen for a constraint type.
+	// The clamp itself happens when the constraint is applied; the bound is
+	// kept because an extent the layout later grows must not pass it.
+	upper map[string]float64
+	// elasticBase remembers what an extent was before the layout grew it, so
+	// re-solving the same node grows from the constraint, not from the
+	// previous growth; grown holds the value the growth settled on.
+	elasticBase map[string]float64
+	grown       map[string]float64
+	equalize    [][]*nativeDiagramPresNode
+
+	// Layout results (unscaled units; see native_diagram_layout_hier.go).
+	rect      nativeDiagramRect
+	blockW    float64
+	blockH    float64
+	anchorX   float64
+	rootLeft  float64
+	rootRight float64
+	laidOut   bool
+	fontSize  int64
+}
+
+func (node *nativeDiagramPresNode) value(name string, fallback float64) float64 {
+	if value, ok := node.vals[name]; ok {
+		return value
+	}
+	return fallback
+}
+
+// inheritedExtent is the w or h the nearest ancestor that has one carries.
+// Only the two extents inherit; every other constraint type is undefined
+// until something assigns it.
+func (node *nativeDiagramPresNode) inheritedExtent(typ string) (float64, bool) {
+	if typ != "w" && typ != "h" {
+		return 0, false
+	}
+	for current := node.parent; current != nil; current = current.parent {
+		if value, ok := current.vals[typ]; ok {
+			return value, true
+		}
+	}
+	return 0, false
+}
+
+func (node *nativeDiagramPresNode) param(name, fallback string) string {
+	if value, ok := node.params[name]; ok && value != "" {
+		return value
+	}
+	return fallback
+}
+
+// lookupVariable resolves func="var" arguments: pres point overrides for the
+// (point, layoutNode name) key win over the nearest ancestor varLst.
+func (node *nativeDiagramPresNode) lookupVariable(model *nativeDiagramModel, name string) string {
+	for current := node; current != nil; current = current.parent {
+		if current.point != nil {
+			if overrides, ok := model.presVars[current.point.id+"\x00"+current.name]; ok {
+				if value, ok := overrides[name]; ok {
+					return value
+				}
+			}
+		}
+		if value, ok := current.vars[name]; ok {
+			return value
+		}
+	}
+	return nativeDiagramLayoutVariableDefaults[name]
+}
+
+func newNativeDiagramLayoutEvaluator(model *nativeDiagramModel, layoutRoot *nativeXMLNode, diagramNS string) (*nativeDiagramLayoutEvaluator, *nativeXMLNode, error) {
+	dgm := func(local string) xml.Name { return xml.Name{Space: diagramNS, Local: local} }
+	if requireOnlyNativeChildren(layoutRoot, dgm("title"), dgm("desc"), dgm("catLst"), dgm("sampData"), dgm("styleData"), dgm("clrData"), dgm("layoutNode"), dgm("extLst")) != nil {
+		return nil, nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout definition contains unknown markup")
+	}
+	root, err := nativeSingleton(layoutRoot, diagramNS, "layoutNode", true)
+	if err != nil {
+		return nil, nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout definition requires one root layout node")
+	}
+	evaluator := &nativeDiagramLayoutEvaluator{model: model, ns: diagramNS, forEachByName: map[string]*nativeXMLNode{}}
+	if err := evaluator.indexForEach(root, 0); err != nil {
+		return nil, nil, err
+	}
+	return evaluator, root, nil
+}
+
+func (evaluator *nativeDiagramLayoutEvaluator) indexForEach(node *nativeXMLNode, depth int) error {
+	if depth > nativeMaxDiagramLayoutDepth*4 {
+		return nativeDiagramLayoutRefuse(nativeDiagramLayoutBudgetCode, "diagram layout definition nesting exceeds the bounded depth")
+	}
+	for _, child := range node.Children {
+		if child.Name == (xml.Name{Space: evaluator.ns, Local: "forEach"}) {
+			if name, ok := exactNativeAttr(child, "", "name"); ok && name != "" {
+				if _, seen := evaluator.forEachByName[name]; seen {
+					return nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout definition declares a duplicate forEach name")
+				}
+				evaluator.forEachByName[name] = child
+			}
+		}
+		if err := evaluator.indexForEach(child, depth+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (evaluator *nativeDiagramLayoutEvaluator) selectionBudget(cost int) error {
+	evaluator.selections += cost
+	if evaluator.selections > nativeMaxDiagramLayoutSelections {
+		return nativeDiagramLayoutRefuse(nativeDiagramLayoutBudgetCode, "diagram layout evaluation exceeds the bounded selection budget")
+	}
+	return nil
+}
+
+// selectPoints implements axis/ptType/st/cnt/step selection (§21.4.2.14,
+// §21.4.7.6). axis is ST_AxisTypes, ptType is ST_ElementTypes and st, cnt and
+// step are ST_Ints / ST_UnsignedInts (§21.4.7.40, §21.4.7.63) — every one of
+// them is a LIST, and the entries pair up position-wise with the axis steps.
+// So `axis="ch desOrSelf" st="1 1" cnt="1 0"` trims each traversal step
+// separately, and is not the same thing as trimming once at the end. A
+// single-axis selection, which is the overwhelmingly common form, behaves
+// exactly as it did when the trim ran once after the chain.
+func (evaluator *nativeDiagramLayoutEvaluator) selectPoints(context *nativeDiagramPoint, node *nativeXMLNode) ([]*nativeDiagramPoint, error) {
+	axisAttr, _ := exactNativeAttr(node, "", "axis")
+	ptTypeAttr, _ := exactNativeAttr(node, "", "ptType")
+	axes := strings.Fields(axisAttr)
+	if len(axes) == 0 {
+		axes = []string{"self"}
+	}
+	ptTypes := strings.Fields(ptTypeAttr)
+	starts, err := nativeDiagramIntList(node, "st")
+	if err != nil {
+		return nil, err
+	}
+	counts, err := nativeDiagramIntList(node, "cnt")
+	if err != nil {
+		return nil, err
+	}
+	steps, err := nativeDiagramIntList(node, "step")
+	if err != nil {
+		return nil, err
+	}
+	current := []*nativeDiagramPoint{context}
+	for index, axis := range axes {
+		ptType := ""
+		if index < len(ptTypes) {
+			ptType = ptTypes[index]
+		} else if len(ptTypes) == 1 && len(axes) == 1 {
+			ptType = ptTypes[0]
+		}
+		next := []*nativeDiagramPoint{}
+		for _, point := range current {
+			items, err := evaluator.axisItems(point, axis)
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range items {
+				if nativeDiagramPointTypeMatches(ptType, item) {
+					next = append(next, item)
+				}
+			}
+		}
+		if err := evaluator.selectionBudget(len(next) + 1); err != nil {
+			return nil, err
+		}
+		trimmed, err := nativeDiagramTrimSelection(next,
+			nativeDiagramListEntry(starts, index, 1),
+			nativeDiagramListEntry(counts, index, 0),
+			nativeDiagramListEntry(steps, index, 1))
+		if err != nil {
+			return nil, err
+		}
+		current = trimmed
+	}
+	return current, nil
+}
+
+// nativeDiagramTrimSelection applies one axis step's st/cnt/step window.
+func nativeDiagramTrimSelection(points []*nativeDiagramPoint, start, count, step int64) ([]*nativeDiagramPoint, error) {
+	if step <= 0 {
+		return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram selection step must be positive")
+	}
+	total := int64(len(points))
+	if start < 0 {
+		start = total + start + 1
+	}
+	if start < 1 {
+		start = 1
+	}
+	selected := []*nativeDiagramPoint{}
+	for index := start - 1; index < total; index += step {
+		if count > 0 && int64(len(selected)) >= count {
+			break
+		}
+		selected = append(selected, points[index])
+	}
+	return selected, nil
+}
+
+// nativeDiagramListEntry pairs a ST_Ints entry with an axis step. A list
+// shorter than the axis list leaves the remaining steps at their default, and
+// a one-entry list applies to the first step only, exactly as ptType does.
+func nativeDiagramListEntry(values []int64, index int, fallback int64) int64 {
+	if index < len(values) {
+		return values[index]
+	}
+	return fallback
+}
+
+// nativeDiagramIntList parses a ST_Ints / ST_UnsignedInts attribute. An absent
+// attribute yields no entries, so every axis step keeps its default.
+func nativeDiagramIntList(node *nativeXMLNode, local string) ([]int64, error) {
+	value, ok := exactNativeAttr(node, "", local)
+	if !ok || strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	fields := strings.Fields(value)
+	values := make([]int64, 0, len(fields))
+	for _, field := range fields {
+		parsed, err := strconv.ParseInt(field, 10, 32)
+		if err != nil {
+			return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout attribute "+local+" is non-canonical")
+		}
+		values = append(values, parsed)
+	}
+	return values, nil
+}
+
+func nativeDiagramIntAttr(node *nativeXMLNode, local string, fallback int64) (int64, error) {
+	value, ok := exactNativeAttr(node, "", local)
+	if !ok || value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 32)
+	if err != nil {
+		return 0, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout attribute "+local+" is non-canonical")
+	}
+	return parsed, nil
+}
+
+func (evaluator *nativeDiagramLayoutEvaluator) axisItems(point *nativeDiagramPoint, axis string) ([]*nativeDiagramPoint, error) {
+	parent := point.parent
+	if point.owner != nil {
+		parent = point.owner.parent
+	}
+	switch axis {
+	case "self":
+		return []*nativeDiagramPoint{point}, nil
+	case "ch":
+		return point.children, nil
+	case "des":
+		return nativeDiagramDescendants(point, nil), nil
+	case "desOrSelf":
+		return nativeDiagramDescendants(point, []*nativeDiagramPoint{point}), nil
+	case "par":
+		if parent == nil {
+			return nil, nil
+		}
+		return []*nativeDiagramPoint{parent}, nil
+	case "root":
+		return []*nativeDiagramPoint{evaluator.model.doc}, nil
+	case "ancst", "ancstOrSelf":
+		items := []*nativeDiagramPoint{}
+		if axis == "ancstOrSelf" {
+			items = append(items, point)
+		}
+		for current := parent; current != nil; current = current.parent {
+			items = append(items, current)
+		}
+		return items, nil
+	case "precedSib", "followSib", "preced", "follow":
+		if parent == nil {
+			return nil, nil
+		}
+		sequence := nativeDiagramSiblingSequence(parent)
+		position := -1
+		for index, item := range sequence {
+			if item == point {
+				position = index
+			}
+		}
+		if position < 0 {
+			return nil, nil
+		}
+		var peers []*nativeDiagramPoint
+		if axis == "precedSib" || axis == "preced" {
+			peers = sequence[:position]
+		} else {
+			peers = sequence[position+1:]
+		}
+		if axis == "precedSib" || axis == "followSib" {
+			return peers, nil
+		}
+		items := []*nativeDiagramPoint{}
+		for _, peer := range peers {
+			items = append(items, peer)
+			items = nativeDiagramDescendants(peer, items)
+		}
+		return items, nil
+	case "none":
+		return nil, nil
+	}
+	return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout axis "+axis+" is not modeled")
+}
+
+// evaluateCondition implements dgm:if (§21.4.2.15) for the var, cnt, depth and
+// maxDepth functions. Position functions are outside the subset.
+func (evaluator *nativeDiagramLayoutEvaluator) evaluateCondition(node *nativeXMLNode, pres *nativeDiagramPresNode, context *nativeDiagramPoint) (bool, error) {
+	function, _ := exactNativeAttr(node, "", "func")
+	operator, _ := exactNativeAttr(node, "", "op")
+	expected, _ := exactNativeAttr(node, "", "val")
+	if function == "var" {
+		argument, _ := exactNativeAttr(node, "", "arg")
+		actual := pres.lookupVariable(evaluator.model, argument)
+		switch operator {
+		case "equ":
+			return actual == expected, nil
+		case "neq":
+			return actual != expected, nil
+		}
+		return false, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram variable condition operator "+operator+" is not modeled")
+	}
+	selected, err := evaluator.selectPoints(context, node)
+	if err != nil {
+		return false, err
+	}
+	var actual int64
+	switch function {
+	case "cnt":
+		actual = int64(len(selected))
+	case "depth":
+		if len(selected) != 0 {
+			actual = int64(selected[0].depth)
+		}
+	case "maxDepth":
+		for _, point := range selected {
+			if relative := int64(point.depth - context.depth); relative > actual {
+				actual = relative
+			}
+		}
+	case "pos", "revPos":
+		// Position of the first selected point among its parent's data
+		// nodes, counted from the front (pos) or the back (revPos), 1-based
+		// (§21.4.7.32). Transitions are not in that list, so "the last
+		// node" is revPos = 1 whether or not it carries a sibTrans.
+		if len(selected) == 0 || selected[0].parent == nil {
+			return false, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram position condition selects no node with a parent")
+		}
+		siblings := selected[0].parent.children
+		for index, sibling := range siblings {
+			if sibling != selected[0] {
+				continue
+			}
+			actual = int64(index + 1)
+			if function == "revPos" {
+				actual = int64(len(siblings) - index)
+			}
+			break
+		}
+		if actual == 0 {
+			return false, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram position condition selects a point outside its parent")
+		}
+	default:
+		return false, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram condition function "+function+" is not modeled")
+	}
+	want, err := strconv.ParseInt(expected, 10, 32)
+	if err != nil {
+		return false, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram condition value is not an integer")
+	}
+	switch operator {
+	case "equ":
+		return actual == want, nil
+	case "neq":
+		return actual != want, nil
+	case "gt":
+		return actual > want, nil
+	case "gte":
+		return actual >= want, nil
+	case "lt":
+		return actual < want, nil
+	case "lte":
+		return actual <= want, nil
+	}
+	return false, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram condition operator "+operator+" is not modeled")
+}
+
+// evaluateLayoutNode instantiates one layoutNode (§21.4.2.19) for a context
+// point and appends it to parent.
+func (evaluator *nativeDiagramLayoutEvaluator) evaluateLayoutNode(node *nativeXMLNode, context *nativeDiagramPoint, parent *nativeDiagramPresNode, depth int) (*nativeDiagramPresNode, error) {
+	if depth > nativeMaxDiagramLayoutDepth {
+		return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutBudgetCode, "diagram layout nesting exceeds the bounded depth")
+	}
+	evaluator.presNodes++
+	if evaluator.presNodes > nativeMaxDiagramLayoutPresNodes {
+		return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutBudgetCode, "diagram layout exceeds the bounded presentation node budget")
+	}
+	name, _ := exactNativeAttr(node, "", "name")
+	styleLbl, _ := exactNativeAttr(node, "", "styleLbl")
+	if styleLbl == "" && context != nil {
+		// Layout nodes without styleLbl take the label PowerPoint recorded on
+		// the matching presentation point; nothing is derived otherwise.
+		styleLbl = evaluator.model.presLabels[context.id+"\x00"+name]
+	}
+	pres := &nativeDiagramPresNode{evaluator: evaluator, name: name, point: context, parent: parent, vars: map[string]string{}, params: map[string]string{}, styleLbl: styleLbl, vals: map[string]float64{}}
+	if parent != nil {
+		parent.children = append(parent.children, pres)
+	}
+	if err := evaluator.evaluateBody(node.Children, pres, context, depth, false); err != nil {
+		return nil, err
+	}
+	return pres, nil
+}
+
+// evaluateBody walks layoutNode content: property elements attach to the
+// current node; layoutNode/forEach/choose expand children. Inside a forEach
+// body (loop=true) only expanding elements are valid.
+func (evaluator *nativeDiagramLayoutEvaluator) evaluateBody(children []*nativeXMLNode, pres *nativeDiagramPresNode, context *nativeDiagramPoint, depth int, loop bool) error {
+	for _, child := range children {
+		if child.Name.Space != evaluator.ns {
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout definition contains foreign markup")
+		}
+		switch child.Name.Local {
+		case "layoutNode":
+			if _, err := evaluator.evaluateLayoutNode(child, context, pres, depth+1); err != nil {
+				return err
+			}
+			continue
+		case "forEach":
+			if err := evaluator.evaluateForEach(child, context, pres, depth+1); err != nil {
+				return err
+			}
+			continue
+		case "choose":
+			branch, err := evaluator.chooseBranch(child, pres, context)
+			if err != nil {
+				return err
+			}
+			if branch != nil {
+				if err := evaluator.evaluateBody(branch.Children, pres, context, depth, loop); err != nil {
+					return err
+				}
+			}
+			continue
+		case "extLst":
+			continue
+		}
+		if loop {
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram forEach body contains a non-expanding element")
+		}
+		switch child.Name.Local {
+		case "varLst":
+			for _, variable := range child.Children {
+				if variable.Name.Space != evaluator.ns || requireOnlyNativeAttrs(variable, xml.Name{Local: "val"}) != nil {
+					return nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout variable is outside the modeled set")
+				}
+				value, ok := exactNativeAttr(variable, "", "val")
+				if !ok {
+					value = nativeDiagramLayoutVariableDefaults[variable.Name.Local]
+				}
+				pres.vars[variable.Name.Local] = value
+			}
+		case "alg":
+			algType, _ := exactNativeAttr(child, "", "type")
+			pres.alg = algType
+			for _, param := range nativeChildren(child, evaluator.ns, "param") {
+				key, _ := exactNativeAttr(param, "", "type")
+				value, _ := exactNativeAttr(param, "", "val")
+				pres.params[key] = value
+			}
+		case "shape":
+			pres.hasShape = true
+			pres.shapeType, _ = exactNativeAttr(child, "", "type")
+			hide, _ := exactNativeAttr(child, "", "hideGeom")
+			pres.hideGeom = hide == "1" || hide == "true"
+			if rotation, ok := exactNativeAttr(child, "", "rot"); ok && rotation != "" && rotation != "0" {
+				// dgm:shape@rot is a clockwise angle in degrees about the
+				// shape's centre, the same rotation a:xfrm@rot carries in
+				// sixty-thousandths of a degree.
+				degrees, err := nativeDiagramParseFloat(rotation)
+				if err != nil {
+					return nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout shape "+nativeDiagramShapeLabel(pres.shapeType)+" declares a malformed dgm:shape@rot="+rotation)
+				}
+				units := int64(math.Round(degrees * 60000))
+				units %= 21600000
+				if units < 0 {
+					units += 21600000
+				}
+				pres.rotation60000 = units
+			}
+			// Blips are checked by local name: the relationship namespace differs
+			// between transitional and strict packages.
+			for _, attr := range child.Attrs {
+				if attr.Name.Local == "blip" && attr.Value != "" {
+					return nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram image shapes are not modeled")
+				}
+			}
+			var err error
+			if pres.zOrderOff, err = nativeDiagramIntAttr(child, "zOrderOff", 0); err != nil {
+				return err
+			}
+			for _, adjLst := range nativeChildren(child, evaluator.ns, "adjLst") {
+				adjustments, err := nativeDiagramPresetAdjustments(pres.shapeType, adjLst, evaluator.ns)
+				if err != nil {
+					return err
+				}
+				for key, value := range adjustments {
+					if pres.adjust == nil {
+						pres.adjust = map[string]int64{}
+					}
+					pres.adjust[key] = value
+				}
+			}
+		case "presOf":
+			selected, err := evaluator.selectPoints(context, child)
+			if err != nil {
+				return err
+			}
+			pres.presOf = selected
+		case "constrLst":
+			for _, constr := range child.Children {
+				parsed, err := parseNativeDiagramConstraint(constr, evaluator.ns)
+				if err != nil {
+					return err
+				}
+				pres.constraints = append(pres.constraints, parsed)
+			}
+		case "ruleLst":
+			for _, rule := range child.Children {
+				parsed, err := parseNativeDiagramRule(rule, evaluator.ns)
+				if err != nil {
+					return err
+				}
+				pres.rules = append(pres.rules, parsed)
+			}
+		default:
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout element "+child.Name.Local+" is not modeled")
+		}
+	}
+	return nil
+}
+
+func (evaluator *nativeDiagramLayoutEvaluator) chooseBranch(choose *nativeXMLNode, pres *nativeDiagramPresNode, context *nativeDiagramPoint) (*nativeXMLNode, error) {
+	for _, branch := range choose.Children {
+		if branch.Name.Space != evaluator.ns {
+			return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram choose contains foreign markup")
+		}
+		switch branch.Name.Local {
+		case "if":
+			matched, err := evaluator.evaluateCondition(branch, pres, context)
+			if err != nil {
+				return nil, err
+			}
+			if matched {
+				return branch, nil
+			}
+		case "else":
+			return branch, nil
+		default:
+			return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram choose contains an unknown branch")
+		}
+	}
+	return nil, nil
+}
+
+func (evaluator *nativeDiagramLayoutEvaluator) evaluateForEach(node *nativeXMLNode, context *nativeDiagramPoint, parent *nativeDiagramPresNode, depth int) error {
+	if depth > nativeMaxDiagramLayoutDepth {
+		return nativeDiagramLayoutRefuse(nativeDiagramLayoutBudgetCode, "diagram layout nesting exceeds the bounded depth")
+	}
+	if ref, ok := exactNativeAttr(node, "", "ref"); ok && ref != "" {
+		target := evaluator.forEachByName[ref]
+		if target == nil {
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram forEach references an unknown loop")
+		}
+		node = target
+	}
+	selected, err := evaluator.selectPoints(context, node)
+	if err != nil {
+		return err
+	}
+	for _, item := range selected {
+		if err := evaluator.evaluateBody(node.Children, parent, item, depth, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parseNativeDiagramConstraint(node *nativeXMLNode, diagramNS string) (nativeDiagramConstraint, error) {
+	constraint := nativeDiagramConstraint{forRel: "self", refFor: "self", fact: 1}
+	if node.Name != (xml.Name{Space: diagramNS, Local: "constr"}) || requireOnlyNativeChildren(node, xml.Name{Space: diagramNS, Local: "extLst"}) != nil {
+		return constraint, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram constraint list contains unknown markup")
+	}
+	for _, attr := range node.Attrs {
+		if attr.Name.Space != "" {
+			return constraint, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram constraint carries a foreign attribute")
+		}
+		switch attr.Name.Local {
+		case "type":
+			constraint.typ = attr.Value
+		case "for":
+			constraint.forRel = attr.Value
+		case "forName":
+			constraint.forName = attr.Value
+		case "ptType":
+			constraint.ptType = attr.Value
+		case "refType":
+			constraint.refType = attr.Value
+		case "refFor":
+			constraint.refFor = attr.Value
+		case "refForName":
+			constraint.refForName = attr.Value
+		case "refPtType":
+			constraint.refPtType = attr.Value
+		case "op":
+			constraint.op = attr.Value
+		case "val":
+			value, err := nativeDiagramParseFloat(attr.Value)
+			if err != nil {
+				return constraint, err
+			}
+			constraint.val, constraint.hasVal = value, true
+		case "fact":
+			value, err := nativeDiagramParseFloat(attr.Value)
+			if err != nil {
+				return constraint, err
+			}
+			constraint.fact = value
+		default:
+			return constraint, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram constraint attribute "+attr.Name.Local+" is unknown")
+		}
+	}
+	if !nativeDiagramConstraintTypeModeled(constraint.typ) || (constraint.refType != "" && !nativeDiagramConstraintTypeModeled(constraint.refType)) {
+		return constraint, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram constraint type "+constraint.typ+" is not consumed by the layout subset")
+	}
+	switch constraint.op {
+	case "", "none", "equ", "gte", "lte":
+	default:
+		return constraint, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram constraint operator "+constraint.op+" is unknown")
+	}
+	return constraint, nil
+}
+
+// nativeDiagramConstraintTypeModeled lists the ST_ConstraintType values
+// (§21.4.7.21) the algorithms consume, plus the pure user variables. Offset,
+// diameter, connection-distance and font-size types the subset does not apply
+// refuse so a layout relying on them is never laid out differently.
+func nativeDiagramConstraintTypeModeled(typ string) bool {
+	switch typ {
+	case "w", "h", "l", "t", "r", "b", "ctrX", "ctrY", "sp", "sibSp", "secSibSp", "alignOff", "bendDist", "connDist", "begPad", "endPad", "primFontSz", "lMarg", "rMarg", "tMarg", "bMarg":
+		return true
+	case "secFontSz":
+		// The secondary font size is not read by any algorithm here. It is
+		// consumed only where the layout itself routes it into the primary
+		// size the tx algorithm does read (the process and list layouts all
+		// write <constr type="primFontSz" refType="secFontSz"/> on their
+		// descendant-text node), so storing it resolves those references
+		// without inventing a second text model.
+		return true
+	}
+	return len(typ) == 5 && strings.HasPrefix(typ, "user") && typ[4] >= 'A' && typ[4] <= 'Z'
+}
+
+func nativeDiagramParseFloat(value string) (float64, error) {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || math.Abs(parsed) > 1e12 {
+		return 0, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram constraint value is malformed or unbounded")
+	}
+	return parsed, nil
+}
+
+// parseNativeDiagramRule keeps the primFontSz lower bound (§21.4.2.24). Rules
+// that grow or shrink geometry are outside the subset.
+func parseNativeDiagramRule(node *nativeXMLNode, diagramNS string) (nativeDiagramRule, error) {
+	rule := nativeDiagramRule{forRel: "self"}
+	if node.Name != (xml.Name{Space: diagramNS, Local: "rule"}) {
+		return rule, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram rule list contains unknown markup")
+	}
+	rule.typ, _ = exactNativeAttr(node, "", "type")
+	// An extent rule states how far the algorithm may relax the constrained
+	// w or h to make the content fit. Only the unbounded ends are modeled:
+	// val="0" (shrink freely) is exactly what lin's shrink-to-fit does, and
+	// val="INF" (grow freely) is not grown -- the finished layout is scaled
+	// up to the frame instead, which the group diagnostic declares. A finite
+	// non-zero bound would have to be honored, so it still refuses.
+	extent := rule.typ == "w" || rule.typ == "h"
+	if rule.typ != "primFontSz" && !extent {
+		return rule, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram rule type "+rule.typ+" is not modeled")
+	}
+	for _, attr := range node.Attrs {
+		switch attr.Name.Local {
+		case "val":
+			if extent {
+				if attr.Value != "0" && attr.Value != "INF" {
+					return rule, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram rule bounds "+rule.typ+" at "+attr.Value+"; only unbounded relaxation is modeled")
+				}
+				rule.unbounded = attr.Value == "INF"
+				continue
+			}
+			value, err := nativeDiagramParseFloat(attr.Value)
+			if err != nil {
+				return rule, err
+			}
+			rule.val = value
+		case "type":
+		case "for":
+			rule.forRel = attr.Value
+		case "forName":
+			rule.forName = attr.Value
+		case "ptType":
+			rule.ptType = attr.Value
+		case "fact", "max":
+			if attr.Value != "NaN" {
+				return rule, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram rule factors are not modeled")
+			}
+		default:
+			return rule, nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram rule attribute "+attr.Name.Local+" is unknown")
+		}
+	}
+	return rule, nil
+}
+
+// selectPres implements ST_ConstraintRelationship (§21.4.7.20) over the
+// presentation tree.
+func (node *nativeDiagramPresNode) selectPres(relationship, name, ptType string) []*nativeDiagramPresNode {
+	matches := func(candidate *nativeDiagramPresNode) bool {
+		return (name == "" || candidate.name == name) && (ptType == "" || (candidate.point != nil && nativeDiagramPointTypeMatches(ptType, candidate.point)))
+	}
+	switch relationship {
+	case "", "self":
+		return []*nativeDiagramPresNode{node}
+	case "ch":
+		out := []*nativeDiagramPresNode{}
+		for _, child := range node.children {
+			if matches(child) {
+				out = append(out, child)
+			}
+		}
+		return out
+	case "des":
+		out := []*nativeDiagramPresNode{}
+		var walk func(current *nativeDiagramPresNode)
+		walk = func(current *nativeDiagramPresNode) {
+			for _, child := range current.children {
+				if matches(child) {
+					out = append(out, child)
+				}
+				walk(child)
+			}
+		}
+		walk(node)
+		return out
+	}
+	return nil
+}
+
+// evaluateConstraints applies every constrLst in presentation pre-order
+// (§21.4.2.8). A constraint with op="equ" and neither val nor refType is an
+// equalization directive; references read the current value of the referenced
+// node and refuse when it was never set, so nothing is guessed.
+func (evaluator *nativeDiagramLayoutEvaluator) evaluateConstraints(node *nativeDiagramPresNode) error {
+	if err := evaluator.applyConstraints(node, true); err != nil {
+		return err
+	}
+	for _, child := range node.children {
+		if err := evaluator.evaluateConstraints(child); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// applyConstraints evaluates one node's own constrLst, and its ruleLst when
+// the rules have not been aimed yet. A layout that re-solves a node after the
+// algorithm changed an extent re-runs this alone: the rules were already
+// delivered and the descendants' own lists must not overwrite the new extent.
+func (evaluator *nativeDiagramLayoutEvaluator) applyConstraints(node *nativeDiagramPresNode, aimRules bool) error {
+	for _, constraint := range node.constraints {
+		targets := node.selectPres(constraint.forRel, constraint.forName, constraint.ptType)
+		if targets == nil {
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram constraint relationship "+constraint.forRel+" is not modeled")
+		}
+		evaluator.constraints += len(targets) + 1
+		if evaluator.constraints > nativeMaxDiagramLayoutConstraints {
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutBudgetCode, "diagram layout exceeds the bounded constraint budget")
+		}
+		if constraint.op == "equ" && !constraint.hasVal && constraint.refType == "" {
+			if constraint.typ == "primFontSz" {
+				node.equalize = append(node.equalize, targets)
+			}
+			continue
+		}
+		value := constraint.val
+		if constraint.refType != "" {
+			references := node.selectPres(constraint.refFor, constraint.refForName, constraint.refPtType)
+			if references == nil {
+				return nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram constraint relationship "+constraint.refFor+" is not modeled")
+			}
+			if len(references) == 0 {
+				// A layout definition is generic over the data it is given
+				// and names nodes that only some branches instantiate, so a
+				// reference that selects nothing is inert: there is no value
+				// to read and PowerPoint has none either. Only an unmodeled
+				// RELATIONSHIP refuses, above.
+				continue
+			}
+			referenced, ok := references[0].vals[constraint.refType]
+			if !ok {
+				// An extent nothing has assigned is the one the node
+				// inherits from its parent, which is exactly what the
+				// layout will hand it (§21.4.7.1: an algorithm lays its
+				// children out inside its own extent). The radial layouts
+				// read their OWN w before any constraint defines it, so
+				// without this the frame refuses rather than laying out at
+				// the size it was going to use anyway.
+				if referenced, ok = references[0].inheritedExtent(constraint.refType); !ok {
+					return nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram constraint on "+node.name+" reads "+constraint.refType+" of "+references[0].name+" before it is defined")
+				}
+			}
+			value = referenced * constraint.fact * nativeDiagramConstraintUnitScale(constraint.refType, constraint.typ)
+		}
+		for _, target := range targets {
+			current, exists := target.vals[constraint.typ]
+			// A constraint with neither val nor refType declares the type
+			// with the schema default of 0. It does not overwrite a value an
+			// earlier constraint already established: the list layouts
+			// declare <constr type="userH"/> on a node their root has
+			// already given a userH, then read it back with <constr type="h"
+			// refType="userH"/>. Assigning 0 there collapses every child box
+			// to no height.
+			if exists && !constraint.hasVal && constraint.refType == "" {
+				continue
+			}
+			if constraint.op == "lte" {
+				if target.upper == nil {
+					target.upper = map[string]float64{}
+				}
+				if bound, seen := target.upper[constraint.typ]; !seen || value < bound {
+					target.upper[constraint.typ] = value
+				}
+			}
+			switch constraint.op {
+			case "gte":
+				if exists && current > value {
+					continue
+				}
+			case "lte":
+				if exists && current < value {
+					continue
+				}
+			}
+			target.vals[constraint.typ] = value
+		}
+	}
+	// Rules are aimed like constraints (§21.4.2.24 carries the same
+	// for/forName/ptType attributes), so a root that bounds the primary font
+	// size of every descendant parTx reaches those nodes here.
+	if !aimRules {
+		return nil
+	}
+	for _, rule := range node.rules {
+		targets := node.selectPres(rule.forRel, rule.forName, rule.ptType)
+		if targets == nil {
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutConstraintCode, "diagram rule relationship "+rule.forRel+" is not modeled")
+		}
+		evaluator.constraints += len(targets) + 1
+		if evaluator.constraints > nativeMaxDiagramLayoutConstraints {
+			return nativeDiagramLayoutRefuse(nativeDiagramLayoutBudgetCode, "diagram layout exceeds the bounded constraint budget")
+		}
+		for _, target := range targets {
+			target.appliedRules = append(target.appliedRules, rule)
+		}
+	}
+	return nil
+}
+
+// nativeDiagramPointShapePropertiesAreEffectsOnly reports whether a data
+// point's dgm:spPr (§21.4.3.4) carries nothing but a:effectLst. Effects are
+// already outside the painted subset and the group diagnostic says so, so a
+// point whose only override is a shadow is laid out exactly as an unstyled
+// one would be; a fill, line or geometry override would change the paint and
+// still refuses.
+func nativeDiagramPointShapePropertiesAreEffectsOnly(spPr *nativeXMLNode, dialect nativeExtractDialect) bool {
+	if len(spPr.Attrs) != 0 {
+		return false
+	}
+	for _, child := range spPr.Children {
+		if child.Name != (xml.Name{Space: dialect.drawing, Local: "effectLst"}) {
+			return false
+		}
+	}
+	return true
+}
+
+// nativeDiagramPresetAdjustments resolves a layout shape's dgm:adjLst
+// (§21.4.2.2) onto the named adjustment guides of the preset it draws. The
+// index is 1-based into the preset's own avLst in document order, and the
+// value is the fraction DrawingML stores as thousandths of a percent, so
+// val="0.1" is the same adjustment a:avLst writes as "val 10000". Anything
+// the catalog cannot name refuses rather than drawing a default shape.
+func nativeDiagramPresetAdjustments(shapeType string, adjLst *nativeXMLNode, diagramNS string) (map[string]int64, error) {
+	if adjLst == nil || len(adjLst.Children) == 0 {
+		return nil, nil
+	}
+	label := nativeDiagramShapeLabel(shapeType) + " declares " + nativeDiagramAdjustLabel(adjLst)
+	names, err := nativePresetAdjustmentNames(shapeType)
+	if err != nil {
+		return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout shape "+label+"; the preset is outside the evaluated catalog")
+	}
+	if len(names) == 0 {
+		// A preset with no adjustment guides has no degree of freedom an
+		// adjust list could move, so the list provably cannot change the
+		// painted shape. The layouts carry these over from the variant they
+		// were copied from (rect with a roundRect's adj).
+		return nil, nil
+	}
+	adjustments := map[string]int64{}
+	for _, adj := range adjLst.Children {
+		if adj.Name != (xml.Name{Space: diagramNS, Local: "adj"}) || requireOnlyNativeAttrs(adj, xml.Name{Local: "idx"}, xml.Name{Local: "val"}) != nil || len(adj.Children) != 0 {
+			return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout shape "+label+"; the adjust list contains unknown markup")
+		}
+		index, err := nativeDiagramIntAttr(adj, "idx", 0)
+		if err != nil {
+			return nil, err
+		}
+		if index < 1 || index > int64(len(names)) {
+			return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout shape "+label+"; the preset has no adjustment at that index")
+		}
+		raw, ok := exactNativeAttr(adj, "", "val")
+		if !ok {
+			return nil, nativeDiagramLayoutRefuse(nativeDiagramLayoutDefinitionCode, "diagram layout shape "+label+"; the adjust value is missing")
+		}
+		value, err := nativeDiagramParseFloat(raw)
+		if err != nil {
+			return nil, err
+		}
+		adjustments[names[index-1]] = int64(math.Round(value * 100000))
+	}
+	return adjustments, nil
+}
+
+// Constraint types are measured in two different units: the font sizes and
+// the text margins derived from them are in points (§21.4.7.21), while the
+// extents and offsets the algorithms lay out with are in the frame's EMU. A
+// reference that crosses the two -- "this band is 0.8 of the primary font
+// size tall", which is how the list layouts size their text -- has to
+// convert, or the band comes out 12700 times too small and paints as a
+// hairline. References inside one class convert by nothing, and the user
+// types pass through whatever they were given.
+func nativeDiagramConstraintIsPointTyped(typ string) bool {
+	switch typ {
+	case "primFontSz", "secFontSz", "lMarg", "rMarg", "tMarg", "bMarg":
+		return true
+	}
+	return false
+}
+
+func nativeDiagramConstraintIsLengthTyped(typ string) bool {
+	switch typ {
+	case "w", "h", "l", "t", "r", "b", "ctrX", "ctrY", "sp", "sibSp", "secSibSp", "bendDist", "connDist", "begPad", "endPad":
+		return true
+	}
+	return false
+}
+
+func nativeDiagramConstraintUnitScale(from, to string) float64 {
+	switch {
+	case nativeDiagramConstraintIsPointTyped(from) && nativeDiagramConstraintIsLengthTyped(to):
+		return nativeDiagramPointEMU
+	case nativeDiagramConstraintIsLengthTyped(from) && nativeDiagramConstraintIsPointTyped(to):
+		return 1 / nativeDiagramPointEMU
+	}
+	return 1
+}

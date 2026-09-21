@@ -1,0 +1,262 @@
+package docxpatch
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestAutomaticBorderWhitePageUsesIndexedSourceOnce(t *testing.T) {
+	for _, content := range []string{`<w:body><w:p/></w:body>`, `<w:background w:color="000000"/><w:body/>`} {
+		root, err := parseNativeXML("word/document.xml", []byte(`<w:document xmlns:w="`+wordMLTransitional+`">`+content+`</w:document>`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolver := &nativeLayoutResolver{doc: &NativeDocumentV1{}, wordNS: wordMLTransitional, mainRoot: root}
+		want := !strings.Contains(content, "background")
+		if got := resolver.automaticBorderWhitePage(); got != want || !resolver.autoBorderWhiteChecked {
+			t.Fatalf("initial qualification = %v; want %v", got, want)
+		}
+		// A resolver's source is immutable in production. Removing this test's
+		// pointer proves repeat table checks use the cached result, including refusal.
+		resolver.mainRoot = nil
+		if got := resolver.automaticBorderWhitePage(); got != want {
+			t.Fatalf("cached qualification = %v; want %v", got, want)
+		}
+	}
+}
+
+func TestAutomaticTableBorderEvidencePreservesStrictSource(t *testing.T) {
+	for _, ns := range []string{wordMLTransitional, wordMLStrict} {
+		for _, test := range []struct {
+			name, border, cell, style, root string
+			direct, valid                   bool
+		}{
+			{name: "inherited absent white", valid: true},
+			{name: "direct absent white", direct: true, valid: true},
+			{name: "white cell", cell: `<w:shd w:val="clear" w:fill="FFFFFF"/>`, valid: true},
+			{name: "white style", style: `<w:tcPr><w:shd w:val="clear" w:fill="FFFFFF"/></w:tcPr>`, valid: true},
+			{name: "dark cell", cell: `<w:shd w:val="clear" w:fill="000000"/>`},
+			{name: "dark style", style: `<w:tcPr><w:shd w:val="clear" w:fill="000000"/></w:tcPr>`},
+			{name: "unknown style fill", style: `<w:tcPr><w:shd w:val="clear" w:themeFill="accent1"/></w:tcPr>`},
+			{name: "conditional", style: `<w:tblStylePr w:type="firstRow"/>`},
+			{name: "background", root: `<w:background w:color="000000"/>`},
+			{name: "white background unqualified", root: `<w:background w:color="FFFFFF"/>`},
+			{name: "foreign root", root: `<x:unknown xmlns:x="urn:foreign"/>`},
+			{name: "theme auto", border: ` w:themeColor="accent1"`},
+			{name: "tint", border: ` w:themeTint="FF"`},
+			{name: "foreign border", border: ` xmlns:x="urn:foreign" x:value="1"`},
+			{name: "cell borders", cell: `<w:tcBorders><w:top w:val="single" w:sz="8" w:color="000000"/></w:tcBorders>`},
+			{name: "merged", cell: `<w:gridSpan w:val="2"/>`},
+			{name: "size overflow"},
+			{name: "hex size"},
+			{name: "nonzero space"},
+			{name: "wrong case"},
+			{name: "duplicate border"},
+			{name: "multiple border owners"},
+		} {
+			t.Run(test.name+ns, func(t *testing.T) {
+				borders := `<w:tblBorders>`
+				for _, edge := range []string{"top", "right", "bottom", "left", "insideH", "insideV"} {
+					borders += `<w:` + edge + ` w:val="single" w:sz="4" w:color="auto"` + test.border + `/>`
+				}
+				borders += `</w:tblBorders>`
+				switch test.name {
+				case "size overflow":
+					borders = strings.ReplaceAll(borders, `w:sz="4"`, `w:sz="769"`)
+				case "hex size":
+					borders = strings.ReplaceAll(borders, `w:sz="4"`, `w:sz="0x4"`)
+				case "nonzero space":
+					borders = strings.ReplaceAll(borders, `w:sz="4"`, `w:sz="4" w:space="1"`)
+				case "wrong case":
+					borders = strings.ReplaceAll(borders, `w:color="auto"`, `w:color="AUTO"`)
+				case "duplicate border":
+					borders = strings.Replace(borders, `</w:tblBorders>`, `<w:top w:val="single" w:sz="4" w:color="auto"/></w:tblBorders>`, 1)
+				}
+				styleBorders, directBorders := borders, ""
+				if test.direct {
+					styleBorders = ""
+					directBorders = borders
+				}
+				if test.name == "multiple border owners" {
+					directBorders = borders
+				}
+				styles := `<w:styles xmlns:w="` + ns + `"><w:style w:type="table" w:styleId="Grid"><w:pPr><w:spacing w:after="0"/></w:pPr><w:tblPr>` + styleBorders + `</w:tblPr>` + test.style + `</w:style></w:styles>`
+				parts := resolvedStylesTestParts(styles)
+				parts["word/document.xml"] = `<w:document xmlns:w="` + ns + `">` + test.root + `<w:body><w:tbl><w:tblPr><w:tblStyle w:val="Grid"/>` + directBorders + `</w:tblPr><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:type="dxa" w:w="4000"/>` + test.cell + `</w:tcPr><w:p/></w:tc></w:tr></w:tbl><w:p/></w:body></w:document>`
+				if ns == wordMLStrict {
+					for k, v := range parts {
+						parts[k] = strings.ReplaceAll(strings.ReplaceAll(v, wordMLTransitional, wordMLStrict), relBaseTransitional, relBaseStrict)
+					}
+				}
+				data := buildNativeDOCX(t, nativeEntries(parts))
+				before := string(data)
+				doc, err := ExtractNativeDocumentV1(data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				layout, err := ResolveNativeDocumentLayoutV1(data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				fact := layout.Tables[0].AutomaticBorderPreview
+				if !test.valid {
+					if fact != nil {
+						t.Fatalf("unexpected approximate eligibility %#v", fact)
+					}
+					return
+				}
+				if fact == nil {
+					t.Fatalf("missing evidence: %#v", layout.Diagnostics)
+				}
+				if fact.Policy != NativeAutomaticTableBorderPolicyV1 || fact.PackageSHA256 != doc.Source.PackageSHA256 || !fact.ReadOnly || len(fact.AutomaticEdges) != 6 || len(fact.CellIDs) != 1 || len(fact.SourceDiagnostics) != 1 {
+					t.Fatalf("invalid evidence %#v", fact)
+				}
+				if fact.SourceSHA256 != nativeSHA([]byte(parts[fact.SourcePart])) || *fact.Borders.Top.ColorRGB != "000000" || fact.Borders.Top.SizeEighthPoints != 4 {
+					t.Fatal("wrong source or paint projection")
+				}
+				if doc.Body.Blocks[0].Table.Borders != nil || layout.Tables[0].Borders != nil {
+					t.Fatal("strict source was recolored")
+				}
+				if layout.Paragraphs[0].Properties.SpacingAfterTwips == nil || *layout.Paragraphs[0].Properties.SpacingAfterTwips != 0 {
+					t.Fatal("whole-table paragraph style lost")
+				}
+				if string(data) != before {
+					t.Fatal("source bytes changed")
+				}
+				if test.direct && len(doc.Unsupported) == 0 {
+					t.Fatal("strict direct border refusal lost")
+				}
+				for _, mutate := range []func(*NativeAutomaticTableBorderPreviewV1){
+					func(f *NativeAutomaticTableBorderPreviewV1) { f.ReadOnly = false },
+					func(f *NativeAutomaticTableBorderPreviewV1) { f.PackageSHA256 = "forged" },
+					func(f *NativeAutomaticTableBorderPreviewV1) { f.CellIDs = append(f.CellIDs, f.CellIDs[0]) },
+					func(f *NativeAutomaticTableBorderPreviewV1) {
+						f.AutomaticEdges = append(f.AutomaticEdges, f.AutomaticEdges[0])
+					},
+					func(f *NativeAutomaticTableBorderPreviewV1) { f.BackgroundRGB = "000000" },
+					func(f *NativeAutomaticTableBorderPreviewV1) { f.SourceDiagnostics = nil },
+				} {
+					encoded, _ := json.Marshal(layout)
+					var changed NativeResolvedLayoutInputV1
+					if err := json.Unmarshal(encoded, &changed); err != nil {
+						t.Fatal(err)
+					}
+					mutate(changed.Tables[0].AutomaticBorderPreview)
+					if _, err := EncodeNativeResolvedLayoutInputV1(&changed); err == nil {
+						t.Fatal("accepted invalid evidence")
+					}
+				}
+			})
+		}
+	}
+}
+
+// Two source facts that say nothing about what is painted behind a table kept
+// this policy off every Word-authored package: mc:Ignorable on the main part
+// root, which Word writes on everything it saves, and the mere existence of a
+// header, footer or note story. Only a drawing, picture, embedded object or
+// page background can put ink behind the table, and each story is now asked
+// that one question instead of being excluded for existing.
+func TestAutomaticTableBorderEvidenceAdmitsIgnorableRootAndNonDrawingStories(t *testing.T) {
+	const mc = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+	for _, test := range []struct {
+		name, rootAttrs, header string
+		valid                   bool
+	}{
+		{name: "bare root", valid: true},
+		{name: "ignorable root", rootAttrs: ` xmlns:mc="` + mc + `" mc:Ignorable="w14 wp14"`, valid: true},
+		{name: "foreign root attribute", rootAttrs: ` xmlns:x="urn:foreign" x:flag="1"`},
+		{name: "empty header", header: `<w:p/>`, valid: true},
+		{name: "text header", header: `<w:p><w:r><w:t>page one</w:t></w:r></w:p>`, valid: true},
+		{name: "header drawing", header: `<w:p><w:r><w:drawing/></w:r></w:p>`},
+		{name: "header picture", header: `<w:p><w:r><w:pict/></w:r></w:p>`},
+		{name: "header object", header: `<w:p><w:r><w:object/></w:r></w:p>`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			borders := `<w:tblBorders>`
+			for _, edge := range []string{"top", "right", "bottom", "left", "insideH", "insideV"} {
+				borders += `<w:` + edge + ` w:val="single" w:sz="4" w:color="auto"/>`
+			}
+			borders += `</w:tblBorders>`
+			parts := resolvedStylesTestParts(`<w:styles xmlns:w="` + wordMLTransitional + `"><w:style w:type="table" w:styleId="Grid"><w:tblPr>` + borders + `</w:tblPr></w:style></w:styles>`)
+			section := `<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>`
+			if test.header != "" {
+				section += `<w:headerReference w:type="default" r:id="rHeader"/>`
+				parts["word/header1.xml"] = `<w:hdr xmlns:w="` + wordMLTransitional + `">` + test.header + `</w:hdr>`
+				parts["word/_rels/document.xml.rels"] = strings.Replace(parts["word/_rels/document.xml.rels"], `</Relationships>`, `<Relationship Id="rHeader" Type="`+relBaseTransitional+`header" Target="header1.xml"/></Relationships>`, 1)
+				parts["[Content_Types].xml"] = strings.Replace(parts["[Content_Types].xml"], `</Types>`, `<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>`, 1)
+			}
+			section += `</w:sectPr>`
+			parts["word/document.xml"] = `<w:document xmlns:w="` + wordMLTransitional + `" xmlns:r="` + testR + `"` + test.rootAttrs + `><w:body><w:tbl><w:tblPr><w:tblStyle w:val="Grid"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:type="dxa" w:w="4000"/></w:tcPr><w:p/></w:tc></w:tr></w:tbl><w:p/>` + section + `</w:body></w:document>`
+			data := buildNativeDOCX(t, nativeEntries(parts))
+			before := string(data)
+			layout, err := ResolveNativeDocumentLayoutV1(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fact := layout.Tables[0].AutomaticBorderPreview
+			if (fact != nil) != test.valid {
+				t.Fatalf("qualification = %v; want %v", fact != nil, test.valid)
+			}
+			if fact != nil && (len(fact.AutomaticEdges) != 6 || layout.Tables[0].Borders != nil) {
+				t.Fatalf("invalid evidence %#v", fact)
+			}
+			if string(data) != before {
+				t.Fatal("source bytes changed")
+			}
+		})
+	}
+}
+
+// A range endpoint sitting between two body blocks is an empty delimiter. It
+// states where a bookmark, comment, permission or tracked move begins or ends
+// and paints nothing, so it is not evidence against the white page the
+// automatic-border contrast policy needs. Anything that can carry content --
+// including a marker with a child or a foreign attribute this layer has not
+// read -- still disqualifies it.
+func TestAutomaticTableBorderEvidenceAdmitsBodyRangeMarkers(t *testing.T) {
+	for _, test := range []struct {
+		name, marker string
+		valid        bool
+	}{
+		{name: "no marker", valid: true},
+		{name: "move from range end", marker: `<w:moveFromRangeEnd w:id="1"/>`, valid: true},
+		{name: "move to range pair", marker: `<w:moveToRangeStart w:id="2" w:name="m"/><w:moveToRangeEnd w:id="2"/>`, valid: true},
+		{name: "bookmark pair", marker: `<w:bookmarkStart w:id="0" w:name="_GoBack"/><w:bookmarkEnd w:id="0"/>`, valid: true},
+		{name: "comment range pair", marker: `<w:commentRangeStart w:id="3"/><w:commentRangeEnd w:id="3"/>`, valid: true},
+		{name: "permission pair", marker: `<w:permStart w:id="4" w:edGrp="everyone"/><w:permEnd w:id="4"/>`, valid: true},
+		{name: "proof error", marker: `<w:proofErr w:type="spellStart"/>`, valid: true},
+		{name: "foreign attribute marker", marker: `<w:bookmarkEnd xmlns:x="urn:foreign" x:flag="1" w:id="0"/>`},
+		{name: "marker with child", marker: `<w:permStart w:id="5"><w:p/></w:permStart>`},
+		{name: "marker with text", marker: `<w:bookmarkEnd w:id="0">visible</w:bookmarkEnd>`},
+		{name: "unknown body block", marker: `<w:sdt><w:sdtContent><w:p/></w:sdtContent></w:sdt>`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			borders := `<w:tblBorders>`
+			for _, edge := range []string{"top", "right", "bottom", "left", "insideH", "insideV"} {
+				borders += `<w:` + edge + ` w:val="single" w:sz="4" w:color="auto"/>`
+			}
+			borders += `</w:tblBorders>`
+			parts := resolvedStylesTestParts(`<w:styles xmlns:w="` + wordMLTransitional + `"><w:style w:type="table" w:styleId="Grid"><w:tblPr>` + borders + `</w:tblPr></w:style></w:styles>`)
+			section := `<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>`
+			parts["word/document.xml"] = `<w:document xmlns:w="` + wordMLTransitional + `" xmlns:r="` + testR + `"><w:body><w:tbl><w:tblPr><w:tblStyle w:val="Grid"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:type="dxa" w:w="4000"/></w:tcPr><w:p/></w:tc></w:tr></w:tbl>` + test.marker + `<w:p/>` + section + `</w:body></w:document>`
+			data := buildNativeDOCX(t, nativeEntries(parts))
+			before := string(data)
+			layout, err := ResolveNativeDocumentLayoutV1(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fact := layout.Tables[0].AutomaticBorderPreview
+			if (fact != nil) != test.valid {
+				t.Fatalf("qualification = %v; want %v", fact != nil, test.valid)
+			}
+			if fact != nil && (len(fact.AutomaticEdges) != 6 || layout.Tables[0].Borders != nil) {
+				t.Fatalf("invalid evidence %#v", fact)
+			}
+			if string(data) != before {
+				t.Fatal("source bytes changed")
+			}
+		})
+	}
+}

@@ -1,0 +1,496 @@
+/**
+ * Exact, bounded media boundary for native DOCX page-paint v1.
+ *
+ * Embedded inline PNG and baseline JFIF JPEG pictures, with extent-preserving
+ * bounded source crop, source-axis flips and exact quarter-turn rotations,
+ * are qualified. The
+ * package extractor remains the relationship authority; this module exact-joins
+ * its drawing projection to preserved package-part fingerprints and caller-
+ * supplied bytes. It never fetches, decodes for layout, or accepts a renderer's
+ * interpretation as authority.
+ */
+
+import { sha256 } from '@noble/hashes/sha2.js'
+import { bytesToHex } from '@noble/hashes/utils.js'
+import type { NativeDocxDocumentV1, NativeDocxDrawingV1 } from './nativeContract.js'
+import { asciiLowerNative as asciiLower, asciiUpperNative, compareNativeCodeUnits } from './nativeDeterminism.js'
+import { nativeBaselineJpegDimensions } from './nativeJpegV1.js'
+
+export const DOCX_INLINE_IMAGE_LIMITS = Object.freeze({
+  maxAssets: 256,
+  maxAssetBytes: 16 * 1024 * 1024,
+  maxTotalBytes: 64 * 1024 * 1024,
+  maxPixelDimension: 32_768,
+  maxPixels: 100_000_000,
+  maxGeometryMilliPoints: 1_000_000_000,
+  maxFloatingImages: 128,
+})
+
+export interface NativeDocxAuthoritativeMediaAssetV1 {
+  part_name: string
+  content_type: string
+  content_digest: `sha256:${string}`
+  bytes: Uint8Array
+}
+
+export interface NativeDocxPagePaintMediaAssetV1 {
+  id: string
+  part_name: string
+  content_type: 'image/png' | 'image/jpeg'
+  content_digest: `sha256:${string}`
+  byte_length: number
+  width_px: number
+  height_px: number
+  bytes_base64: string
+}
+
+export interface NativeDocxQualifiedInlineImageV1 {
+  /** Offsets are relative to `horizontal_origin`/`vertical_origin`, not the page.
+   * Only `resolveNativeDocxFloatingAnchorV1` turns them into page coordinates. */
+  floating?: {
+    offset_x_millipoints: number
+    offset_y_millipoints: number
+    horizontal_origin: 'page' | 'column' | 'margin'
+    vertical_origin: 'page' | 'paragraph'
+    wrap_distance_left_millipoints: number
+    wrap_distance_right_millipoints: number
+    layer: 'behind' | 'front'
+    stacking_order: number
+    wrap?: 'square'
+    /** The rotation envelope wp:effectExtent states, in milli-points. The wrap
+     * region is the painted box grown by these and then by distL/distR; the
+     * painted box itself is never moved by them. */
+    effect_extent_left_millipoints: number
+    effect_extent_top_millipoints: number
+    effect_extent_right_millipoints: number
+    effect_extent_bottom_millipoints: number
+  }
+  drawing_id: string
+  run_id: string
+  asset_id: string
+  part_name: string
+  relationship_id: string
+  relationship_part: string
+  relationship_sha256: `sha256:${string}`
+  content_type: 'image/png' | 'image/jpeg'
+  content_digest: `sha256:${string}`
+  byte_length: number
+  width_emu: number
+  height_emu: number
+  width_millipoints: number
+  height_millipoints: number
+  layout_width_millipoints: number
+  layout_ascent_millipoints: number
+  layout_descent_millipoints: number
+  content_offset_x_millipoints: number
+  source_crop: { left: number; top: number; right: number; bottom: number; unit: 'one-hundred-thousandth' }
+  transform: NativeDocxImageTransformV1
+}
+
+/** Reflections in the source axes, then a rotation clockwise about the centre of
+ * the painted box. `rotation_degrees` carries the quarter turns whose matrix is
+ * exact in integers; `rotation_60000ths` carries the source's own angle, which
+ * an oblique rotation states instead. */
+export interface NativeDocxImageTransformV1 {
+  rotation_degrees: 0 | 90 | 180 | 270
+  rotation_60000ths?: number
+  flip_horizontal: boolean
+  flip_vertical: boolean
+}
+
+
+export type NativeDocxInlineImageQualificationV1 =
+  | { ok: true; value: NativeDocxQualifiedInlineImageV1 }
+  | { ok: false; code: 'unsupported-image' | 'invalid-image' | 'resource-limit'; message: string }
+
+const SHA256 = /^sha256:[0-9a-f]{64}$/
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+const PART_SEGMENT = /^(?:[A-Za-z0-9._~!$&'()*+,;=@-]|%[0-9A-F]{2})+$/
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const
+
+function canonicalPart(value: string): string {
+  try { return asciiLower(value.split('/').map((segment) => decodeURIComponent(segment)).join('/')) } catch { return value }
+}
+
+function validPartName(value: string): boolean {
+  if (value.length === 0 || value.length > 1024 || value.startsWith('/') || value.endsWith('/') || value.includes('\\') || value.includes('?') || value.includes('#') || value.includes('\0')) return false
+  try {
+    return value.split('/').every((segment) => {
+      const decoded = decodeURIComponent(segment)
+      return PART_SEGMENT.test(segment) && decoded.length > 0 && decoded !== '.' && decoded !== '..' && !decoded.endsWith('.') && !/[\\/?#%]/.test(decoded)
+        && ![...decoded].some((character) => {
+          const code = character.codePointAt(0) ?? 0
+          return code < 0x20 || code === 0x7f
+        })
+    })
+  } catch {
+    return false
+  }
+}
+
+function digest(bytes: Uint8Array): `sha256:${string}` {
+  return `sha256:${bytesToHex(sha256(bytes))}`
+}
+
+function base64(bytes: Uint8Array): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  let output = ''
+  for (let index = 0; index < bytes.length; index += 3) {
+    const a = bytes[index]!
+    const hasB = index + 1 < bytes.length
+    const hasC = index + 2 < bytes.length
+    const b = hasB ? bytes[index + 1]! : 0
+    const c = hasC ? bytes[index + 2]! : 0
+    output += alphabet[a >>> 2]
+      + alphabet[((a & 3) << 4) | (b >>> 4)]
+      + (hasB ? alphabet[((b & 15) << 2) | (c >>> 6)] : '=')
+      + (hasC ? alphabet[c & 63] : '=')
+  }
+  return output
+}
+
+function unbase64(value: string): Uint8Array | undefined {
+  if (!BASE64.test(value)) return undefined
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  const output = new Uint8Array((value.length / 4) * 3 - (value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0))
+  let cursor = 0
+  for (let index = 0; index < value.length; index += 4) {
+    const a = alphabet.indexOf(value[index]!)
+    const b = alphabet.indexOf(value[index + 1]!)
+    const c = value[index + 2] === '=' ? 0 : alphabet.indexOf(value[index + 2]!)
+    const d = value[index + 3] === '=' ? 0 : alphabet.indexOf(value[index + 3]!)
+    if (a < 0 || b < 0 || c < 0 || d < 0) return undefined
+    if (cursor < output.length) output[cursor++] = (a << 2) | (b >>> 4)
+    if (cursor < output.length) output[cursor++] = ((b & 15) << 4) | (c >>> 2)
+    if (cursor < output.length) output[cursor++] = ((c & 3) << 6) | d
+  }
+  return base64(output) === value ? output : undefined
+}
+
+function crc32(bytes: Uint8Array, start: number, end: number): number {
+  let crc = 0xffffffff
+  for (let index = start; index < end; index += 1) {
+    crc ^= bytes[index]!
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1))
+  }
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+function pngDimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
+  if (bytes.byteLength < 33 || PNG_SIGNATURE.some((value, index) => bytes[index] !== value)) return undefined
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  if (view.getUint32(8, false) !== 13 || String.fromCharCode(...bytes.slice(12, 16)) !== 'IHDR') return undefined
+  const width = view.getUint32(16, false)
+  const height = view.getUint32(20, false)
+  const bitDepth = bytes[24]
+  const colorType = bytes[25]
+  const compression = bytes[26]
+  const filter = bytes[27]
+  const interlace = bytes[28]
+  const validDepths = new Map<number, readonly number[]>([[0, [1, 2, 4, 8, 16]], [2, [8, 16]], [3, [1, 2, 4, 8]], [4, [8, 16]], [6, [8, 16]]])
+  if (width === 0 || height === 0 || !validDepths.get(colorType ?? -1)?.includes(bitDepth ?? 0) || compression !== 0 || filter !== 0 || ![0, 1].includes(interlace ?? -1)) return undefined
+  // Animated PNG changes the visual result over time and is outside a static page-paint contract.
+  let chunkIndex = 0
+  let sawPalette = false
+  let sawImageData = false
+  let leftImageData = false
+  for (let offset = 8; offset + 12 <= bytes.byteLength;) {
+    const length = view.getUint32(offset, false)
+    if (length > bytes.byteLength - offset - 12) return undefined
+    const type = String.fromCharCode(...bytes.slice(offset + 4, offset + 8))
+    const dataStart = offset + 8
+    const dataEnd = dataStart + length
+    if (!/^[A-Za-z]{4}$/.test(type) || view.getUint32(dataEnd, false) !== crc32(bytes, offset + 4, dataEnd)) return undefined
+    if (chunkIndex === 0 && type !== 'IHDR' || chunkIndex > 0 && type === 'IHDR') return undefined
+    if (type === 'acTL') return undefined
+    if (type === 'PLTE') {
+      if (sawPalette || sawImageData || colorType === 0 || colorType === 4 || length === 0 || length % 3 !== 0 || length > 768 || colorType === 3 && length / 3 > 2 ** (bitDepth ?? 0)) return undefined
+      sawPalette = true
+    }
+    if (type === 'IDAT') {
+      if (leftImageData || colorType === 3 && !sawPalette) return undefined
+      sawImageData = true
+    } else if (sawImageData && type !== 'IEND') {
+      leftImageData = true
+    }
+    // Unknown critical chunks change decoding semantics; preserve-only rather than guessing.
+    if (type[0] === asciiUpperNative(type[0] ?? '') && !['IHDR', 'PLTE', 'IDAT', 'IEND'].includes(type)) return undefined
+    offset += 12 + length
+    chunkIndex += 1
+    if (type === 'IEND') return length === 0 && sawImageData && offset === bytes.byteLength ? { width, height } : undefined
+  }
+  return undefined
+}
+
+function emuToMilliPoints(value: number): number | undefined {
+  // 914400 EMU = 72000 milli-points, so the exact reduced ratio is 10/127.
+  if (!Number.isSafeInteger(value) || value <= 0 || value % 127 !== 0) return undefined
+  const output = (value / 127) * 10
+  return Number.isSafeInteger(output) && output <= DOCX_INLINE_IMAGE_LIMITS.maxGeometryMilliPoints ? output : undefined
+}
+
+/** Extents are positive; a column/paragraph-relative anchor offset is signed,
+ * and Word routinely writes a small negative one. Same exact 10/127 ratio. */
+function emuOffsetToMilliPoints(value: number): number | undefined {
+  if (!Number.isSafeInteger(value) || Math.abs(value) % 127 !== 0) return undefined
+  const output = (value / 127) * 10
+  return Number.isSafeInteger(output) && Math.abs(output) <= DOCX_INLINE_IMAGE_LIMITS.maxGeometryMilliPoints ? output : undefined
+}
+
+function imageAssetID(contentDigest: string, partName: string): string {
+  const partDigest = bytesToHex(sha256(new TextEncoder().encode(canonicalPart(partName))))
+  return `image:${contentDigest.slice('sha256:'.length)}:${partDigest}`
+}
+
+function uniquePreservedPart(document: NativeDocxDocumentV1, partName: string) {
+  const key = canonicalPart(partName)
+  const matches = document.passthrough_parts.filter((part) => canonicalPart(part.part_name) === key)
+  return matches.length === 1 ? matches[0] : undefined
+}
+
+function relationshipPart(ownerPart: string): string {
+  const slash = ownerPart.lastIndexOf('/')
+  const directory = slash < 0 ? '' : ownerPart.slice(0, slash + 1)
+  const base = slash < 0 ? ownerPart : ownerPart.slice(slash + 1)
+  return `${directory}_rels/${base}.rels`
+}
+
+export function qualifyNativeDocxInlineImageV1(document: NativeDocxDocumentV1, runID: string, drawing: NativeDocxDrawingV1): NativeDocxInlineImageQualificationV1 {
+  const crop = drawing.source_crop ?? { left: 0, top: 0, right: 0, bottom: 0 }
+  if (!['left','top','right','bottom'].every((key) => Number.isSafeInteger(crop[key as keyof typeof crop]) && crop[key as keyof typeof crop] >= 0 && crop[key as keyof typeof crop] <= 99000) || crop.left + crop.right > 99000 || crop.top + crop.bottom > 99000) return { ok: false, code: 'unsupported-image', message: 'Source crop must retain at least one percent per axis in exact integer units' }
+  if (drawing.rotation_degrees !== undefined && ![0, 90, 180, 270].includes(drawing.rotation_degrees) || drawing.flip_horizontal !== undefined && typeof drawing.flip_horizontal !== 'boolean' || drawing.flip_vertical !== undefined && typeof drawing.flip_vertical !== 'boolean') return { ok: false, code: 'unsupported-image', message: 'Inline image transform requires explicit booleans and a quarter-turn whole-degree projection' }
+  const angle = drawing.rotation_60000ths
+  if (angle !== undefined && (!Number.isSafeInteger(angle) || angle < 0 || angle >= 21_600_000 || angle % 5_400_000 === 0 && angle !== (drawing.rotation_degrees ?? -1) * 60_000)) return { ok: false, code: 'unsupported-image', message: 'Image rotation must be a positive fixed angle below one full turn that agrees with its whole-degree projection' }
+  const oblique = angle !== undefined && angle % 5_400_000 !== 0
+  let floating: NativeDocxQualifiedInlineImageV1['floating']
+  if (drawing.placement === 'floating') {
+    // A quarter turn swaps the painted box's axes, so wp:extent already states
+    // the rotated bounds and no exclusion can be derived from the source extent.
+    // An oblique rotation leaves wp:extent unrotated and states its envelope in
+    // wp:effectExtent, which is exactly the rectangle Word excludes.
+    if (drawing.wrap === 'square' && drawing.rotation_degrees !== undefined && drawing.rotation_degrees !== 0) return { ok: false, code: 'unsupported-image', message: 'Square wrapping requires an unrotated source extent; quarter-turn exclusion bounds are unqualified' }
+    if (drawing.wrap === 'square' && oblique && drawing.floating_effect_extent_emu === undefined) return { ok: false, code: 'unsupported-image', message: 'Square wrapping around an obliquely rotated picture requires the source rotation envelope in wp:effectExtent' }
+    let bodyParagraph = false, floatingCount = 0, sameOrder = 0
+    for (const block of document.body.blocks) for (const run of block.paragraph?.runs ?? []) {
+      if (run.drawing?.placement !== 'floating') continue
+      if (++floatingCount > DOCX_INLINE_IMAGE_LIMITS.maxFloatingImages) return { ok: false, code: 'resource-limit', message: 'Floating images exceed the bounded document limit' }
+      if (run.id === runID && run.drawing.id === drawing.id) bodyParagraph = true
+      if (run.drawing.floating_layer === drawing.floating_layer && run.drawing.stacking_order === drawing.stacking_order) sameOrder += 1
+    }
+    const x = emuOffsetToMilliPoints(drawing.x_emu!)
+    const y = emuOffsetToMilliPoints(drawing.y_emu!)
+    const horizontal = drawing.horizontal_relative_from, vertical = drawing.vertical_relative_from
+    if (!bodyParagraph || !['page','column','margin'].includes(horizontal!) || !['page','paragraph'].includes(vertical!) || !['none','square'].includes(drawing.wrap!) || x === undefined || y === undefined || !['behind', 'front'].includes(drawing.floating_layer!) || !Number.isSafeInteger(drawing.stacking_order) || drawing.stacking_order! < 0 || drawing.stacking_order! > 0xffffffff) return { ok: false, code: 'unsupported-image', message: 'Floating images require a body paragraph, an exact page/column/margin and page/paragraph origin, wrapNone/wrapSquare and explicit source layering' }
+    // A page origin is an absolute page coordinate and stays non-negative; a
+    // column/margin/paragraph origin is a signed displacement layout resolves.
+    if (horizontal === 'page' && x < 0 || vertical === 'page' && y < 0) return { ok: false, code: 'unsupported-image', message: 'Page-relative floating offsets must be non-negative' }
+    const distances: number[] = []
+    for (const value of [drawing.wrap_distance_left_emu ?? 0, drawing.wrap_distance_right_emu ?? 0]) {
+      const converted = value === 0 ? 0 : emuToMilliPoints(value)
+      if (converted === undefined || value < 0 || value > 91_440_000) return { ok: false, code: 'unsupported-image', message: 'Floating wrap distances are not exact bounded non-negative milli-points' }
+      distances.push(converted)
+    }
+    const envelope = drawing.floating_effect_extent_emu ?? { left: 0, top: 0, right: 0, bottom: 0 }
+    const extents: number[] = []
+    for (const value of [envelope.left, envelope.top, envelope.right, envelope.bottom]) {
+      const converted = value === 0 ? 0 : emuToMilliPoints(value)
+      if (converted === undefined || !Number.isSafeInteger(value) || value < 0 || value > 91_440_000) return { ok: false, code: 'unsupported-image', message: 'Floating rotation envelope extents are not exact bounded non-negative milli-points' }
+      extents.push(converted)
+    }
+    floating = { offset_x_millipoints: x, offset_y_millipoints: y, horizontal_origin: horizontal as 'page' | 'column' | 'margin', vertical_origin: vertical as 'page' | 'paragraph', wrap_distance_left_millipoints: distances[0]!, wrap_distance_right_millipoints: distances[1]!, effect_extent_left_millipoints: extents[0]!, effect_extent_top_millipoints: extents[1]!, effect_extent_right_millipoints: extents[2]!, effect_extent_bottom_millipoints: extents[3]!, layer: drawing.floating_layer!, stacking_order: drawing.stacking_order!, ...(drawing.wrap==='square'?{wrap:'square' as const}:{}) }
+    if (sameOrder !== 1) return { ok: false, code: 'unsupported-image', message: 'Floating image stacking orders must be unique within each layer' }
+  } else if (drawing.placement !== 'inline' || drawing.x_emu !== undefined || drawing.y_emu !== undefined || drawing.wrap !== undefined || drawing.horizontal_relative_from !== undefined || drawing.vertical_relative_from !== undefined || drawing.floating_layer !== undefined || drawing.stacking_order !== undefined || drawing.wrap_distance_left_emu !== undefined || drawing.wrap_distance_right_emu !== undefined || drawing.floating_effect_extent_emu !== undefined) {
+    return { ok: false, code: 'unsupported-image', message: 'Only bounded inline pictures without anchor, wrap, or floating offsets are supported' }
+  }
+  if (!drawing.relationship_id || !drawing.media_part || !drawing.content_type) return { ok: false, code: 'invalid-image', message: 'Inline picture lacks an exact embedded relationship/media identity' }
+  const contentType = asciiLower(drawing.content_type)
+  if (contentType !== 'image/png' && contentType !== 'image/jpeg') return { ok: false, code: 'unsupported-image', message: 'Only embedded static PNG or baseline JFIF JPEG media is supported' }
+  const part = uniquePreservedPart(document, drawing.media_part)
+  if (!part || canonicalPart(part.part_name) !== canonicalPart(drawing.media_part) || asciiLower(part.content_type) !== contentType || !SHA256.test(part.sha256) || !Number.isSafeInteger(part.byte_length) || part.byte_length <= 0) {
+    return { ok: false, code: 'invalid-image', message: 'Inline picture does not exact-join one preserved content-addressed raster part' }
+  }
+  const relPartName = relationshipPart(drawing.anchor.part_name)
+  const relPart = uniquePreservedPart(document, relPartName)
+  if (!relPart || asciiLower(relPart.content_type) !== 'application/vnd.openxmlformats-package.relationships+xml' || !SHA256.test(relPart.sha256)) return { ok: false, code: 'invalid-image', message: 'Inline picture owning relationship part is not uniquely preserved and digest-bound' }
+  const width = emuToMilliPoints(drawing.width_emu)
+  const height = emuToMilliPoints(drawing.height_emu)
+  if (width === undefined || height === undefined) return { ok: false, code: 'unsupported-image', message: 'Picture EMU extent is not exactly representable in integer milli-points within the geometry bound' }
+  const extent = drawing.inline_effect_extent_emu
+  const effects = { left: 0, top: 0, right: 0, bottom: 0 }
+  if (extent) {
+    if (floating || Object.keys(extent).sort().join(',') !== 'bottom,left,right,top') return { ok: false, code: 'unsupported-image', message: 'Effect extents require one exact inline layout box' }
+    for (const key of ['left','top','right','bottom'] as const) {
+      const value = extent[key]
+      const converted = value === 0 ? 0 : emuToMilliPoints(value)
+      if (converted === undefined || value > 91_440_000) return { ok: false, code: 'unsupported-image', message: 'Inline effect extents are not exact bounded nonnegative milli-points' }
+      effects[key] = converted
+    }
+  }
+  const layoutWidth = width + effects.left + effects.right
+  const layoutAscent = height + effects.top
+  if (layoutWidth > DOCX_INLINE_IMAGE_LIMITS.maxGeometryMilliPoints || layoutAscent + effects.bottom > DOCX_INLINE_IMAGE_LIMITS.maxGeometryMilliPoints) return { ok: false, code: 'resource-limit', message: 'Inline effect layout box exceeds geometry bounds' }
+  return {
+    ok: true,
+    value: {
+      ...(floating ? { floating } : {}),
+      drawing_id: drawing.id,
+      run_id: runID,
+      asset_id: imageAssetID(part.sha256, part.part_name),
+      part_name: part.part_name,
+      relationship_id: drawing.relationship_id,
+      relationship_part: relPart.part_name,
+      relationship_sha256: relPart.sha256 as `sha256:${string}`,
+      content_type: contentType,
+      content_digest: part.sha256 as `sha256:${string}`,
+      byte_length: part.byte_length,
+      width_emu: drawing.width_emu,
+      height_emu: drawing.height_emu,
+      width_millipoints: width,
+      height_millipoints: height,
+      layout_width_millipoints: layoutWidth,
+      layout_ascent_millipoints: layoutAscent,
+      layout_descent_millipoints: effects.bottom === 0 ? 0 : -effects.bottom,
+      content_offset_x_millipoints: effects.left,
+      source_crop: { left: crop.left, top: crop.top, right: crop.right, bottom: crop.bottom, unit: 'one-hundred-thousandth' },
+      transform: { rotation_degrees: drawing.rotation_degrees ?? 0, ...(oblique ? { rotation_60000ths: angle! } : {}), flip_horizontal: drawing.flip_horizontal ?? false, flip_vertical: drawing.flip_vertical ?? false },
+    },
+  }
+}
+
+export function collectNativeDocxQualifiedInlineImagesV1(document: NativeDocxDocumentV1): NativeDocxInlineImageQualificationV1[] {
+  const stories = [document.body, ...document.headers, ...document.footers, ...document.notes, ...document.comment_stories]
+  return stories.flatMap((story) => story.blocks.flatMap((block) => {
+    const paragraphs = block.paragraph ? [block.paragraph] : block.table ? block.table.rows.flatMap((row) => row.cells.flatMap((cell) => cell.paragraphs)) : []
+    return paragraphs.flatMap((paragraph) => paragraph.runs.flatMap((run) => run.drawing ? [qualifyNativeDocxInlineImageV1(document, run.id, run.drawing)] : []))
+  }))
+}
+
+/** The raster format a byte string actually is, read from its signature. Every
+ * structural rule of the format it claims still applies; only the choice of
+ * which rules to apply comes from the bytes. */
+function staticRasterFormat(bytes: Uint8Array): { content_type: 'image/png' | 'image/jpeg'; width: number; height: number } | undefined {
+  if (PNG_SIGNATURE.every((value, index) => bytes[index] === value)) {
+    const png = pngDimensions(bytes)
+    return png ? { content_type: 'image/png', ...png } : undefined
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    const jpeg = nativeBaselineJpegDimensions(bytes)
+    return jpeg ? { content_type: 'image/jpeg', ...jpeg } : undefined
+  }
+  return undefined
+}
+
+/** Prepare a source-part-bound static raster for native replay, without a DOCX model. */
+export function prepareNativeRasterResourceV1(partName: string, contentType: 'image/png' | 'image/jpeg', bytes: Uint8Array): NativeDocxPagePaintMediaAssetV1 {
+  if (!validPartName(partName) || !['image/png', 'image/jpeg'].includes(contentType) || !(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > DOCX_INLINE_IMAGE_LIMITS.maxAssetBytes) throw new RangeError('Native raster identity or byte budget is invalid')
+  const owned = Uint8Array.from(bytes)
+  // A package's declared media type is a label its author chose; it names a
+  // JPEG "image1.png" often enough that it cannot select the decoder. The
+  // signature does, and the emitted content type is the one the bytes prove.
+  const dimensions = staticRasterFormat(owned)
+  if (!dimensions) throw new TypeError('Native raster must be a complete static PNG or baseline JFIF JPEG')
+  const contentDigest = digest(owned)
+  return decodeNativeDocxPagePaintResourceListV1([{id: imageAssetID(contentDigest, partName), part_name: partName, content_type: dimensions.content_type, content_digest: contentDigest, byte_length: owned.byteLength, width_px: dimensions.width, height_px: dimensions.height, bytes_base64: base64(owned)}])[0]!
+}
+
+export function prepareNativeDocxPagePaintMediaAssetsV1(document: NativeDocxDocumentV1, values: readonly NativeDocxAuthoritativeMediaAssetV1[]): NativeDocxPagePaintMediaAssetV1[] {
+  if (!Array.isArray(values) || values.length > DOCX_INLINE_IMAGE_LIMITS.maxAssets) throw new RangeError(`authoritative media assets exceed ${DOCX_INLINE_IMAGE_LIMITS.maxAssets} entries`)
+  const qualified = collectNativeDocxQualifiedInlineImagesV1(document).flatMap((entry) => entry.ok ? [entry.value] : [])
+  const required = new Map(qualified.map((entry) => [canonicalPart(entry.part_name), entry]))
+  const output: NativeDocxPagePaintMediaAssetV1[] = []
+  const supplied = new Set<string>()
+  const seen = new Set<string>()
+  let total = 0
+  for (const value of values) {
+    if (!value || typeof value !== 'object' || typeof value.part_name !== 'string' || typeof value.content_type !== 'string' || !(value.bytes instanceof Uint8Array) || !SHA256.test(value.content_digest)) throw new TypeError('authoritative media asset is malformed')
+    const key = canonicalPart(value.part_name)
+    if (supplied.has(key)) throw new TypeError('authoritative media asset part is supplied more than once')
+    supplied.add(key)
+    const image = required.get(key)
+    // A supplier reads raster parts off the package, not off this module's
+    // qualification predicate, so it legitimately offers parts no qualified
+    // inline picture names — a numbering picture bullet, or a drawing this
+    // module refuses. Those parts paint nothing and are dropped here; only the
+    // qualified ones are joined and emitted. Coverage is still exact.
+    if (!image) continue
+    if (value.part_name !== image.part_name || asciiLower(value.content_type) !== image.content_type || value.content_digest !== image.content_digest || value.bytes.byteLength !== image.byte_length) throw new TypeError('authoritative media asset does not exact-join one qualified native picture')
+    if (value.bytes.byteLength === 0 || value.bytes.byteLength > DOCX_INLINE_IMAGE_LIMITS.maxAssetBytes || total + value.bytes.byteLength > DOCX_INLINE_IMAGE_LIMITS.maxTotalBytes) throw new RangeError('authoritative media bytes exceed the bounded page-paint budget')
+    const owned = Uint8Array.from(value.bytes)
+    if (digest(owned) !== value.content_digest) throw new TypeError('authoritative media bytes do not match their content digest')
+    const dimensions = image.content_type === 'image/png' ? pngDimensions(owned) : nativeBaselineJpegDimensions(owned)
+    if (!dimensions) throw new TypeError('authoritative media is not a supported static, structurally complete PNG or baseline JFIF JPEG')
+    if (dimensions.width > DOCX_INLINE_IMAGE_LIMITS.maxPixelDimension || dimensions.height > DOCX_INLINE_IMAGE_LIMITS.maxPixelDimension || dimensions.width * dimensions.height > DOCX_INLINE_IMAGE_LIMITS.maxPixels) throw new RangeError('authoritative raster dimensions exceed the bounded decode budget')
+    output.push({
+      id: image.asset_id,
+      part_name: image.part_name,
+      content_type: image.content_type,
+      content_digest: image.content_digest,
+      byte_length: owned.byteLength,
+      width_px: dimensions.width,
+      height_px: dimensions.height,
+      bytes_base64: base64(owned),
+    })
+    seen.add(key)
+    total += owned.byteLength
+  }
+  if (seen.size !== required.size) throw new TypeError('authoritative media assets must cover every qualified unique inline picture part')
+  return output.sort((left, right) => compareNativeCodeUnits(canonicalPart(left.part_name), canonicalPart(right.part_name)))
+}
+
+/** Insert one canonical media asset into an already canonical resource list,
+ * keeping the list in canonical part-name order. The approximate drawing-shape
+ * painter uses this to transport a picture no `pic:pic` drawing names, after
+ * the unmodified picture qualifier has accepted the shape's fill. Returns false
+ * when the list already carries a different asset for the same part; an
+ * identical asset is already present and nothing changes. */
+export function appendNativeDocxPagePaintResourceV1(resources: NativeDocxPagePaintMediaAssetV1[], asset: NativeDocxPagePaintMediaAssetV1): boolean {
+  const key = canonicalPart(asset.part_name)
+  const existing = resources.find((entry) => canonicalPart(entry.part_name) === key || entry.id === asset.id)
+  if (existing) return JSON.stringify(existing) === JSON.stringify(asset)
+  if (resources.length >= DOCX_INLINE_IMAGE_LIMITS.maxAssets || resources.reduce((total, entry) => total + entry.byte_length, 0) + asset.byte_length > DOCX_INLINE_IMAGE_LIMITS.maxTotalBytes) return false
+  resources.push({ ...asset })
+  resources.sort((left, right) => compareNativeCodeUnits(canonicalPart(left.part_name), canonicalPart(right.part_name)))
+  return true
+}
+
+export function decodeNativeDocxPagePaintMediaAssetsV1(document: NativeDocxDocumentV1, value: unknown): NativeDocxPagePaintMediaAssetV1[] {
+  const resources = decodeNativeDocxPagePaintResourceListV1(value)
+  const authoritative: NativeDocxAuthoritativeMediaAssetV1[] = resources.map((asset) => ({
+    part_name: asset.part_name,
+    content_type: asset.content_type,
+    content_digest: asset.content_digest,
+    bytes: unbase64(asset.bytes_base64)!,
+  }))
+  const canonical = prepareNativeDocxPagePaintMediaAssetsV1(document, authoritative)
+  if (JSON.stringify(canonical) !== JSON.stringify(value)) throw new TypeError('page-paint media asset inventory is not the canonical document-bound projection')
+  return canonical
+}
+
+export function decodeNativeDocxPagePaintResourceListV1(value: unknown): NativeDocxPagePaintMediaAssetV1[] {
+  if (!Array.isArray(value) || value.length > DOCX_INLINE_IMAGE_LIMITS.maxAssets) throw new TypeError('page-paint media asset inventory is malformed or unbounded')
+  let total = 0
+  const seenParts = new Set<string>()
+  const seenIDs = new Set<string>()
+  const resources: NativeDocxPagePaintMediaAssetV1[] = value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new TypeError('page-paint media asset is not an object')
+    const asset = entry as Record<string, unknown>
+    const fields = ['id', 'part_name', 'content_type', 'content_digest', 'byte_length', 'width_px', 'height_px', 'bytes_base64']
+    if (Object.keys(asset).sort().join(',') !== fields.sort().join(',')) throw new TypeError('page-paint media asset contains unknown or missing fields')
+    if (typeof asset.part_name !== 'string' || !validPartName(asset.part_name) || typeof asset.content_type !== 'string' || typeof asset.content_digest !== 'string' || typeof asset.bytes_base64 !== 'string' || asset.bytes_base64.length > DOCX_INLINE_IMAGE_LIMITS.maxAssetBytes * 2) throw new TypeError('page-paint media asset identity is malformed')
+    const bytes = unbase64(asset.bytes_base64)
+    if (!bytes || asset.byte_length !== bytes.byteLength) throw new TypeError('page-paint media asset bytes are not canonical or length-bound')
+    if (!['image/png', 'image/jpeg'].includes(asset.content_type) || !SHA256.test(asset.content_digest) || digest(bytes) !== asset.content_digest || asset.id !== imageAssetID(asset.content_digest, asset.part_name)) throw new TypeError('page-paint media asset content identity is invalid')
+    const partKey = canonicalPart(asset.part_name)
+    if (seenParts.has(partKey) || seenIDs.has(asset.id as string)) throw new TypeError('page-paint media asset identity is duplicated')
+    const dimensions = asset.content_type === 'image/png' ? pngDimensions(bytes) : nativeBaselineJpegDimensions(bytes)
+    if (!dimensions || asset.width_px !== dimensions.width || asset.height_px !== dimensions.height) throw new TypeError('page-paint media asset dimensions do not match its raster bytes')
+    if (bytes.byteLength > DOCX_INLINE_IMAGE_LIMITS.maxAssetBytes || total + bytes.byteLength > DOCX_INLINE_IMAGE_LIMITS.maxTotalBytes || dimensions.width > DOCX_INLINE_IMAGE_LIMITS.maxPixelDimension || dimensions.height > DOCX_INLINE_IMAGE_LIMITS.maxPixelDimension || dimensions.width * dimensions.height > DOCX_INLINE_IMAGE_LIMITS.maxPixels) throw new RangeError('page-paint media resource exceeds its byte or pixel budget')
+    total += bytes.byteLength
+    seenParts.add(partKey)
+    seenIDs.add(asset.id as string)
+    return asset as unknown as NativeDocxPagePaintMediaAssetV1
+  })
+  const sorted = [...resources].sort((left, right) => compareNativeCodeUnits(canonicalPart(left.part_name), canonicalPart(right.part_name)))
+  if (JSON.stringify(sorted) !== JSON.stringify(resources)) throw new TypeError('page-paint media assets must be in canonical part-name order')
+  return resources
+}

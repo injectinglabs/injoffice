@@ -1,0 +1,101 @@
+name: Deploy playground
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      deploy: ${{ steps.changes.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # A workflow_run checkout must name the SHA explicitly; otherwise it
+          # could deploy a newer, untested main commit.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+      - name: Check whether playground inputs changed
+        id: changes
+        env:
+          FORCE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          deploy=true
+          if [ "$FORCE_DEPLOY" != 'true' ] && git rev-parse HEAD^ >/dev/null 2>&1; then
+            if git diff --quiet HEAD^ HEAD -- \
+              apps/playground \
+              apps/docs \
+              packages \
+              go/xlsxpatch \
+              go/docxpatch \
+              go/pptxpatch \
+              go/officecompat \
+              scripts \
+              package.json \
+              package-lock.json \
+              .github/workflows/pages.yml
+            then
+              deploy=false
+            fi
+          fi
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        if: steps.changes.outputs.deploy == 'true'
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        if: steps.changes.outputs.deploy == 'true'
+        with:
+          go-version: '1.23'
+          cache: false
+      - if: steps.changes.outputs.deploy == 'true'
+        run: npm ci
+      - id: pages
+        if: steps.changes.outputs.deploy == 'true'
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - name: Build playground
+        if: steps.changes.outputs.deploy == 'true'
+        env:
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: npm run build -w apps/playground -- --base="${PAGES_BASE_PATH}/"
+      - name: Verify native Office browser assets
+        if: steps.changes.outputs.deploy == 'true'
+        run: |
+          test -n "$(find apps/playground/dist -type f -name 'xlsxnative-*.wasm' -print -quit)"
+          test -n "$(find apps/playground/dist -type f -name 'docxnative-*.wasm' -print -quit)"
+          test -n "$(find apps/playground/dist -type f -name 'pptxnative-*.wasm' -print -quit)"
+          grep -R -q 'injoffice.native-wasm-worker' apps/playground/dist
+          grep -R -q 'globalThis.Go' apps/playground/dist
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        if: steps.changes.outputs.deploy == 'true'
+        with:
+          path: apps/playground/dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build
+    if: needs.build.outputs.deploy == 'true'
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

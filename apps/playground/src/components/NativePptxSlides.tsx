@@ -1,0 +1,127 @@
+import {useEffect,useId,useRef,useState,type ReactNode} from 'react'
+import {decodePptxPreview,type PptxPreview,type PreviewNode,type PreviewStroke} from '../../../pptx-page-paint-worker/src/contract'
+import {readNativePreviewResponse,decodeNativeDocxImages,nativeDocxImagesWithinBudget} from './NativeDocxPages'
+import {DsButton,DsField,DsSelect} from '../design-system/primitives'
+import type {NativePptxDeck} from '@injoffice/pptx-native'
+import {nativePptxSvgNode,SVG_EMU_PER_POINT} from './nativePptxSvgUnits'
+import {nativePptxPreviewStatus} from '../nativePptxPreviewStatus'
+
+export function NativePptxVector({preview,onImageError}:{preview:PptxPreview;onImageError?:()=>void}){
+ const prefix=useId().replace(/:/g,'')
+ const color=(value:string)=>value==='none'?'none':`#${value}`
+ const strokeProps=(node:PreviewStroke)=>({strokeLinecap:node.strokeLinecap,strokeLinejoin:node.strokeLinejoin,strokeMiterlimit:node.strokeMiterlimit})
+ function draw(node:PreviewNode,key:string):ReactNode{
+  switch(node.kind){
+   case 'image':{const resource=preview.resources.find(r=>r.id===node.resourceId)!;const c=node.crop??{left:0,top:0,right:0,bottom:0};return <svg key={key} x={node.rect.x} y={node.rect.y} width={node.rect.cx} height={node.rect.cy} viewBox={`${c.left} ${c.top} ${100000-c.left-c.right} ${100000-c.top-c.bottom}`} preserveAspectRatio="none" overflow="hidden"><image data-native-raster={resource.id} href={`data:${resource.content_type};base64,${resource.bytes_base64}`} width={100000} height={100000} preserveAspectRatio="none" onError={onImageError}/></svg>}
+   case 'group':{const clip=node.clip,id=`${prefix}-${key}`;return <g key={key} data-native-source-role={node.sourceRole} transform={`matrix(${node.transform.join(' ')})`}>
+    {clip&&<defs><clipPath id={id} clipPathUnits="userSpaceOnUse">{clip.d!==undefined?<path d={clip.d}/>:<rect x={clip.x} y={clip.y} width={clip.cx} height={clip.cy} rx={clip.radius} ry={clip.radius}/>}</clipPath></defs>}
+    <g clipPath={clip?`url(#${id})`:undefined}>{node.children.map((child,i)=>draw(child,`${key}-${i}`))}</g>
+   </g>}
+   case 'path':return <path key={key} d={node.d} fill={color(node.fill)} stroke={node.stroke?color(node.stroke):undefined} strokeWidth={node.strokeWidth} {...strokeProps(node)}/>
+   case 'rect':return <rect key={key} x={node.rect.x} y={node.rect.y} width={node.rect.cx} height={node.rect.cy} rx={node.radius} fill={color(node.fill)} stroke={node.stroke?color(node.stroke):undefined} strokeWidth={node.strokeWidth} {...strokeProps(node)}/>
+   case 'ellipse':return <ellipse key={key} cx={node.rect.x+node.rect.cx/2} cy={node.rect.y+node.rect.cy/2} rx={node.rect.cx/2} ry={node.rect.cy/2} fill={color(node.fill)} stroke={node.stroke?color(node.stroke):undefined} strokeWidth={node.strokeWidth} {...strokeProps(node)}/>
+   // A refused shape is drawn as an empty outlined region, never a filled one.
+   // A solid fill covers the slide in ink we did not render: on bullet-indent.pptx
+   // two such boxes accounted for 70.8% of the page while the preview contained no
+   // painted content at all, which reads as coverage we do not have.
+   // The outline and its label are OUR chrome, not source paint. They are marked
+   // so a reader can tell the two apart by attribute instead of by colour: the
+   // dashed stroke and the grey label are the only dark pixels on a slide that
+   // painted nothing, and colour alone cannot separate them from grey content.
+   case 'placeholder':return <g key={key} data-native-placeholder="refused-region"><rect data-native-placeholder-outline x={node.rect.x} y={node.rect.y} width={node.rect.cx} height={node.rect.cy} fill="none" stroke="#777" strokeWidth={1} strokeDasharray="4 3"/><text data-native-placeholder-label x={node.rect.x+1} y={node.rect.y+10} fontSize={8} fill="#777">{node.label}</text></g>
+  }
+ }
+ const width=preview.width/SVG_EMU_PER_POINT,height=preview.height/SVG_EMU_PER_POINT
+ // A gradient background is painted as a real SVG paint server, not a CSS
+ // background: the capture rasterizes this vector on its own, so only what is
+ // inside it is measured. DrawingML a:lin @ang is 1/60000 of a degree clockwise
+ // from the positive x axis, and SVG user space also grows downward, so the
+ // direction vector is (cos, sin) of that same angle. The axis runs through the
+ // box centre and is extended to the box's projection onto it so the first and
+ // last stops land on the edges, which is what PowerPoint paints.
+ const gradient=preview.background_gradient
+ const radians=gradient?gradient.angle/60000*Math.PI/180:0
+ const dx=Math.cos(radians),dy=Math.sin(radians),half=(Math.abs(dx)*width+Math.abs(dy)*height)/2
+ const gradientId=`${prefix}-slide-background`
+ return <svg role="img" aria-label={`Measured native slide ${preview.slide_index+1}`} viewBox={`0 0 ${width} ${height}`} style={{display:'block',width:'100%',background:color(preview.background),border:'1px solid var(--ds-line)'}}>
+  {gradient&&<defs><linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1={width/2-dx*half} y1={height/2-dy*half} x2={width/2+dx*half} y2={height/2+dy*half}>
+   {gradient.stops.map((stop,i)=><stop key={i} offset={stop.pos/100000} stopColor={color(stop.color)}/>)}
+  </linearGradient></defs>}
+  {gradient&&<rect data-native-slide-background="gradient" x={0} y={0} width={width} height={height} fill={`url(#${gradientId})`}/>}
+  {preview.nodes.map((node,i)=>draw(nativePptxSvgNode(node),String(i)))}
+ </svg>
+}
+
+export function NativePptxPreviewResult({preview,source,onImageError}:{preview:PptxPreview;source?:NativePptxDeck;onImageError?:()=>void}){
+ const coverage=nativePptxPreviewStatus(preview,source)
+ const limit=50
+ return <section aria-label={`Native preview result for slide ${preview.slide_index+1}`} data-native-preview-status={coverage.status}>
+  <h4>{coverage.label} · slide {preview.slide_index+1} of {preview.slide_count}</h4>
+  {preview.workbook_chart_preview&&<p role="note" data-workbook-chart-preview>Charts from the embedded workbook. Saved source cells and categories are used; chart caches are ignored. Axis labels use supplied fonts and measured host margins. Unsupported source data remains unavailable; PowerPoint plot layout is not reproduced.</p>}
+  {preview.source_chart_preview&&<p role="note" data-source-chart-preview>Source literal chart preview. Axis labels use supplied fonts and conservative measured margins, with one-point gaps and three-point outside ticks. PowerPoint plot layout is not reproduced.</p>}
+  {preview.font_substitutions&&<p role="note" data-font-substitution>Font substitution preview — layout may differ. Read-only; the source font names and original file are unchanged. {preview.font_substitutions.slice(0,32).map(s=>`${s.source_family} → ${s.selected_family}`).join('; ')}{preview.font_substitutions.length>32?`; ${preview.font_substitutions.length-32} additional substitutions`:''}</p>}
+  {(preview.inherited_text_preview_count??0)>0&&<p role="note" data-inherited-text-approximation>Approximate inherited text preview. Uses a declared source-style ordering, not qualified PowerPoint precedence. Kerning is disabled; terminal language metadata is preserved without layout. Text metrics, wrapping, and terminal spacing may differ. Read-only; the original file is unchanged.</p>}
+  {(preview.source_frame_autofit_count??0)>0&&<p role="note" data-autofit-approximation>Approximate autofit preview. Text uses the saved source frame without resizing. Frame size, layout, and overflow or clipping may differ from PowerPoint. Read-only; editing permissions are unchanged.</p>}
+  <p className="ds-muted">Supported paint is retained alongside identified gaps. Native line layout uses the InjOffice policy; complete source coverage and PowerPoint equivalence are not established. Read-only; the original file and editing permissions are unchanged.</p>
+  <NativePptxVector preview={preview} onImageError={onImageError}/>
+  {coverage.reasons.length>0&&<details open><summary>Missing content and coverage limits ({coverage.reasons.length})</summary><ul>{coverage.reasons.slice(0,limit).map((reason,i)=><li key={i}>{reason}</li>)}</ul>{coverage.reasons.length>limit&&<p>{coverage.reasons.length-limit} additional coverage reasons are not displayed.</p>}</details>}
+  <details><summary>Native paint counts</summary><p>{coverage.paintPrimitives} paint records · {coverage.glyphRecords} text glyph records · {coverage.placeholderRegions} placeholder regions{coverage.sourceBound?` · ${coverage.knownRefusedObjects} known refused source objects`:''}. Paint records are not object counts or proof of visible pixels after clipping.</p></details>
+  {preview.diagnostics.length>0&&<details><summary>Native diagnostics ({preview.diagnostics.length})</summary><ul>{preview.diagnostics.slice(0,limit).map((message,i)=><li key={i}>{message}</li>)}</ul>{preview.diagnostics.length>limit&&<p>{preview.diagnostics.length-limit} additional diagnostics are not displayed.</p>}</details>}
+ </section>
+}
+
+export function NativePptxSlides({bytes,slideCount,apiBase,source}:{bytes:Uint8Array;slideCount:number;apiBase:string;source?:NativePptxDeck}){
+ const [paint,setPaint]=useState<PptxPreview|null>(null),[busy,setBusy]=useState(false),[at,setAt]=useState(0)
+ const [approximateAutoFit,setApproximateAutoFit]=useState(false)
+ const [inheritedText,setInheritedText]=useState(false)
+ const [fontSubstitution,setFontSubstitution]=useState(false)
+ const [sourceCharts,setSourceCharts]=useState(false)
+ const [workbookCharts,setWorkbookCharts]=useState(false)
+ const consent=`Native slides require uploading this presentation to ${apiBase}. Nothing is uploaded until you choose the button below.`
+ const [message,setMessage]=useState(consent)
+ const generation=useRef(0),pending=useRef<AbortController|null>(null)
+ useEffect(()=>{generation.current++;pending.current?.abort();setPaint(null);setBusy(false);setAt(0);setApproximateAutoFit(false);setInheritedText(false);setFontSubstitution(false);setSourceCharts(false);setWorkbookCharts(false);setMessage(consent);return()=>{generation.current++;pending.current?.abort()}},[bytes,apiBase])
+ async function render(){
+  pending.current?.abort()
+  const token=++generation.current,controller=new AbortController();pending.current=controller
+  setBusy(true);setPaint(null);setMessage('Shaping this slide with exact operator-provided font bytes…')
+  try{
+   const owned=Uint8Array.from(bytes),hash=await crypto.subtle.digest('SHA-256',owned.buffer),digest=[...new Uint8Array(hash)].map(n=>n.toString(16).padStart(2,'0')).join('')
+   if(controller.signal.aborted||token!==generation.current)return
+   const response=await fetch(`${apiBase}/v1/pptx/slide-preview?slide=${at}${approximateAutoFit?'&autofit=source-frame':''}${inheritedText?'&text=source-inherited':''}${fontSubstitution?'&fonts=operator-substitution':''}${sourceCharts?'&charts=source-literal':workbookCharts?'&charts=source-workbook':''}`,{method:'POST',headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.presentationml.presentation'},body:new Blob([owned.buffer]),credentials:'omit',redirect:'error',signal:controller.signal})
+   const result=await readNativePreviewResponse(response)
+   if(!response.ok)throw new Error(typeof (result as {error?:unknown})?.error==='string'?(result as {error:string}).error:'Native slide preview was refused by the helper.')
+   const decoded=decodePptxPreview(result)
+   if((decoded.workbook_chart_preview===true)!==workbookCharts)throw new Error('The helper returned a different embedded-workbook chart mode.')
+   if((decoded.source_chart_preview===true)!==sourceCharts)throw new Error('The helper returned a different chart preview mode.')
+   if(!fontSubstitution&&decoded.font_substitutions)throw new Error('The helper returned font substitution without your opt-in.')
+   if(!approximateAutoFit&&(decoded.source_frame_autofit_count??0)>0)throw new Error('The helper returned an autofit approximation without your opt-in.')
+   if(!inheritedText&&(decoded.inherited_text_preview_count??0)>0)throw new Error('The helper returned an inherited text approximation without your opt-in.')
+   if(decoded.package_sha256!==digest||decoded.slide_index!==at||decoded.slide_count!==slideCount)throw new Error('Native slide does not match the opened source.')
+   if(!nativeDocxImagesWithinBudget(decoded.resources))throw new Error('Native slide image pixel budget exceeded.')
+   await decodeNativeDocxImages(decoded.resources,controller.signal)
+   if(controller.signal.aborted||token!==generation.current)return
+   setPaint(decoded);setMessage(`${nativePptxPreviewStatus(decoded,source).label}. Review the content and coverage limits below. The source file is unchanged.`)
+  }catch(error){if(!controller.signal.aborted&&token===generation.current)setMessage(`${error instanceof Error?error.message:'Native preview failed'} The file preview remains available; the original file is unchanged.`)}
+  finally{if(token===generation.current)setBusy(false)}
+ }
+ function changeSlide(index:number){generation.current++;pending.current?.abort();setBusy(false);setPaint(null);setAt(index);setMessage(consent)}
+ function changeAutoFit(enabled:boolean){generation.current++;pending.current?.abort();setBusy(false);setPaint(null);setApproximateAutoFit(enabled);setMessage(consent)}
+ function changeInheritedText(enabled:boolean){generation.current++;pending.current?.abort();setBusy(false);setPaint(null);setInheritedText(enabled);setMessage(consent)}
+ return <section aria-label="Measured native presentation" className="ds-panel">
+  <h3>Measured native slide</h3><p className="ds-status" role="status">{message}</p>
+  <label><input type="checkbox" checked={sourceCharts} onChange={event=>{generation.current++;pending.current?.abort();setBusy(false);setPaint(null);setSourceCharts(event.target.checked);if(event.target.checked)setWorkbookCharts(false);setMessage(consent)}}/> Preview source literal charts with supplied-font axis labels</label>
+  <label><input type="checkbox" checked={workbookCharts} onChange={event=>{generation.current++;pending.current?.abort();setBusy(false);setPaint(null);setWorkbookCharts(event.target.checked);if(event.target.checked)setSourceCharts(false);setMessage(consent)}}/> Preview charts from the embedded workbook</label>
+  {workbookCharts&&<p className="ds-muted">Uses saved worksheet values and categories, including signed stacked and percentage bars/lines and standard/filled radar; cached chart values are ignored. Formula cells, unsupported workbook metadata and unavailable exact fonts remain identified gaps. The original presentation and embedded workbook stay unchanged.</p>}
+  {sourceCharts&&<p className="ds-muted">Read-only chart vectors, including literal standard/filled radar and signed stacked or percentage bars/lines. Supported Cartesian axis labels use operator-supplied fonts. Plot margins are measured by this preview; they may differ from PowerPoint. Unsupported styles or labels remain unavailable.</p>}
+  <label><input type="checkbox" checked={fontSubstitution} onChange={event=>{generation.current++;pending.current?.abort();setBusy(false);setPaint(null);setFontSubstitution(event.target.checked);setMessage(consent)}}/> Allow read-only operator-configured font substitution</label>
+  {fontSubstitution&&<p className="ds-muted">Only explicitly configured supplied fonts may replace missing text fonts. Metrics and wrapping may differ; symbol bullets still require exact fonts.</p>}
+  <label><input type="checkbox" checked={inheritedText} onChange={event=>changeInheritedText(event.target.checked)}/> Allow read-only approximate inherited text</label>
+  {inheritedText&&<p className="ds-muted">Source-style ordering and font metrics are approximate; kerning is disabled and terminal metadata is not laid out. Text may wrap differently. Nothing is uploaded until you choose the button.</p>}
+  <label><input type="checkbox" checked={approximateAutoFit} onChange={event=>changeAutoFit(event.target.checked)}/> Allow read-only approximate autofit in the saved source frame</label>
+  {approximateAutoFit&&<p className="ds-muted">No resizing is performed. Text may overflow or clip, and frame size or layout may differ from PowerPoint. Rendering starts only when you choose the upload button.</p>}
+  <div className="ds-workstrip"><DsField label="Native slide"><DsSelect value={at} onChange={event=>changeSlide(Number(event.target.value))}>{Array.from({length:Math.min(slideCount,10000)},(_,i)=><option key={i} value={i}>{i+1} of {slideCount}</option>)}</DsSelect></DsField>
+  <DsButton disabled={busy} onClick={()=>void render()}>{busy?'Rendering native slide…':'Upload to helper and render native slide'}</DsButton></div>
+  {paint&&<NativePptxPreviewResult preview={paint} source={source} onImageError={()=>{setPaint(null);setMessage('Native image decoding failed. Native rendering was cleared; the original source is unchanged.')}}/>}
+ </section>
+}

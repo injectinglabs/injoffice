@@ -1,0 +1,2023 @@
+import { createHash } from 'node:crypto'
+import { readFileSync, readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { defaultPentagonTextRect, defaultPresetTextRect } from './geometry.js'
+import type {
+  NativeFontManifest,
+  NativeFontResolver,
+  NativeTextRefusal,
+  NativeTextShaper,
+  ResolvedFontFace,
+  ShapedCluster,
+  ShapedGlyph,
+  ShapedSegment,
+} from '@injoffice/font-metrics/layout'
+import { scaleLineMetrics } from '@injoffice/font-metrics/layout'
+import type { NativeElement, NativeParagraph, NativePptxDeck, NativeTextAlign, NativeTextBodyLayout } from '@injoffice/pptx-native'
+import {
+  RenderCompileError,
+  compileNativePptxSlide,
+  createRecordingPaintSurface,
+  paintSlideRenderTree,
+  paintSlideRenderTreeToCanvas2D,
+  presetPath,
+  stringifySlideRenderTree,
+  type NativePptxTextLayout,
+  type PaintCommand,
+  type RenderNode,
+  type RenderTextNode,
+} from './index.js'
+
+const root = resolve(import.meta.dirname, '../../..')
+const parsedFull = JSON.parse(readFileSync(resolve(root, 'go/pptxpatch/testdata/native-contract/valid/parsed-full.json'), 'utf8')) as NativePptxDeck
+it('retains typed arrow source descriptors through compile and paint without mutation',async()=>{
+ const deck=structuredClone(parsedFull),connector=deck.slides[0]!.elements.find(e=>e.kind==='connector')!
+ if(connector.kind!=='connector')throw new Error('connector missing')
+ connector.tailArrow=true;connector.tailEnd={type:'diamond',w:'lg',len:'sm'}
+ const before=JSON.stringify(deck),tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()}),surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+ expect(surface.finish()).toContainEqual(expect.objectContaining({kind:'path',tailArrow:true,tailEnd:{type:'diamond',w:'lg',len:'sm'}}));expect(JSON.stringify(deck)).toBe(before)
+})
+it('paints evaluated connector-preset geometry as the shaft with its source affine and refuses non-connector geometry',async()=>{
+ const deck=structuredClone(parsedFull),connector=deck.slides[0]!.elements.find(e=>e.kind==='connector')!
+ if(connector.kind!=='connector')throw new Error('connector missing')
+ const elbow=[{kind:'moveTo' as const,x:0,y:0},{kind:'lineTo' as const,x:connector.transform.cx,y:0},{kind:'lineTo' as const,x:connector.transform.cx,y:connector.transform.cy}]
+ connector.geometry={profile:'drawingml-paths-v1',textRect:{x:0,y:0,cx:connector.transform.cx,cy:connector.transform.cy},paths:[{fillMode:'none',stroke:true,commands:elbow}]}
+ connector.compatibility={status:'preserveOnly',diagnostics:[{severity:'warning',code:'pptx.connector-preset-preview',message:'catalog preview'}]}
+ connector.transform={...connector.transform,rotationAngle:16200000,flipV:true};delete connector.flipH
+ connector.tailArrow=true;connector.tailEnd={type:'triangle'}
+ const before=JSON.stringify(deck),tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()}),node=findNode(tree,'connector',connector.id)
+ expect(node.path).toEqual(elbow);expect(node.tailEnd).toEqual({type:'triangle'})
+ expect(node.transform).toMatchObject({aPpm:0,dPpm:0});expect(Math.abs(node.transform.bPpm??0)).toBe(1_000_000)
+ expect(tree.diagnostics.some(d=>d.code==='connector.presetGeometryPreview'&&d.elementId===connector.id&&d.message.includes('pptx.connector-preset-preview'))).toBe(true)
+ expect(tree.diagnostics.some(d=>d.code==='render.preserveOnly'&&d.elementId===connector.id)).toBe(true)
+ const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+ expect(surface.finish()).toContainEqual(expect.objectContaining({kind:'path',path:elbow,tailArrow:true}))
+ expect(JSON.stringify(deck)).toBe(before)
+ connector.geometry={...connector.geometry,paths:[{fillMode:'norm',stroke:true,commands:[...elbow,{kind:'close'}]}]}
+ await expect(compileNativePptxSlide(deck,0,{textLayout:textLayout()})).rejects.toMatchObject({code:'native.connectorGeometry'})
+})
+const digest = 'sha256:054edec1d0211f624fed0cbca9d4f9400b0e491c43742af2c5b0abebf0c990d8' as const
+
+const manifest: NativeFontManifest = {
+  version: 1,
+  manifestId: 'render-fixture',
+  revision: '1',
+  faces: [{
+    faceId: 'fixture.regular', family: 'Fixture Sans', aliases: ['Aptos'], weight: 400, style: 'normal', stretch: 100,
+    source: { kind: 'bundled', resourceId: 'fixture-font', contentDigest: digest },
+  }, {
+    faceId: 'fixture.bold', family: 'Fixture Sans', aliases: ['Aptos'], weight: 700, style: 'normal', stretch: 100,
+    source: { kind: 'bundled', resourceId: 'fixture-font-bold', contentDigest: digest },
+  }],
+  fallbackChains: [{ chainId: 'fixture.default', faceIds: ['fixture.regular', 'fixture.bold'] }],
+}
+
+function face(weight: number, matchedFamily = 'Aptos'): ResolvedFontFace {
+  return {
+    faceId: weight >= 700 ? 'fixture.bold' : 'fixture.regular', family: 'Fixture Sans', weight, style: 'normal', stretch: 100,
+    sourceKind: 'bundled', resourceId: weight >= 700 ? 'fixture-font-bold' : 'fixture-font', contentDigest: digest,
+    resolution: matchedFamily === 'Fixture Sans' ? 'exact' : 'substitute', matchedFamily, fallbackChainId: 'fixture.default',
+  }
+}
+
+const resolver: NativeFontResolver = {
+  providerId: 'fixture-resolver',
+  providerRevision: '1',
+  resolve({ run }) {
+    return { status: 'resolved', face: face(run.font.weight, run.font.families[0]), attemptedFaceIds: ['fixture.regular'], decisions: [] }
+  },
+  load(resolved) {
+    return {
+      face: resolved,
+      bytes: new Uint8Array([0, 1, 2, 3]),
+      metrics: { unitsPerEm: 1_000, ascender: 800, descender: -200, lineGap: 200 },
+    }
+  },
+}
+
+function refusal(message: string): NativeTextRefusal {
+  return { status: 'refused', attemptedFaceIds: ['fixture.regular'], decisions: [{ code: 'unsupported-script', message, recoverable: false }] }
+}
+
+function fixtureShaper(refuse: (text: string) => boolean = () => false): NativeTextShaper {
+  return {
+    providerId: 'fixture-shaper',
+    providerRevision: '1',
+    shape({ run, startUtf16, endUtf16, font }) {
+      if (refuse(run.text)) return refusal('fixture refusal')
+      const glyphs: ShapedGlyph[] = []
+      const clusters: ShapedCluster[] = []
+      let utf16 = startUtf16
+      const logical: Array<{ character: string; startUtf16: number; endUtf16: number }> = []
+      for (const character of run.text.slice(startUtf16, endUtf16)) {
+        const end = utf16 + character.length
+        logical.push({ character, startUtf16: utf16, endUtf16: end })
+        utf16 = end
+      }
+      const paintOrder = run.direction === 'rtl' || run.direction === 'btt' ? [...logical].reverse() : logical
+      for (const item of paintOrder) {
+        const invisibleControl = /^[\u200b\u2060\ufeff]$/u.test(item.character)
+        const glyphIndex = glyphs.length
+        if (!invisibleControl) glyphs.push({ glyphId: item.character.codePointAt(0)!, clusterIndex: clusters.length, advanceXMilliPoints: 1_000, advanceYMilliPoints: 0, offsetXMilliPoints: 0, offsetYMilliPoints: 0 })
+        clusters.push({ startUtf16: item.startUtf16, endUtf16: item.endUtf16, glyphStart: glyphIndex, glyphEnd: invisibleControl ? glyphIndex : glyphIndex + 1, advanceInlineMilliPoints: invisibleControl ? 0 : 1_000, whitespace: /^\s$/u.test(item.character) })
+      }
+      const ascent = run.fontSizeMilliPoints * 8 / 10
+      const descent = -run.fontSizeMilliPoints * 2 / 10
+      const lineGap = run.fontSizeMilliPoints * 2 / 10
+      return {
+        startUtf16, endUtf16, face: font.face, glyphs, clusters,
+        metrics: { fontSizeMilliPoints: run.fontSizeMilliPoints, ascentMilliPoints: ascent, descentMilliPoints: descent, lineGapMilliPoints: lineGap, lineHeightMilliPoints: ascent - descent + lineGap },
+        advanceInlineMilliPoints: clusters.reduce((sum, cluster) => sum + cluster.advanceInlineMilliPoints, 0),
+        advanceBlockMilliPoints: 0,
+      }
+    },
+  }
+}
+
+function textLayout(shaper = fixtureShaper(), resolveRun?: NativePptxTextLayout['resolveRun']): NativePptxTextLayout {
+  return {
+    manifest, resolver, shaper,
+    defaults: { fontFamilies: ['Fixture Sans'], fontSizeHundredthPt: 1_000, script: 'Latn', language: 'en-US', direction: 'ltr', fallbackChainIds: ['fixture.default'] },
+    resolveRun,
+  }
+}
+
+it('never lays out source-frame autofit without opt-in and labels opted-in paint approximate',async()=>{
+ const deck=structuredClone(parsedFull),element=deck.slides[0]!.elements.find(item=>item.kind==='text')!
+ if(element.kind!=='text')throw new Error('text missing')
+ const authored=nativeTextElement(element.id,'Saved frame text',nativeTextBody({autoFit:'shape-source-frame'}),element.transform)
+ element.paragraphs=authored.paragraphs;element.textBody=authored.textBody
+ element.compatibility={status:'preserveOnly',diagnostics:[{severity:'warning',code:'pptx.autofit-source-frame-approximate',message:'Approximate saved frame'}]}
+ deck.slides[0]!.elements=[element]
+ const before=JSON.stringify(deck)
+ const strict=await compileNativePptxSlide(deck,0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+ expect(findNode(strict,'text',element.id).textBody).toMatchObject({status:'refused',fidelity:'nativeUnavailable'})
+ const approximate=await compileNativePptxSlide(deck,0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1',sourceFrameAutoFitPreview:true})
+ expect(findNode(approximate,'text',element.id).textBody).toMatchObject({status:'laidOut',fidelity:'approximateFontSubstitution',autoFit:'shape-source-frame'})
+ const paint=createRecordingPaintSurface();paintSlideRenderTree(approximate,paint)
+ expect(paint.finish().some(command=>command.kind==='glyphRun')).toBe(true)
+ expect(approximate.diagnostics.some(diagnostic=>diagnostic.code==='text.sourceFrameAutoFitApproximate')).toBe(true)
+ expect(JSON.stringify(deck)).toBe(before)
+ await expect(compileNativePptxSlide(deck,0,{textLayout:textLayout(),sourceFrameAutoFitPreview:'true' as never})).rejects.toMatchObject({path:'$.options.sourceFrameAutoFitPreview'})
+})
+
+it('requires inherited text opt-in and disables kerning in actual shaping',async()=>{
+ const deck=structuredClone(parsedFull),element=deck.slides[0]!.elements.find(e=>e.kind==='text')!
+ if(element.kind!=='text')throw new Error('text missing')
+ const authored=nativeTextElement(element.id,'Hi',nativeTextBody(),element.transform)
+ element.paragraphs=authored.paragraphs;element.textBody=authored.textBody;element.compatibility={status:'preserveOnly',diagnostics:[{severity:'warning',code:'pptx.source-inherited-text-approximate',message:'source-latin-inheritance-approximate-v1; kerning disabled'}]};deck.slides[0]!.elements=[element]
+ const before=JSON.stringify(deck),base=fixtureShaper(),features:unknown[]=[]
+ const shaper:NativeTextShaper={...base,shape(request){features.push(request.run.features);return base.shape(request)}}
+ await expect(compileNativePptxSlide(deck,0,{textLayout:textLayout(shaper),lineLayoutPolicy:'max-run-natural-v1'})).rejects.toMatchObject({path:'$.options.inheritedTextPreview'})
+ const options={textLayout:textLayout(shaper,()=>({features:[{tag:'kern',value:1}]})),lineLayoutPolicy:'max-run-natural-v1' as const,inheritedTextPreview:true}
+ const result=await compileNativePptxSlide(deck,0,options)
+ expect(findNode(result,'text',element.id).textBody.fidelity).toBe('approximateFontSubstitution')
+ expect(features.length).toBeGreaterThan(0);expect(features.every(value=>JSON.stringify(value)==='[{"tag":"kern","value":0}]')).toBe(true)
+ const paint=createRecordingPaintSurface();paintSlideRenderTree(result,paint);expect(paint.finish().some(c=>c.kind==='glyphRun')).toBe(true)
+ expect(stringifySlideRenderTree(await compileNativePptxSlide(deck,0,options))).toBe(stringifySlideRenderTree(result));expect(JSON.stringify(deck)).toBe(before)
+})
+
+it('passes authored language to actual native shaping and retains glyph paint', async () => {
+  const base=fixtureShaper(),languages:string[]=[]
+  const shaper:NativeTextShaper={...base,shape(request){languages.push(request.run.language);return base.shape(request)}}
+  const element=nativeTextElement('authored-language','Istanbul',nativeTextBody(),{x:100,y:100,cx:1000000,cy:500000})
+  element.paragraphs[0]!.runs[0]!.language='tr-TR'
+  const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(shaper)})
+  const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+  expect(languages.length).toBeGreaterThan(0);expect(languages.every(language=>language==='tr-TR')).toBe(true)
+  expect(surface.finish().some(command=>command.kind==='glyphRun')).toBe(true)
+  expect(surface.finish().some(command=>command.kind==='placeholder')).toBe(false)
+})
+
+it('paints qualified caption runs while retaining preserve-only warning and source authority', async () => {
+  const element=nativeTextElement('caption-end-mark','Istanbul',nativeTextBody(),{x:100,y:100,cx:1000000,cy:500000})
+  element.paragraphs[0]!.runs[0]!.language='tr-TR'
+  element.compatibility={status:'preserveOnly',diagnostics:[{severity:'warning',code:'pptx.end-paragraph-metadata-preserved',message:'End mark source remains preserved'}]}
+  const deck=authoredDeck([element])
+  deck.compatibility=structuredClone(element.compatibility);deck.slides[0]!.compatibility=structuredClone(element.compatibility)
+  const before=JSON.stringify(deck)
+  const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+  const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+  expect(surface.finish().some(command=>command.kind==='glyphRun')).toBe(true)
+  expect(surface.finish().some(command=>command.kind==='placeholder')).toBe(false)
+  expect(tree.diagnostics.some(diagnostic=>diagnostic.code==='render.preserveOnly' && diagnostic.elementId===element.id)).toBe(true)
+  expect(JSON.stringify(deck)).toBe(before)
+})
+
+function authoredDeck(elements: NativeElement[]): NativePptxDeck {
+  return {
+    contractVersion: 'pptx-native/v1', documentId: 'authored-render-deck', origin: 'authored',
+    size: { cx: 2_000_000, cy: 1_500_000 }, assets: [],
+    slides: [{ id: 'slide-authored', provenance: 'authored', elements, passthrough: [], compatibility: { status: 'editable', diagnostics: [] } }],
+    compatibility: { status: 'editable', diagnostics: [] },
+  }
+}
+
+function textElement(id: string, align: NativeTextAlign, y: number): Extract<NativeElement, { kind: 'text' }> {
+  return {
+    kind: 'text', id, provenance: 'authored', transform: { x: 100, y, cx: 1_000_000, cy: 200_000 },
+    paragraphs: [{ align, level: 0, bullet: false, runs: [{ text: 'AB', bold: true, color: '112233' }, { text: 'CD', italic: true, color: '445566' }] }],
+    passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+  }
+}
+
+function nativeTextBody(overrides: Partial<NativeTextBodyLayout> = {}): NativeTextBodyLayout {
+  return {
+    leftInsetEmu: 0, rightInsetEmu: 0, topInsetEmu: 0, bottomInsetEmu: 0,
+    wrap: 'square', verticalAnchor: 'top', autoFit: 'none', horizontalOverflow: 'overflow', verticalOverflow: 'overflow',
+    ...overrides,
+  }
+}
+
+it('lays clockwise Latin lines in the swapped inner frame with top-down advance and leftward progression',async()=>{
+ const element=nativeTextElement('vertical-lines','AA AA AA',nativeTextBody({writingMode:'vertical-clockwise',leftInsetEmu:10000,rightInsetEmu:20000,topInsetEmu:30000,bottomInsetEmu:40000}),{x:0,y:0,cx:500000,cy:110000})
+ const deck=authoredDeck([element]),before=JSON.stringify(deck)
+ const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+ const body=findNode(tree,'text',element.id).textBody
+ expect(body.status).toBe('laidOut')
+ expect(body.bounds).toEqual({x:10000,y:30000,cx:470000,cy:40000})
+ expect(body.transform).toEqual({aPpm:0,bPpm:1000000,cPpm:-1000000,dPpm:0,txEmu:480000,tyEmu:30000})
+ expect(body.paragraphs.length).toBeGreaterThan(1)
+ expect(body.paragraphs.every(line=>line.runs.reduce((sum,run)=>sum+run.advanceInlineEmu,0)<=40000)).toBe(true)
+ const physicalXs=body.paragraphs.map(line=>480000-line.runs[0]!.baselineY)
+ expect(physicalXs.every((x,index)=>index===0||x<physicalXs[index-1]!)).toBe(true)
+ const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+ expect(surface.finish()).toContainEqual({kind:'transform',transform:body.transform})
+ expect(surface.finish().some(command=>command.kind==='glyphRun')).toBe(true)
+ expect(JSON.stringify(deck)).toBe(before)
+})
+
+it('keeps shape geometry independent and composes vertical text with scaled-group and shape quarter turns',async()=>{
+ const text=nativeTextElement('vertical-shape','AB',nativeTextBody({writingMode:'vertical-clockwise',wrap:'none'}),{x:100,y:200,cx:400000,cy:200000})
+ const shape:NativeElement={...text,kind:'shape',preset:'triangle',fill:'123456',transform:{...text.transform,quarterTurns:2}}
+ const group:NativeElement={kind:'group',id:'vertical-group',provenance:'authored',transform:{x:0,y:0,cx:2000000,cy:3000000},childTransform:{x:0,y:0,cx:1000000,cy:1000000},children:[shape],passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+ const tree=await compileNativePptxSlide(authoredDeck([group]),0,{textLayout:textLayout()})
+ const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+ let matrix=[1,0,0,1,0,0];const stack:number[][]=[];let shapeMatrix:number[]|undefined,textMatrix:number[]|undefined
+ for(const command of surface.finish()){
+  if(command.kind==='save')stack.push([...matrix]);if(command.kind==='restore')matrix=stack.pop()!
+  if(command.kind==='transform'){const t=command.transform,[a,b,c,d,x,y]=matrix as [number,number,number,number,number,number];matrix=[(a*t.aPpm+c*t.bPpm)/1e6,(b*t.aPpm+d*t.bPpm)/1e6,(a*t.cPpm+c*t.dPpm)/1e6,(b*t.cPpm+d*t.dPpm)/1e6,a*t.txEmu+c*t.tyEmu+x,b*t.txEmu+d*t.tyEmu+y]}
+  if(command.kind==='path'&&command.fill==='123456')shapeMatrix=[...matrix]
+  if(command.kind==='glyphRun')textMatrix=[...matrix]
+ }
+ expect(shapeMatrix).toEqual([-2,0,0,-3,800200,600600])
+ expect(textMatrix?.map(value=>value===0?0:value)).toEqual([0,-3,2,0,200200,300600])
+})
+
+it('refuses unsupported vertical scripts, offsets, bullets and RTL shaper direction',async()=>{
+ for(const text of ['漢','مرحبا','']){
+  const element=nativeTextElement('vertical-refused',text,nativeTextBody({writingMode:'vertical-clockwise'}))
+  const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout()})
+  expect(findNode(tree,'text',element.id).textBody.status).toBe('refused')
+ }
+ for(const property of [{bullet:true},{marginLeftEmu:1},{indentEmu:1}]){
+  const element=nativeTextElement('vertical-bullet','AB',nativeTextBody({writingMode:'vertical-clockwise'}));Object.assign(element.paragraphs[0]!,property)
+  const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+  expect(findNode(tree,'text',element.id).textBody.status).toBe('refused')
+ }
+ const element=nativeTextElement('vertical-rtl','AB',nativeTextBody({writingMode:'vertical-clockwise'}))
+ const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(fixtureShaper(),()=>({direction:'rtl'}))})
+ expect(findNode(tree,'text',element.id).textBody.status).toBe('refused')
+})
+
+it('applies native shape-frame quarter turns to glyph paint without reshaping horizontal text', async()=>{
+ for(const quarterTurns of [1,2,3] as const){
+  const element=nativeTextElement('rotated-text','AB',nativeTextBody(),{x:100,y:200,cx:500000,cy:500000})
+  element.transform.quarterTurns=quarterTurns
+  const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout()})
+  const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+  const commands=surface.finish()
+  expect(commands.some(command=>command.kind==='glyphRun')).toBe(true)
+  expect(commands.some(command=>command.kind==='placeholder')).toBe(false)
+  expect(commands.some(command=>command.kind==='transform'&&(command.transform.aPpm!==1000000||command.transform.dPpm!==1000000))).toBe(true)
+ }
+})
+
+it('places a refused element mirrored on one axis instead of refusing the whole slide',async()=>{
+ // LibreOffice writes straight connectors as a frame plus a single a:flipH or
+ // a:flipV. The refused-element placement path carries that exactly
+ // representable reflection as integer PPM, so the world-affine classifier —
+ // not the source affine — decides whether the slide renders at all.
+ const scope={slideId:'slide-a',elementId:'el-shape'}
+ for(const [orientation,aPpm,dPpm] of [[{flipH:true},-1_000_000,1_000_000],[{flipV:true},1_000_000,-1_000_000],[{flipH:true,flipV:true},-1_000_000,-1_000_000]] as const){
+  const deck=structuredClone(parsedFull)
+  const shape=deck.slides[0]!.elements.find(element=>element.id==='el-shape')!
+  shape.transform={...shape.transform,rotationAngle:0,...orientation}
+  shape.compatibility={status:'refused',diagnostics:[{severity:'refusal',code:'pptx.test-refusal',message:'refused for test',scope}]}
+  deck.slides[0]!.compatibility={status:'refused',diagnostics:[{severity:'refusal',code:'pptx.test-refusal',message:'refused for test',scope}]}
+  deck.compatibility={status:'refused',diagnostics:[{severity:'refusal',code:'pptx.test-refusal',message:'refused for test',scope}]}
+  deck.slides[0]!.elements=[shape]
+  const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+  const node=findNode(tree,'placeholder','el-shape')
+  expect(node.reason).toBe('refused')
+  expect(node.transform).toMatchObject({aPpm,bPpm:0,cPpm:0,dPpm})
+  expect(tree.nodes.some(candidate=>candidate.kind==='placeholder'&&candidate.sourceElementId==='slide-a')).toBe(false)
+ }
+})
+
+it('retains source quarter-turn shape paths through native paint and checks rotated world bounds',async()=>{
+ for(const quarterTurns of [1,2,3] as const){
+  const shape:NativeElement={kind:'shape',id:'rotated',provenance:'authored',transform:{x:100,y:200,cx:400,cy:200,quarterTurns},preset:'triangle',fill:'123456',paragraphs:[],passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+  const tree=await compileNativePptxSlide(authoredDeck([shape]),0,{textLayout:textLayout()})
+  const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+  expect(surface.finish().some(command=>command.kind==='path'&&command.fill==='123456')).toBe(true)
+  expect(surface.finish().some(command=>command.kind==='placeholder')).toBe(false)
+  shape.transform={x:0,y:900,cx:1000,cy:100,quarterTurns:1}
+  const outside=authoredDeck([shape]);outside.size={cx:1000,cy:1000}
+  await expect(compileNativePptxSlide(outside,0,{textLayout:textLayout(),maxCoordinateEmu:1000})).rejects.toMatchObject({code:'render.worldTransform'})
+ }
+})
+
+it('composes scaled group coordinates with a rotated child and bounds every world corner',async()=>{
+ const child:NativeElement={kind:'shape',id:'child-turn',provenance:'authored',transform:{x:100,y:200,cx:400,cy:200,quarterTurns:1},preset:'triangle',fill:'123456',paragraphs:[],passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+ const group:NativeElement={kind:'group',id:'scaled-parent',provenance:'authored',transform:{x:0,y:0,cx:2000,cy:3000},childTransform:{x:0,y:0,cx:1000,cy:1000},children:[child],passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+ const input=authoredDeck([group]);input.size={cx:4000,cy:4000}
+ const tree=await compileNativePptxSlide(input,0,{textLayout:textLayout(),maxCoordinateEmu:4000})
+ const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+ let matrix=[1,0,0,1,0,0];const stack:number[][]=[];let painted:number[]|undefined
+ for(const command of surface.finish()){
+  if(command.kind==='save')stack.push([...matrix])
+  if(command.kind==='restore')matrix=stack.pop()!
+  if(command.kind==='transform'){
+   const t=command.transform,[a,b,c,d,x,y]=matrix as [number,number,number,number,number,number]
+   matrix=[(a*t.aPpm+c*t.bPpm)/1e6,(b*t.aPpm+d*t.bPpm)/1e6,(a*t.cPpm+c*t.dPpm)/1e6,(b*t.cPpm+d*t.dPpm)/1e6,a*t.txEmu+c*t.tyEmu+x,b*t.txEmu+d*t.tyEmu+y]
+  }
+  if(command.kind==='path'&&command.fill==='123456')painted=[...matrix]
+ }
+ expect(painted).toEqual([0,3,-2,0,800,300])
+ child.transform={x:0,y:900,cx:1000,cy:100,quarterTurns:1}
+ await expect(compileNativePptxSlide(input,0,{textLayout:textLayout(),maxCoordinateEmu:4000})).rejects.toMatchObject({code:'render.worldTransform'})
+})
+
+function nativeTextElement(id: string, text: string, body: NativeTextBodyLayout, transform = { x: 100, y: 0, cx: 500_000, cy: 500_000 }): Extract<NativeElement, { kind: 'text' }> {
+  return {
+    kind: 'text', id, provenance: 'authored', transform, textBody: body,
+    paragraphs: [{ align: 'left', level: 0, bullet: false, runs: [{ text, fontFamily: 'Aptos', fontSizeHundredthPt: 1_000 }] }],
+    passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+  }
+}
+
+function findNode<T extends RenderNode['kind']>(tree: Awaited<ReturnType<typeof compileNativePptxSlide>>, kind: T, id: string): Extract<RenderNode, { kind: T }> {
+  const node = tree.nodes.find((candidate) => candidate.kind === kind && candidate.sourceElementId === id)
+  if (!node) throw new Error(`missing ${kind} ${id}`)
+  return node as Extract<RenderNode, { kind: T }>
+}
+
+describe('native PPTX RenderTree', () => {
+  it('clips source-cropped pictures to exact default roundRect in their transformed local frame', async () => {
+    const deck=structuredClone(parsedFull)
+    const picture=deck.slides[0]!.elements.find(e=>e.kind==='picture')!
+    if(picture.kind!=='picture')throw new Error('picture fixture')
+    picture.clip='roundRect';picture.crop={left:10000,top:20000,right:30000,bottom:0}
+    picture.transform.cx=3000000;picture.transform.cy=2000000
+    const before=JSON.stringify(deck)
+    const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+    const image=findNode(tree,'image',picture.id)
+    expect(image.clip).toEqual({kind:'roundRect',rect:{x:0,y:0,cx:3000000,cy:2000000},radiusEmu:333340})
+    const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+    const commands=surface.finish(), index=commands.findIndex(c=>c.kind==='image'&&c.sourceElementId===picture.id)
+    expect(commands[index-1]).toEqual({kind:'clipRoundRect',rect:image.bounds,radiusEmu:333340})
+    expect(commands[index-2]).toEqual({kind:'transform',transform:image.transform})
+    expect(commands[index]).toMatchObject({crop:picture.crop,rect:image.bounds})
+    expect(JSON.stringify(deck)).toBe(before)
+    picture.compatibility={status:'preserveOnly',diagnostics:[{severity:'warning',code:'pptx.picture-geometry-unavailable',message:'Unsupported adjusted mask'}]}
+    const refused=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+    expect(findNode(refused,'placeholder',picture.id).label).toBe('Unsupported picture geometry preserved')
+  })
+  it('preserves strict refusal for marker layout and inherited paragraph margins', async () => {
+    for (const override of [{ bullet: true, bulletCharacter: '▪' }, { marginLeftEmu: 300000 }, { indentEmu: -100000 }]) {
+      const element = nativeTextElement('styled-paragraph', 'Hello', nativeTextBody())
+      Object.assign(element.paragraphs[0]!, override)
+      const tree = await compileNativePptxSlide(authoredDeck([element]), 0, { textLayout: textLayout() })
+      expect(findNode(tree, 'text', element.id).textBody).toMatchObject({ fidelity: 'nativeUnavailable', status: 'refused', paragraphs: [] })
+      expect(tree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.paragraphSemanticsUnavailable' })]))
+    }
+  })
+  it('retains exact source crop through immutable image nodes and paint commands without rewriting assets', async () => {
+    const deck = structuredClone(parsedFull)
+    const picture = deck.slides[0]!.elements.find((item) => item.kind === 'picture')!
+    if (picture.kind !== 'picture') throw new Error('fixture requires a picture')
+    picture.crop = { left: 12500, top: 25000, right: 37500, bottom: 0 }
+    const source = JSON.stringify(deck)
+    const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout() })
+    const image = findNode(tree, 'image', picture.id)
+    const asset = deck.assets.find((item) => item.id === picture.assetId)!
+    expect(image).toMatchObject({ crop: picture.crop, sha256: asset.sha256, byteLength: asset.byteLength })
+    expect(Object.isFrozen(image.crop)).toBe(true)
+    const surface = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, surface)
+    expect(surface.finish()).toContainEqual(expect.objectContaining({ kind: 'image', sourceElementId: picture.id, crop: picture.crop, rect: image.bounds }))
+    expect(JSON.stringify(deck)).toBe(source)
+    expect(stringifySlideRenderTree(await compileNativePptxSlide(deck, 0, { textLayout: textLayout() }))).toBe(stringifySlideRenderTree(tree))
+  })
+  it('does not paint an uncropped image when the extractor reports an unsupported source crop', async () => {
+    const deck = structuredClone(parsedFull)
+    const picture = deck.slides[0]!.elements.find((item) => item.kind === 'picture')!
+    picture.compatibility = { status: 'preserveOnly', diagnostics: [{ severity: 'warning', code: 'pptx.picture-crop-unavailable', message: 'outset crop preserved' }] }
+    const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout() })
+    expect(findNode(tree, 'placeholder', picture.id)).toMatchObject({ label: 'Unsupported picture crop preserved' })
+    const surface = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, surface)
+    expect(surface.finish().some((command) => command.kind === 'image' && command.sourceElementId === picture.id)).toBe(false)
+  })
+
+  it('compiles rich native content in stable z-order with explicit assets, clips, groups, tables, and chart preview', async () => {
+    const tree = await compileNativePptxSlide(parsedFull, 'slide-a', { textLayout: textLayout() })
+    expect(tree.nodes.map((node) => [node.zIndex, node.sourceElementId, node.kind])).toEqual([
+      [0, 'el-title', 'text'], [1, 'el-shape', 'shape'], [2, 'el-line', 'connector'], [3, 'el-picture', 'image'],
+      [4, 'el-table', 'table'], [5, 'el-chart', 'image'], [6, 'el-group', 'group'],
+    ])
+    const parsedGroup = findNode(tree, 'group', 'el-group')
+    expect(parsedGroup.children[0]).toMatchObject({ sourceElementId: 'el-group-child', zIndex: 0, kind: 'shape' })
+    expect(parsedGroup).not.toHaveProperty('clip')
+    expect(parsedGroup).toMatchObject({
+      transform: { aPpm: 1_000_000, dPpm: 1_000_000, txEmu: 0, tyEmu: 0 },
+      bounds: { x: 0, y: 0, cx: 2_000_000, cy: 2_000_000 },
+    })
+    expect(findNode(tree, 'shape', 'el-shape').path).toEqual([{ kind: 'roundRect', rect: { x: 0, y: 0, cx: 1_500_000, cy: 800_000 }, radiusEmu: 133_336 }])
+    expect(findNode(tree, 'connector', 'el-line')).toMatchObject({ headArrow: false, tailArrow: true })
+    expect(findNode(tree, 'connector', 'el-line')).not.toHaveProperty('clip')
+    expect(findNode(tree, 'image', 'el-picture')).toMatchObject({ role: 'picture', assetId: 'z-picture', resolutionSource: 'sourceDeck' })
+    expect(findNode(tree, 'image', 'el-chart')).toMatchObject({ role: 'chartPreview', assetId: 'a-preview', resolutionSource: 'host' })
+    expect(findNode(tree, 'table', 'el-table').cells).toHaveLength(4)
+    expect(findNode(tree, 'table', 'el-table').cells[3]).toMatchObject({ bounds: { x: 1_000_000, y: 500_000, cx: 1_000_000, cy: 500_000 }, border: { color: '000000', widthEmu: 12_700 } })
+    expect(tree.assets.map((asset) => asset.id)).toEqual(['a-preview', 'z-picture'])
+    expect(tree.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining(['render.preserveOnly', 'asset.hostResolutionRequired', 'text.layoutMetadataUnavailable']))
+    expect(Object.isFrozen(tree)).toBe(true)
+    expect(Object.isFrozen(tree.nodes)).toBe(true)
+    const canonical = stringifySlideRenderTree(tree)
+    expect(stringifySlideRenderTree(await compileNativePptxSlide(parsedFull, 0, { textLayout: textLayout() }))).toBe(canonical)
+    // Fixture resolver substitutes Aptos with Fixture Sans: source/selected
+    // evidence and approximate labels are part of the replay identity. Parsed
+    // group placement is carried by global leaf transforms.
+    expect(createHash('sha256').update(canonical).digest('hex')).toBe('f51b342d7135ccd045ba118be8b1f832ff3cf541f974a181ff9e7af28f7eea7b')
+  })
+
+  it('compiles and paints exact table cells from renderer-neutral native text commands without cell or table clipping', async () => {
+    const table: Extract<NativeElement, { kind: 'table' }> = {
+      kind: 'table', id: 'native-table', provenance: 'authored',
+      transform: { x: 100_000, y: 200_000, cx: 400_000, cy: 200_000 },
+      table: {
+        columnWidths: [150_000, 250_000], rowHeights: [200_000],
+        rows: [[{
+          text: 'AB', fill: 'AABBCC',
+          paragraphs: [{ align: 'left', level: 0, bullet: false, runs: [
+            { text: 'A', fontFamily: 'Aptos', fontSizeHundredthPt: 1_000, color: '112233' },
+            { text: 'B', fontFamily: 'Aptos', fontSizeHundredthPt: 1_000, bold: true, color: '445566' },
+          ] }],
+          textBody: {
+            leftInsetEmu: 10_000, rightInsetEmu: 20_000, topInsetEmu: 30_000, bottomInsetEmu: 40_000,
+            wrap: 'square', verticalAnchor: 'top', autoFit: 'none', horizontalOverflow: 'overflow', verticalOverflow: 'overflow',
+          },
+        }, {
+          text: 'C', fill: 'DDEEFF',
+          paragraphs: [{ align: 'right', level: 0, bullet: false, runs: [{ text: 'C', fontFamily: 'Aptos', fontSizeHundredthPt: 1_000, italic: true }] }],
+          textBody: {
+            leftInsetEmu: 5_000, rightInsetEmu: 6_000, topInsetEmu: 7_000, bottomInsetEmu: 8_000,
+            wrap: 'square', verticalAnchor: 'top', autoFit: 'none', horizontalOverflow: 'overflow', verticalOverflow: 'overflow',
+          },
+        }]],
+      },
+      passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+    }
+    const tree = await compileNativePptxSlide(authoredDeck([table]), 0, { textLayout: textLayout() })
+    const node = findNode(tree, 'table', table.id)
+    expect(node).not.toHaveProperty('clip')
+    expect(node.cells.map((cell) => cell.bounds)).toEqual([
+      { x: 0, y: 0, cx: 150_000, cy: 200_000 },
+      { x: 150_000, y: 0, cx: 250_000, cy: 200_000 },
+    ])
+    expect(node.cells[0]).not.toHaveProperty('paragraph')
+    expect(node.cells[0]!.textBody).toMatchObject({
+      fidelity: 'approximateFontSubstitution', status: 'laidOut', wrap: 'square', verticalAnchor: 'top',
+      bounds: { x: 10_000, y: 30_000, cx: 120_000, cy: 130_000 },
+    })
+    expect(tree.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('text.layoutMetadataUnavailable')
+
+    const recording = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, recording)
+    const commands = recording.finish()
+    expect(commands.filter((command) => command.kind === 'clipRect')).toEqual([
+      { kind: 'clipRect', rect: { x: 0, y: 0, cx: 2_000_000, cy: 1_500_000 } },
+    ])
+    expect(commands.filter((command) => command.kind === 'path')).toEqual([
+      expect.objectContaining({ kind: 'path', sourceElementId: 'native-table', fill: 'AABBCC' }),
+      expect.objectContaining({ kind: 'path', sourceElementId: 'native-table', fill: 'DDEEFF' }),
+    ])
+    expect(commands.filter((command) => command.kind === 'glyphRun').map((command) => command.kind === 'glyphRun' ? command.run.text : '')).toEqual(['A', 'B', 'C'])
+    const secondFill = commands.findIndex((command) => command.kind === 'path' && command.fill === 'DDEEFF')
+    const firstGlyph = commands.findIndex((command) => command.kind === 'glyphRun' && command.run.text === 'A')
+    expect(secondFill).toBeGreaterThan(-1)
+    expect(firstGlyph).toBeGreaterThan(secondFill)
+
+    const grouped: NativeElement = {
+      kind: 'group', id: 'table-group', provenance: 'authored',
+      transform: { x: 1_000_000, y: 2_000_000, cx: 800_000, cy: 400_000 },
+      childTransform: { x: 0, y: 0, cx: 400_000, cy: 200_000 }, children: [table],
+      passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+    }
+    const groupedTree = await compileNativePptxSlide(authoredDeck([grouped]), 0, { textLayout: textLayout() })
+    const groupedNode = groupedTree.nodes[0]
+    expect(groupedNode).toMatchObject({ kind: 'group', transform: { aPpm: 2_000_000, dPpm: 2_000_000, txEmu: 1_000_000, tyEmu: 2_000_000 } })
+    if (!groupedNode || groupedNode.kind !== 'group') throw new Error('missing grouped table')
+    expect(groupedNode.children[0]).toMatchObject({ kind: 'table', sourceElementId: 'native-table', transform: { txEmu: 100_000, tyEmu: 200_000 } })
+    const groupedRecording = createRecordingPaintSurface()
+    paintSlideRenderTree(groupedTree, groupedRecording)
+    expect(groupedRecording.finish().filter((command) => command.kind === 'transform').slice(0, 4)).toEqual([
+      { kind: 'transform', transform: { aPpm: 2_000_000, bPpm: 0, cPpm: 0, dPpm: 2_000_000, txEmu: 1_000_000, tyEmu: 2_000_000 } },
+      { kind: 'transform', transform: { aPpm: 1_000_000, bPpm: 0, cPpm: 0, dPpm: 1_000_000, txEmu: 100_000, tyEmu: 200_000 } },
+      { kind: 'transform', transform: { aPpm: 1_000_000, bPpm: 0, cPpm: 0, dPpm: 1_000_000, txEmu: 0, tyEmu: 0 } },
+      { kind: 'transform', transform: { aPpm: 1_000_000, bPpm: 0, cPpm: 0, dPpm: 1_000_000, txEmu: 150_000, tyEmu: 0 } },
+    ])
+    expect(readFileSync(resolve(root, 'packages/pptx-render/src/paint.ts'), 'utf8')).not.toMatch(/\b(?:document|window|HTMLElement|innerHTML|DOMParser)\b/)
+  })
+
+  it('paints text-free built-in table style preview cells as fills with uniform borders and no glyphs', async () => {
+    // Shape of the Go extractor's read-only catalog projection: legacy cells
+    // with empty text, a resolved fill and the uniform 1pt lt1 border.
+    const cell = (fill: string) => ({ text: '', fill, border: { color: 'FFFFFF', widthEmu: 12_700 } })
+    const table: Extract<NativeElement, { kind: 'table' }> = {
+      kind: 'table', id: 'styled-table', provenance: 'authored',
+      transform: { x: 100_000, y: 200_000, cx: 400_000, cy: 400_000 },
+      table: {
+        columnWidths: [200_000, 200_000], rowHeights: [200_000, 200_000],
+        rows: [[cell('000000'), cell('000000')], [cell('CBCBCB'), cell('CBCBCB')]],
+      },
+      passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+    }
+    const tree = await compileNativePptxSlide(authoredDeck([table]), 0, { textLayout: textLayout() })
+    const node = findNode(tree, 'table', table.id)
+    expect(node.cells.map((item) => item.fill?.color)).toEqual(['000000', '000000', 'CBCBCB', 'CBCBCB'])
+    expect(node.cells.map((item) => item.bounds)).toEqual([
+      { x: 0, y: 0, cx: 200_000, cy: 200_000 }, { x: 200_000, y: 0, cx: 200_000, cy: 200_000 },
+      { x: 0, y: 200_000, cx: 200_000, cy: 200_000 }, { x: 200_000, y: 200_000, cx: 200_000, cy: 200_000 },
+    ])
+    for (const item of node.cells) expect(item.border).toMatchObject({ color: 'FFFFFF', widthEmu: 12_700 })
+    const recording = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, recording)
+    const commands = recording.finish()
+    const paths = commands.filter((command) => command.kind === 'path')
+    expect(paths).toHaveLength(4)
+    expect(paths[0]).toMatchObject({ kind: 'path', sourceElementId: 'styled-table', fill: '000000', stroke: { color: 'FFFFFF', widthEmu: 12_700 } })
+    expect(paths[3]).toMatchObject({ kind: 'path', fill: 'CBCBCB' })
+    // Text-free cells never enter the shaping pipeline, so no font is demanded.
+    for (const item of node.cells) expect(item).toMatchObject({ textFree: true })
+    expect(node.cells.every((item) => item.paragraph === undefined && item.textBody === undefined)).toBe(true)
+    expect(commands.filter((command) => command.kind === 'glyphRun')).toHaveLength(0)
+  })
+
+  it('keeps nested native group projection renderer-neutral and composes source order without group clipping', async () => {
+    const nested: NativeElement = {
+      kind: 'group', id: 'outer-native-group', provenance: 'authored',
+      transform: { x: 1_000_000, y: 2_000_000, cx: 6_000_000, cy: 8_000_000 },
+      childTransform: { x: 100, y: 200, cx: 300, cy: 400 },
+      children: [{
+        kind: 'group', id: 'inner-native-group', provenance: 'authored',
+        transform: { x: 150, y: 250, cx: 100, cy: 100 },
+        childTransform: { x: 10, y: 20, cx: 50, cy: 50 },
+        children: [{
+          kind: 'shape', id: 'nested-native-shape', provenance: 'authored',
+          transform: { x: 20, y: 30, cx: 10, cy: 5 }, preset: 'rect', paragraphs: [],
+          stroke: { color: '112233', widthEmu: 2 }, passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+        }, {
+          kind: 'text', id: 'nested-native-text', provenance: 'authored',
+          transform: { x: 22, y: 32, cx: 10, cy: 5 }, paragraphs: [{ runs: [{ text: 'A' }] }],
+          passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+        }, {
+          kind: 'picture', id: 'nested-native-picture', provenance: 'authored', assetId: 'nested-picture-asset',
+          clip: 'roundRect',
+          transform: { x: 24, y: 34, cx: 10, cy: 5 }, passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+        }],
+        passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+      }],
+      passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+    }
+    const deck = authoredDeck([nested])
+    deck.assets.push({
+      id: 'nested-picture-asset', provenance: 'authored', contentType: 'image/png',
+      sha256: '0'.repeat(64), byteLength: 0, passthrough: [],
+    })
+    const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout() })
+    const outer = findNode(tree, 'group', nested.id)
+    const inner = outer.children[0]!
+    const children = inner.kind === 'group' ? inner.children : []
+    expect(outer).not.toHaveProperty('clip')
+    expect(outer).toMatchObject({ transform: { aPpm: 20_000_000_000, dPpm: 20_000_000_000, txEmu: -1_000_000, tyEmu: -2_000_000 } })
+    expect(inner).not.toHaveProperty('clip')
+    expect(children[2]?.clip).toEqual({kind:'roundRect',rect:{x:0,y:0,cx:10,cy:5},radiusEmu:1})
+    expect(inner).toMatchObject({ kind: 'group', transform: { aPpm: 2_000_000, dPpm: 2_000_000, txEmu: 130, tyEmu: 210 } })
+    expect(children.map((child) => [child.sourceElementId, child.kind])).toEqual([
+      ['nested-native-shape', 'shape'], ['nested-native-text', 'text'], ['nested-native-picture', 'image'],
+    ])
+
+    const recording = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, recording)
+    const ppm = 1_000_000n
+    type World = { a: bigint; d: bigint; tx: bigint; ty: bigint }
+    let world: World = { a: ppm, d: ppm, tx: 0n, ty: 0n }
+    const stack: World[] = []
+    const painted: Array<{ kind: string; id: string; world: World; strokeWidth?: number }> = []
+    for (const command of recording.finish()) {
+      if (command.kind === 'save') stack.push(world)
+      else if (command.kind === 'restore') world = stack.pop()!
+      else if (command.kind === 'transform') {
+        const nextA = BigInt(command.transform.aPpm)
+        const nextD = BigInt(command.transform.dPpm)
+        world = {
+          a: world.a * nextA / ppm,
+          d: world.d * nextD / ppm,
+          tx: world.tx + world.a * BigInt(command.transform.txEmu) / ppm,
+          ty: world.ty + world.d * BigInt(command.transform.tyEmu) / ppm,
+        }
+      } else if (command.kind === 'path' || command.kind === 'glyphRun' || command.kind === 'image') {
+        painted.push({ kind: command.kind, id: command.sourceElementId, world: { ...world }, strokeWidth: command.kind === 'path' ? command.stroke?.widthEmu : undefined })
+      }
+    }
+    expect(painted).toEqual(expect.arrayContaining([
+      { kind: 'path', id: 'nested-native-shape', world: { a: 40_000_000_000n, d: 40_000_000_000n, tx: 2_400_000n, ty: 3_400_000n }, strokeWidth: 2 },
+      { kind: 'glyphRun', id: 'nested-native-text', world: { a: 40_000_000_000n, d: 40_000_000_000n, tx: 2_480_000n, ty: 3_480_000n }, strokeWidth: undefined },
+      { kind: 'image', id: 'nested-native-picture', world: { a: 40_000_000_000n, d: 40_000_000_000n, tx: 2_560_000n, ty: 3_560_000n }, strokeWidth: undefined },
+    ]))
+  })
+
+  it('retains exact rational cumulative group transforms and refuses only out-of-budget world space', async () => {
+    const leaf: NativeElement = {
+      kind: 'shape', id: 'world-leaf', provenance: 'authored', preset: 'rect', paragraphs: [],
+      transform: { x: 0, y: 0, cx: 1, cy: 1 }, passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+    }
+    const wrap = (child: NativeElement, id: string, extent: number, childExtent: number): NativeElement => ({
+      kind: 'group', id, provenance: 'authored', transform: { x: 0, y: 0, cx: extent, cy: extent },
+      childTransform: { x: 0, y: 0, cx: childExtent, cy: childExtent }, children: [child],
+      passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+    })
+
+    const fractional = wrap(wrap(leaf, 'fractional-inner', 1_000_001, 1_000_000), 'fractional-outer', 1_000_001, 1_000_000)
+    await expect(compileNativePptxSlide(authoredDeck([fractional]), 0, { textLayout: textLayout() })).resolves.toMatchObject({ nodes: [{ kind: 'group' }] })
+
+    const halfEmuLeaf: NativeElement = {
+      ...leaf, id: 'half-emu-leaf', transform: { x: 1, y: 1, cx: 1, cy: 1 },
+    }
+    const halfEmu = wrap(halfEmuLeaf, 'half-emu-group', 3, 2)
+    await expect(compileNativePptxSlide(authoredDeck([halfEmu]), 0, { textLayout: textLayout() })).resolves.toMatchObject({ nodes: [{ kind: 'group' }] })
+
+    const largeSafeCoefficient = wrap(leaf, 'large-safe-coefficient', 1_000_000_000, 1)
+    await expect(compileNativePptxSlide(authoredDeck([largeSafeCoefficient]), 0, { textLayout: textLayout() })).resolves.toMatchObject({ nodes: [{ kind: 'group' }] })
+
+    let excessive: NativeElement = leaf
+    for (let depth = 0; depth < 5; depth++) excessive = wrap(excessive, `bounded-world-${depth}`, 1_000, 1)
+    await expect(compileNativePptxSlide(authoredDeck([excessive]), 0, { textLayout: textLayout() })).rejects.toMatchObject({ code: 'render.worldTransform' })
+  })
+
+  it('places mixed rich runs using exact shaped advances for all LTR and RTL alignments', async () => {
+    const elements = [textElement('ltr-left', 'left', 0), textElement('ltr-center', 'center', 250_000), textElement('ltr-right', 'right', 500_000), textElement('rtl-left', 'left', 750_000), textElement('rtl-center', 'center', 1_000_000), textElement('rtl-right', 'right', 1_250_000)]
+    const tree = await compileNativePptxSlide(authoredDeck(elements), 0, {
+      textLayout: textLayout(fixtureShaper(), ({ elementId }) => elementId.startsWith('rtl-') ? { direction: 'rtl', script: 'Arab', language: 'ar' } : {}),
+    })
+    const positions = (id: string) => (findNode(tree, 'text', id) as RenderTextNode).textBody.paragraphs[0]!.runs.map((run) => run.x)
+    expect(positions('ltr-left')).toEqual([0, 25_400])
+    expect(positions('ltr-center')).toEqual([474_600, 500_000])
+    expect(positions('ltr-right')).toEqual([949_200, 974_600])
+    expect(positions('rtl-left')).toEqual([25_400, 0])
+    expect(positions('rtl-center')).toEqual([500_000, 474_600])
+    expect(positions('rtl-right')).toEqual([974_600, 949_200])
+    expect(findNode(tree, 'text', 'rtl-right').textBody.paragraphs[0]!.direction).toBe('rtl')
+    expect(findNode(tree, 'text', 'rtl-right').textBody.paragraphs[0]!.runs[0]!.clusters.map((cluster) => [cluster.startUtf16, cluster.endUtf16])).toEqual([[1, 2], [0, 1]])
+
+    const mixed = await compileNativePptxSlide(authoredDeck([textElement('mixed-direction', 'left', 0)]), 0, {
+      textLayout: textLayout(fixtureShaper(), ({ runIndex }) => runIndex === 1 ? { direction: 'rtl', script: 'Arab', language: 'ar' } : {}),
+    })
+    expect(mixed.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'text.bidiUnavailable', elementId: 'mixed-direction' }),
+    ]))
+  })
+
+  it('projects exact native insets and top anchoring, but visibly refuses unqualified center/bottom anchoring', async () => {
+    const elements: NativeElement[] = (['top', 'center', 'bottom'] as const).map((verticalAnchor, index) => nativeTextElement(
+      `anchor-${verticalAnchor}`,
+      'AB',
+      nativeTextBody({ leftInsetEmu: 10_000, rightInsetEmu: 20_000, topInsetEmu: 30_000, bottomInsetEmu: 40_000, wrap: 'none', verticalAnchor }),
+      { x: 100, y: index * 600_000, cx: 500_000, cy: 500_000 },
+    ))
+    elements.push({
+      kind: 'shape', id: 'text-bearing-shape', provenance: 'authored',
+      transform: { x: 600_000, y: 0, cx: 500_000, cy: 500_000 }, preset: 'rect',
+      textBody: nativeTextBody({ leftInsetEmu: 10_000, rightInsetEmu: 20_000, topInsetEmu: 30_000, bottomInsetEmu: 40_000, wrap: 'none' }),
+      paragraphs: [{ align: 'left', level: 0, bullet: false, runs: [{ text: 'shape' }] }], passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+    })
+    const tree = await compileNativePptxSlide(authoredDeck(elements), 0, { textLayout: textLayout() })
+    for (const verticalAnchor of ['top', 'center', 'bottom'] as const) {
+      const node = findNode(tree, 'text', `anchor-${verticalAnchor}`)
+      expect(node.clip).toBeUndefined()
+      expect(node.textBody).toMatchObject({
+        fidelity: verticalAnchor === 'top' ? 'approximateFontSubstitution' : 'nativeUnavailable', status: verticalAnchor === 'top' ? 'laidOut' : 'refused', wrap: 'none', verticalAnchor,
+        autoFit: 'none', horizontalOverflow: 'overflow', verticalOverflow: 'overflow',
+        bounds: { x: 10_000, y: 30_000, cx: 470_000, cy: 430_000 },
+      })
+      if (verticalAnchor === 'top') expect(node.textBody.paragraphs[0]).toMatchObject({ y: 30_000, heightEmu: 152_400 })
+      else expect(node.textBody).toMatchObject({ paragraphs: [], refusalLabel: 'Exact text layout unavailable' })
+    }
+    expect(tree.diagnostics.filter((item) => item.code === 'text.verticalAnchorUnavailable').map((item) => item.elementId).sort()).toEqual(['anchor-bottom', 'anchor-center'])
+    const shape = findNode(tree, 'shape', 'text-bearing-shape')
+    expect(shape.clip).toBeUndefined()
+    expect(shape.textBody?.bounds).toEqual({ x: 10_000, y: 30_000, cx: 470_000, cy: 430_000 })
+  })
+
+  it('places source table cell text within asymmetric insets for top, center, and bottom anchors', async () => {
+    const elements = (['top', 'center', 'bottom'] as const).map(verticalAnchor => ({
+      kind: 'table' as const, id: `table-${verticalAnchor}`, provenance: 'authored' as const,
+      transform: { x: 100_000, y: 200_000, cx: 500_000, cy: 500_001 },
+      table: { columnWidths: [500_000], rowHeights: [500_001], rows: [[{
+        text: 'A', fill: 'FFFFFF',
+        paragraphs: [{ align: 'left' as const, level: 0, bullet: false, runs: [{ text: 'A', fontFamily: 'Aptos', fontSizeHundredthPt: 1000 }] }],
+        textBody: nativeTextBody({ verticalAnchor, leftInsetEmu: 10_000, rightInsetEmu: 20_000, topInsetEmu: 30_000, bottomInsetEmu: 40_000 }),
+      }]] },
+      passthrough: [], compatibility: { status: 'editable' as const, diagnostics: [] },
+    }))
+    const deck = authoredDeck(elements), before = JSON.stringify(deck)
+    const strict = await compileNativePptxSlide(deck, 0, { textLayout: textLayout() })
+    for (const element of elements.slice(1)) expect(findNode(strict, 'table', element.id).cells[0]!.textBody?.status).toBe('refused')
+    const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1' })
+    const surface = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, surface)
+    const glyphs = surface.finish().filter(command => command.kind === 'glyphRun')
+    for (const [index, element] of elements.entries()) {
+      const body = findNode(tree, 'table', element.id).cells[0]!.textBody!
+      expect(body).toMatchObject({ status: 'laidOut', lineLayoutPolicy: 'max-run-natural-v1', bounds: { x: 10_000, y: 30_000, cx: 470_000, cy: 430_001 } })
+      const y = [30_000, 168_800, 307_601][index]!
+      expect(body.paragraphs[0]).toMatchObject({ y, heightEmu: 152_400 })
+      expect(glyphs[index]).toMatchObject({ kind: 'glyphRun', run: { baselineY: y + 101_600 } })
+    }
+    expect(tree.diagnostics.filter(d => d.code === 'text.deterministicLayout')).toHaveLength(3)
+    expect(JSON.stringify(deck)).toBe(before)
+  })
+
+  it('opts into measured mixed-size lines and integer anchor placement without changing strict defaults', async () => {
+    const elements = (['top','center','bottom'] as const).map(anchor => {
+      const element = nativeTextElement(`mixed-${anchor}`, 'AB', nativeTextBody({wrap:'none',verticalAnchor:anchor}), {x:0,y:0,cx:500000,cy:500001})
+      return {...element, paragraphs:[{align:'left' as const,level:0,bullet:false,runs:[{text:'A',fontSizeHundredthPt:1000},{text:'B',fontSizeHundredthPt:2000}]}]}
+    })
+    const deck=authoredDeck(elements), before=JSON.stringify(deck)
+    const strict=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+    for(const element of elements) expect(findNode(strict,'text',element.id).textBody.status).toBe('refused')
+    const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+    for(const [index,element] of elements.entries()) {
+      const body=findNode(tree,'text',element.id).textBody
+      expect(body).toMatchObject({fidelity:'deterministicNative',lineLayoutPolicy:'max-run-natural-v1',status:'laidOut'})
+      const line=body.paragraphs[0]!
+      expect(line.heightEmu).toBe(304800)
+      expect(line.y).toBe([0,97600,195201][index])
+      expect(line.runs.map(run=>run.baselineY)).toEqual([line.y+203200,line.y+203200])
+    }
+    expect(JSON.stringify(deck)).toBe(before)
+    expect(tree.diagnostics.filter(d=>d.code==='text.deterministicLayout')).toHaveLength(3)
+    await expect(compileNativePptxSlide(deck,0,{textLayout:textLayout(),lineLayoutPolicy:'unknown' as never})).rejects.toMatchObject({path:'$.options.lineLayoutPolicy'})
+  })
+
+  it('anchors the complete multiline block with signed overflow under the named measured policy', async () => {
+    const element=nativeTextElement('overflow-center','A',nativeTextBody({wrap:'none',verticalAnchor:'center'}),{x:0,y:0,cx:500000,cy:100001})
+    element.paragraphs=[...element.paragraphs,...element.paragraphs]
+    const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+    const lines=findNode(tree,'text',element.id).textBody.paragraphs
+    expect(lines.map(line=>line.y)).toEqual([-102400,50000])
+    expect(lines.map(line=>line.runs[0]!.baselineY)).toEqual([-800,151600])
+  })
+
+  it('shapes one authored marker at its hanging indent and preserves content-run source ranges across wrapping', async () => {
+    const element=nativeTextElement('bullet','AB CD',nativeTextBody(),{x:0,y:0,cx:38100,cy:500000})
+    element.paragraphs=[{...element.paragraphs[0]!,level:2,bullet:true,bulletCharacter:'▪',marginLeftEmu:12700,indentEmu:-12700}]
+    const deck=authoredDeck([element]),before=JSON.stringify(deck)
+    const strict=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+    expect(findNode(strict,'text',element.id).textBody.status).toBe('refused')
+    const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+    const lines=findNode(tree,'text',element.id).textBody.paragraphs
+    expect(lines).toHaveLength(2)
+    expect(lines.map(line=>line.x)).toEqual([12700,12700])
+    expect(lines[0]!.marker).toMatchObject({sourceRole:'paragraphBullet',text:'▪',x:0,baselineY:101600,startUtf16:0,endUtf16:1})
+    expect(lines[1]!.marker).toBeUndefined()
+    expect(lines.flatMap(line=>line.runs.map(run=>[run.text,run.startUtf16,run.endUtf16]))).toEqual([['AB',0,2],['CD',3,5]])
+    const paint=createRecordingPaintSurface();paintSlideRenderTree(tree,paint)
+    expect(paint.finish().filter(command=>command.kind==='glyphRun').map(command=>command.kind==='glyphRun'?command.run.text:'')).toEqual(['▪','AB','CD'])
+    expect(JSON.stringify(deck)).toBe(before)
+  })
+
+  it('does not substitute an authored marker face through resolver aliases or caller overrides', async () => {
+    const element=nativeTextElement('exact-bullet','AB',nativeTextBody(),{x:0,y:0,cx:381000,cy:500000})
+    element.paragraphs=[{...element.paragraphs[0]!,bullet:true,bulletCharacter:'q',bulletFontFamily:'Missing Symbol Font',marginLeftEmu:12700,indentEmu:-12700}]
+    const tree=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+    expect(findNode(tree,'text',element.id).textBody.status).toBe('refused')
+  })
+
+  it('uses different first/continuation widths for a positive non-list indent and refuses ambiguous bullet geometry', async () => {
+    const base=nativeTextElement('indent','AB CD',nativeTextBody(),{x:0,y:0,cx:50800,cy:500000})
+    base.paragraphs=[{...base.paragraphs[0]!,marginLeftEmu:12700,indentEmu:12700}]
+    const tree=await compileNativePptxSlide(authoredDeck([base]),0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+    expect(findNode(tree,'text',base.id).textBody.paragraphs.map(p=>p.x)).toEqual([25400,12700])
+    for(const override of [{bullet:true,bulletCharacter:'▪',indentEmu:0},{bullet:true,bulletCharacter:'▪',indentEmu:-12700,align:'center' as const},{level:2,marginLeftEmu:undefined}]){
+      const element={...base,paragraphs:[{...base.paragraphs[0]!,...override}]}
+      if(element.paragraphs[0]!.marginLeftEmu===undefined)delete element.paragraphs[0]!.marginLeftEmu
+      const refused=await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(),lineLayoutPolicy:'max-run-natural-v1'})
+      expect(findNode(refused,'text',base.id).textBody.status).toBe('refused')
+    }
+  })
+
+  it('wraps only at modeled shaped-cluster boundaries and leaves native no-wrap text on one overflowing line', async () => {
+    const wrapped = nativeTextElement('cluster-wrap', 'AB CD', nativeTextBody(), { x: 0, y: 0, cx: 38_100, cy: 500_000 })
+    const noWrap = nativeTextElement('cluster-no-wrap', 'A💡 B', nativeTextBody({ wrap: 'none' }), { x: 0, y: 600_000, cx: 25_400, cy: 500_000 })
+    const tree = await compileNativePptxSlide(authoredDeck([wrapped, noWrap]), 0, { textLayout: textLayout() })
+    const lines = findNode(tree, 'text', wrapped.id).textBody.paragraphs
+    expect(lines).toHaveLength(2)
+    expect(lines.map((line) => line.lineIndex)).toEqual([0, 1])
+    expect(lines.map((line) => line.runs.map((run) => [run.text, run.startUtf16, run.endUtf16]))).toEqual([
+      [['AB', 0, 2]],
+      [['CD', 3, 5]],
+    ])
+    expect(lines[1]!.runs[0]!.clusters.map((cluster) => [cluster.startUtf16, cluster.endUtf16])).toEqual([[0, 1], [1, 2]])
+    const whole = findNode(tree, 'text', noWrap.id).textBody
+    expect(whole.paragraphs).toHaveLength(1)
+    expect(whole.paragraphs[0]!.runs[0]).toMatchObject({ text: 'A💡 B', startUtf16: 0, endUtf16: 5 })
+    expect(tree.diagnostics.find((diagnostic) => diagnostic.elementId === noWrap.id && diagnostic.code === 'text.overflow')).toBeUndefined()
+  })
+
+  it('consumes only an exact soft U+0020 separator and conservatively preserves or refuses ambiguous spacing', async () => {
+    const exact = nativeTextElement('space-exact-fit', 'A B', nativeTextBody(), { x: 0, y: 0, cx: 12_700, cy: 500_000 })
+    const centered = nativeTextElement('space-center', 'A B', nativeTextBody(), { x: 0, y: 0, cx: 20_000, cy: 500_000 })
+    centered.paragraphs[0]!.align = 'center'
+    const right = nativeTextElement('space-right', 'A B', nativeTextBody(), { x: 0, y: 0, cx: 20_000, cy: 500_000 })
+    right.paragraphs[0]!.align = 'right'
+    const fitting = [
+      nativeTextElement('preserved-leading-fit', ' A', nativeTextBody(), { x: 0, y: 0, cx: 25_400, cy: 500_000 }),
+      nativeTextElement('preserved-trailing-fit', 'A ', nativeTextBody(), { x: 0, y: 0, cx: 25_400, cy: 500_000 }),
+      nativeTextElement('preserved-consecutive-fit', 'A  B', nativeTextBody(), { x: 0, y: 0, cx: 50_800, cy: 500_000 }),
+      nativeTextElement('ideographic-space-fit', 'A\u3000B', nativeTextBody(), { x: 0, y: 0, cx: 38_100, cy: 500_000 }),
+    ]
+    const ambiguous = [
+      nativeTextElement('preserved-leading-wrap', ' A', nativeTextBody(), { x: 0, y: 0, cx: 20_000, cy: 500_000 }),
+      nativeTextElement('preserved-trailing-wrap', 'A ', nativeTextBody(), { x: 0, y: 0, cx: 12_700, cy: 500_000 }),
+      nativeTextElement('preserved-consecutive-wrap', 'A  B', nativeTextBody(), { x: 0, y: 0, cx: 20_000, cy: 500_000 }),
+      nativeTextElement('ideographic-space-wrap', 'A\u3000B', nativeTextBody(), { x: 0, y: 0, cx: 20_000, cy: 500_000 }),
+    ]
+    const tree = await compileNativePptxSlide(authoredDeck([exact, centered, right, ...fitting, ...ambiguous]), 0, { textLayout: textLayout() })
+
+    for (const id of [exact.id, centered.id, right.id]) {
+      const body = findNode(tree, 'text', id).textBody
+      expect(body.paragraphs.map((line) => line.runs.map((run) => [run.text, run.startUtf16, run.endUtf16]))).toEqual([
+        [['A', 0, 1]],
+        [['B', 2, 3]],
+      ])
+      expect(body.paragraphs[0]!.consumedSoftSeparators).toEqual([{ sourceElementId: id, paragraphIndex: 0, runIndex: 0, startUtf16: 1, endUtf16: 2 }])
+      expect(body.paragraphs.flatMap((line) => line.runs).flatMap((run) => run.glyphs).map((glyph) => glyph.glyphId)).not.toContain(0x20)
+    }
+    expect(findNode(tree, 'text', centered.id).textBody.paragraphs.map((line) => [line.x, line.widthEmu])).toEqual([[3_650, 12_700], [3_650, 12_700]])
+    expect(findNode(tree, 'text', right.id).textBody.paragraphs.map((line) => [line.x, line.widthEmu])).toEqual([[7_300, 12_700], [7_300, 12_700]])
+
+    for (const element of fitting) {
+      const body = findNode(tree, 'text', element.id).textBody
+      expect(body).toMatchObject({ status: 'laidOut' })
+      expect(body.paragraphs).toHaveLength(1)
+      expect(body.paragraphs[0]!.runs[0]!.text).toBe(element.paragraphs[0]!.runs[0]!.text)
+    }
+    for (const element of ambiguous) {
+      expect(findNode(tree, 'text', element.id).textBody).toMatchObject({ fidelity: 'nativeUnavailable', status: 'refused', paragraphs: [] })
+      expect(tree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.wrapUnavailable', elementId: element.id })]))
+    }
+  })
+
+  it('rebases both glyph pen axes monotonically when a wrapped fragment skips a consumed separator', async () => {
+    const base = fixtureShaper()
+    const twoAxisPen: NativeTextShaper = {
+      ...base,
+      async shape(request) {
+        const result = await base.shape(request)
+        if ('status' in result) return result
+        return {
+          ...result,
+          glyphs: result.glyphs.map((glyph) => ({ ...glyph, advanceYMilliPoints: 100 })),
+        }
+      },
+    }
+    const element = nativeTextElement('two-axis-fragment-pen', 'A B', nativeTextBody(), { x: 0, y: 0, cx: 12_700, cy: 500_000 })
+    const tree = await compileNativePptxSlide(authoredDeck([element]), 0, { textLayout: textLayout(twoAxisPen) })
+    const runs = findNode(tree, 'text', element.id).textBody.paragraphs.flatMap((line) => line.runs)
+    expect(runs.map((run) => run.text)).toEqual(['A', 'B'])
+    expect(runs.map((run) => run.glyphs.map((glyph) => [glyph.xEmu, glyph.yEmu]))).toEqual([[[0, 0]], [[0, 0]]])
+  })
+
+  it('uses shared Unicode cluster text rules for glue, WJ, ZWSP, hyphen/slash, and CJK punctuation', async () => {
+    const base = fixtureShaper()
+    const maliciousWhitespaceHints: NativeTextShaper = {
+      ...base,
+      async shape(request) {
+        const result = await base.shape(request)
+        if ('status' in result) return result
+        return { ...result, clusters: result.clusters.map((cluster) => ({ ...cluster, whitespace: true })) }
+      },
+    }
+    const cases = [
+      nativeTextElement('nbsp', 'A\u00a0B', nativeTextBody(), { x: 0, y: 0, cx: 25_400, cy: 200_000 }),
+      nativeTextElement('word-joiner', 'A\u2060B', nativeTextBody(), { x: 0, y: 220_000, cx: 25_400, cy: 200_000 }),
+      nativeTextElement('zero-width-space', 'A\u200bB', nativeTextBody(), { x: 0, y: 440_000, cx: 12_700, cy: 300_000 }),
+      nativeTextElement('hyphen', 'A-B', nativeTextBody(), { x: 0, y: 760_000, cx: 25_400, cy: 300_000 }),
+      nativeTextElement('slash', 'A/B', nativeTextBody(), { x: 0, y: 1_080_000, cx: 25_400, cy: 300_000 }),
+      nativeTextElement('cjk-close', '\u6f22\u3001\u5b57\u8a9e', nativeTextBody(), { x: 600_000, y: 0, cx: 25_400, cy: 300_000 }),
+      nativeTextElement('cjk-open', '\u6f22\u300c\u5b57\u8a9e', nativeTextBody(), { x: 600_000, y: 320_000, cx: 25_400, cy: 500_000 }),
+      nativeTextElement('unknown-break-class', 'A💡 B', nativeTextBody(), { x: 600_000, y: 840_000, cx: 25_400, cy: 300_000 }),
+    ]
+    const tree = await compileNativePptxSlide(authoredDeck(cases), 0, { textLayout: textLayout(maliciousWhitespaceHints) })
+
+    for (const id of ['nbsp', 'unknown-break-class']) {
+      expect(findNode(tree, 'text', id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    }
+    expect(findNode(tree, 'text', 'word-joiner').textBody).toMatchObject({ status: 'laidOut' })
+    // The fixture provider deliberately labels NBSP as whitespace; actual
+    // cluster text wins, so that hostile/mistaken hint cannot create a break.
+    expect(tree.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'text.wrapUnavailable', elementId: 'nbsp' }),
+      expect.objectContaining({ code: 'text.wrapUnavailable', elementId: 'unknown-break-class' }),
+    ]))
+    expect(findNode(tree, 'text', 'zero-width-space').textBody.paragraphs.map((line) => line.runs.map((run) => run.text))).toEqual([['A\u200b'], ['B']])
+    expect(findNode(tree, 'text', 'hyphen').textBody.paragraphs.map((line) => line.runs.map((run) => run.text))).toEqual([['A-'], ['B']])
+    expect(findNode(tree, 'text', 'slash').textBody.paragraphs.map((line) => line.runs.map((run) => run.text))).toEqual([['A/'], ['B']])
+    expect(findNode(tree, 'text', 'cjk-close').textBody.paragraphs.map((line) => line.runs.map((run) => run.text))).toEqual([['\u6f22\u3001'], ['\u5b57\u8a9e']])
+    expect(findNode(tree, 'text', 'cjk-open').textBody.paragraphs.map((line) => line.runs.map((run) => run.text))).toEqual([['\u6f22'], ['\u300c\u5b57'], ['\u8a9e']])
+  })
+
+  it('visibly refuses mixed line metrics until Office-qualified leading aggregation is available', async () => {
+    const base = fixtureShaper()
+    const mixedMetrics: NativeTextShaper = {
+      ...base,
+      async shape(request) {
+        const result = await base.shape(request)
+        if ('status' in result) return result
+        const metrics = request.run.text === 'A'
+          ? { fontSizeMilliPoints: request.run.fontSizeMilliPoints, ascentMilliPoints: 10_000, descentMilliPoints: -1_000, lineGapMilliPoints: 0, lineHeightMilliPoints: 11_000 }
+          : request.run.text === 'B'
+            ? { fontSizeMilliPoints: request.run.fontSizeMilliPoints, ascentMilliPoints: 5_000, descentMilliPoints: -4_000, lineGapMilliPoints: 3_000, lineHeightMilliPoints: 12_000 }
+            : result.metrics
+        return { ...result, metrics }
+      },
+    }
+    const element = nativeTextElement('mixed-line-metrics', 'unused', nativeTextBody({ wrap: 'none' }))
+    element.paragraphs = [
+      { align: 'left', level: 0, bullet: false, runs: [{ text: 'A', fontFamily: 'Aptos', fontSizeHundredthPt: 1_000 }, { text: 'B', fontFamily: 'Aptos', fontSizeHundredthPt: 1_000 }] },
+      { align: 'left', level: 0, bullet: false, runs: [{ text: 'C', fontFamily: 'Aptos', fontSizeHundredthPt: 1_000 }] },
+    ]
+    const tree = await compileNativePptxSlide(authoredDeck([element]), 0, { textLayout: textLayout(mixedMetrics) })
+    expect(findNode(tree, 'text', element.id).textBody).toMatchObject({ fidelity: 'nativeUnavailable', status: 'refused', paragraphs: [], refusalLabel: 'Exact text layout unavailable' })
+    expect(tree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.refused', severity: 'refusal', elementId: element.id })]))
+  })
+
+  it('retains exact descending RTL clusters for no-wrap but refuses RTL square wrap and mixed native directions', async () => {
+    const rtlSquare = nativeTextElement('rtl-square', 'AB', nativeTextBody())
+    const rtlNoWrap = nativeTextElement('rtl-no-wrap', 'AB', nativeTextBody({ wrap: 'none' }))
+    const mixed = { ...textElement('native-mixed', 'left', 0), textBody: nativeTextBody({ wrap: 'none' }) }
+    const tree = await compileNativePptxSlide(authoredDeck([rtlSquare, rtlNoWrap, mixed]), 0, {
+      textLayout: textLayout(fixtureShaper(), ({ elementId, runIndex }) => {
+        if (elementId === rtlSquare.id || elementId === rtlNoWrap.id || (elementId === mixed.id && runIndex === 1)) return { direction: 'rtl', script: 'Arab', language: 'ar' }
+        return {}
+      }),
+    })
+    expect(findNode(tree, 'text', rtlSquare.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    expect(findNode(tree, 'text', mixed.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    const exactRtl = findNode(tree, 'text', rtlNoWrap.id).textBody
+    expect(exactRtl.status).toBe('laidOut')
+    expect(exactRtl.paragraphs[0]).toMatchObject({ direction: 'rtl', lineIndex: 0 })
+    expect(exactRtl.paragraphs[0]!.runs[0]!.clusters.map((cluster) => [cluster.startUtf16, cluster.endUtf16])).toEqual([[1, 2], [0, 1]])
+    expect(tree.diagnostics.filter((diagnostic) => diagnostic.code === 'text.wrapUnavailable').map((diagnostic) => diagnostic.elementId).sort()).toEqual(['native-mixed', 'rtl-square'])
+  })
+
+  it('breaks an unbreakable overfull run at cluster boundaries only for elements carrying approximation evidence and labels it', async () => {
+    const text = 'A'.repeat(48)
+    const frame = { x: 0, y: 0, cx: 60_000, cy: 400_000 }
+    const plain = nativeTextElement('overfull-run', text, nativeTextBody(), frame)
+    // The deck-wide opt-in alone never loosens an exact element.
+    for (const options of [{ textLayout: textLayout() }, { textLayout: textLayout(), sourceFrameAutoFitPreview: true }, { textLayout: textLayout(), sourceFrameAutoFitPreview: true, inheritedTextPreview: true }]) {
+      const tree = await compileNativePptxSlide(authoredDeck([plain]), 0, options)
+      expect(findNode(tree, 'text', plain.id).textBody).toMatchObject({ status: 'refused', paragraphs: [], fidelity: 'nativeUnavailable' })
+      expect(tree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.wrapUnavailable', severity: 'refusal', elementId: plain.id })]))
+      expect(tree.diagnostics.some((diagnostic) => diagnostic.code === 'text.emergencyBreakApproximate')).toBe(false)
+    }
+    const marked = (code: string) => {
+      const deck = structuredClone(parsedFull), element = deck.slides[0]!.elements.find((item) => item.kind === 'text')!
+      if (element.kind !== 'text') throw new Error('text missing')
+      const authored = nativeTextElement(element.id, text, nativeTextBody(), frame)
+      // Exact fixture face so the fidelity label reflects the break, not font substitution.
+      element.paragraphs = authored.paragraphs.map((paragraph) => ({ ...paragraph, runs: paragraph.runs.map((run) => ({ ...run, fontFamily: 'Fixture Sans' })) }))
+      element.textBody = authored.textBody; element.transform = authored.transform
+      element.compatibility = { status: 'preserveOnly', diagnostics: [{ severity: 'warning', code, message: 'Declared read-only approximation' }] }
+      deck.slides[0]!.elements = [element]
+      return { deck, id: element.id }
+    }
+    for (const [code, option, fidelity] of [
+      ['pptx.autofit-authored-scale-approximate', 'sourceFrameAutoFitPreview', 'approximateSourceFrame'],
+      ['pptx.text-columns-approximate', 'sourceFrameAutoFitPreview', 'approximateSourceFrame'],
+      ['pptx.text-warp-flattened-approximate', 'sourceFrameAutoFitPreview', 'approximateSourceFrame'],
+      ['pptx.text-warp-approximate', 'sourceFrameAutoFitPreview', 'approximateSourceFrame'],
+      ['pptx.source-inherited-text-approximate', 'inheritedTextPreview', 'approximateInheritedText'],
+    ] as const) {
+      const { deck, id } = marked(code)
+      await expect(compileNativePptxSlide(deck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1' })).rejects.toThrow('opt-in')
+      const approximate = await compileNativePptxSlide(deck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1', [option]: true })
+      const body = findNode(approximate, 'text', id).textBody
+      expect(body.status).toBe('laidOut')
+      expect(body.fidelity).toBe(fidelity)
+      expect(body.paragraphs.length).toBeGreaterThan(1)
+      expect(body.paragraphs.reduce((sum, line) => sum + line.runs.reduce((inner, run) => inner + run.clusters.length, 0), 0)).toBe(text.length)
+      expect(approximate.diagnostics.filter((diagnostic) => diagnostic.code === 'text.emergencyBreakApproximate' && diagnostic.severity === 'warning' && diagnostic.elementId === id)).toHaveLength(1)
+    }
+  })
+
+  it('reduces the approximate line pitch by the authored lnSpcReduction without touching glyphs or exact lanes', async () => {
+    const text = 'AA AA AA AA AA AA'
+    const frame = { x: 0, y: 0, cx: 60_000, cy: 900_000 }
+    const laidOut = async (body: NativeTextBodyLayout, status: 'preserveOnly' | 'editable') => {
+      const deck = structuredClone(parsedFull), element = deck.slides[0]!.elements.find((item) => item.kind === 'text')!
+      if (element.kind !== 'text') throw new Error('text missing')
+      const authored = nativeTextElement(element.id, text, body, frame)
+      element.paragraphs = authored.paragraphs.map((paragraph) => ({ ...paragraph, runs: paragraph.runs.map((run) => ({ ...run, fontFamily: 'Fixture Sans' })) }))
+      element.textBody = authored.textBody; element.transform = authored.transform
+      element.compatibility = status === 'preserveOnly'
+        ? { status, diagnostics: [{ severity: 'warning', code: 'pptx.autofit-authored-scale-approximate', message: 'Declared read-only approximation' }] }
+        : { status, diagnostics: [] }
+      deck.slides[0]!.elements = [element]
+      const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1', sourceFrameAutoFitPreview: true })
+      return findNode(tree, 'text', element.id).textBody
+    }
+    const natural = await laidOut(nativeTextBody(), 'preserveOnly')
+    const reduced = await laidOut(nativeTextBody({ lineSpacingReductionPercent1000: 20_000 }), 'preserveOnly')
+    expect(natural.paragraphs.length).toBeGreaterThan(2)
+    expect(reduced.paragraphs).toHaveLength(natural.paragraphs.length)
+    const pitch = natural.paragraphs[1]!.y - natural.paragraphs[0]!.y
+    const reducedPitch = reduced.paragraphs[1]!.y - reduced.paragraphs[0]!.y
+    expect(pitch).toBeGreaterThan(0)
+    expect(reducedPitch).toBe(Math.floor((pitch * 80_000) / 100_000))
+    // The reduction removes leading from the TOP of each line box, so the text
+    // rises inside its box by exactly the amount the box lost. Measured against
+    // the PowerPoint 16.112.4 export of font-scale.pptx, whose first baseline
+    // sits one whole reduction above the natural ascent.
+    const lostLeading = natural.paragraphs[0]!.heightEmu - reducedPitch
+    expect(lostLeading).toBeGreaterThan(0)
+    for (const [index, line] of reduced.paragraphs.entries()) {
+      const source = natural.paragraphs[index]!
+      // Line origins still advance by the reduced pitch from a fixed origin.
+      expect(line.y).toBe(natural.paragraphs[0]!.y + reducedPitch * index)
+      expect(source.y).toBe(natural.paragraphs[0]!.y + pitch * index)
+      // Glyph sizes and the measured line box are untouched; only the baseline
+      // inside the box moves, and it moves by exactly the lost leading.
+      expect(line.heightEmu).toBe(source.heightEmu)
+      expect(line.widthEmu).toBe(source.widthEmu)
+      expect(line.x).toBe(source.x)
+      expect(line.runs.map((run) => [run.x - line.x, run.baselineY - line.y, run.advanceInlineEmu]))
+        .toEqual(source.runs.map((run) => [run.x - source.x, run.baselineY - source.y - lostLeading, run.advanceInlineEmu]))
+      // The first line's own baseline rises; it is no longer pinned to the
+      // unreduced ascent, which is what pushed whole blocks down.
+      if (index === 0) expect(line.runs[0]!.baselineY).toBe(source.runs[0]!.baselineY - lostLeading)
+    }
+    // The contract refuses the field without its read-only approximation evidence.
+    await expect(laidOut(nativeTextBody({ lineSpacingReductionPercent1000: 20_000 }), 'editable')).rejects.toThrow('authored line-spacing reduction')
+    // Within one slide the reduction stays scoped to the element that authored it.
+    const mixed = structuredClone(parsedFull), source = mixed.slides[0]!.elements.find((item) => item.kind === 'text')!
+    if (source.kind !== 'text') throw new Error('text missing')
+    const shaped = nativeTextElement(source.id, text, nativeTextBody(), frame)
+    source.paragraphs = shaped.paragraphs.map((paragraph) => ({ ...paragraph, runs: paragraph.runs.map((run) => ({ ...run, fontFamily: 'Fixture Sans' })) }))
+    source.textBody = { ...nativeTextBody(), lineSpacingReductionPercent1000: 20_000 }
+    source.transform = frame
+    source.compatibility = { status: 'preserveOnly', diagnostics: [{ severity: 'warning', code: 'pptx.autofit-authored-scale-approximate', message: 'Declared read-only approximation' }] }
+    const sibling = structuredClone(source)
+    sibling.id = `${source.id}-sibling`
+    sibling.source = { ...source.source!, objectId: `${source.source!.objectId}-sibling` }
+    sibling.textBody = nativeTextBody()
+    mixed.slides[0]!.elements = [source, sibling]
+    const mixedTree = await compileNativePptxSlide(mixed, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1', sourceFrameAutoFitPreview: true })
+    const mixedReduced = findNode(mixedTree, 'text', source.id).textBody
+    const mixedNatural = findNode(mixedTree, 'text', sibling.id).textBody
+    expect(mixedReduced.paragraphs[1]!.y - mixedReduced.paragraphs[0]!.y).toBe(reducedPitch)
+    expect(mixedNatural.paragraphs.map((line) => line.y)).toEqual(natural.paragraphs.map((line) => line.y))
+  })
+
+  it('takes an authored line-spacing change out of the top of the line box and leaves unspaced elements untouched', async () => {
+    const text = 'AA AA AA AA AA AA'
+    const frame = { x: 0, y: 0, cx: 60_000, cy: 900_000 }
+    const laidOut = async (paragraphPatch: Partial<NativeParagraph>, spaced: boolean) => {
+      const deck = structuredClone(parsedFull), element = deck.slides[0]!.elements.find((item) => item.kind === 'text')!
+      if (element.kind !== 'text') throw new Error('text missing')
+      const authored = nativeTextElement(element.id, text, nativeTextBody(), frame)
+      element.paragraphs = authored.paragraphs.map((paragraph) => ({ ...paragraph, ...paragraphPatch, runs: paragraph.runs.map((run) => ({ ...run, fontFamily: 'Fixture Sans' })) }))
+      element.textBody = authored.textBody; element.transform = authored.transform
+      element.compatibility = spaced
+        ? { status: 'preserveOnly', diagnostics: [{ severity: 'warning', code: 'pptx.paragraph-spacing-approximate', message: 'Declared read-only approximation' }] }
+        : { status: 'editable', diagnostics: [] }
+      deck.slides[0]!.elements = [element]
+      const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1', inheritedTextPreview: true })
+      return findNode(tree, 'text', element.id).textBody
+    }
+    const natural = await laidOut({}, false)
+    const box = natural.paragraphs[0]!.heightEmu
+    const naturalBaseline = natural.paragraphs[0]!.runs[0]!.baselineY
+
+    // A 70% authored line spacing loses 30% of the box, all of it above the text.
+    const tighter = await laidOut({ lineSpacingPercent1000: 70_000 }, true)
+    const tightPitch = tighter.paragraphs[1]!.y - tighter.paragraphs[0]!.y
+    expect(tightPitch).toBe(Math.floor((box * 70_000) / 100_000))
+    expect(tighter.paragraphs[0]!.runs[0]!.baselineY).toBe(naturalBaseline - (box - tightPitch))
+    // The measured line box itself is reported unchanged; only the baseline moves.
+    expect(tighter.paragraphs[0]!.heightEmu).toBe(box)
+
+    // An absolute line spacing taller than the measured box adds its extra
+    // leading above the text the same way, so the baseline drops.
+    const looser = await laidOut({ lineSpacingEmu: box + 40_000 }, true)
+    expect(looser.paragraphs[1]!.y - looser.paragraphs[0]!.y).toBe(box + 40_000)
+    expect(looser.paragraphs[0]!.runs[0]!.baselineY).toBe(naturalBaseline + 40_000)
+
+    // An element that authors no line spacing lays out exactly as before.
+    const unchanged = await laidOut({ spaceBeforeEmu: 50_000 }, true)
+    expect(unchanged.paragraphs.map((line) => [line.y, line.runs[0]!.baselineY]))
+      .toEqual(natural.paragraphs.map((line) => [line.y, line.runs[0]!.baselineY]))
+  })
+
+  it('subtracts the authored lnSpcReduction from the authored line-spacing percentage', async () => {
+    const text = 'AA AA AA AA AA AA'
+    const frame = { x: 0, y: 0, cx: 60_000, cy: 900_000 }
+    const laidOut = async (percent: number | undefined, reduction: number | undefined) => {
+      const deck = structuredClone(parsedFull), element = deck.slides[0]!.elements.find((item) => item.kind === 'text')!
+      if (element.kind !== 'text') throw new Error('text missing')
+      const authored = nativeTextElement(element.id, text, reduction === undefined ? nativeTextBody() : nativeTextBody({ lineSpacingReductionPercent1000: reduction }), frame)
+      element.paragraphs = authored.paragraphs.map((paragraph) => ({ ...paragraph, ...(percent === undefined ? {} : { lineSpacingPercent1000: percent }), runs: paragraph.runs.map((run) => ({ ...run, fontFamily: 'Fixture Sans' })) }))
+      element.textBody = authored.textBody; element.transform = authored.transform
+      const diagnostics = [
+        ...(percent === undefined ? [] : [{ severity: 'warning' as const, code: 'pptx.paragraph-spacing-approximate', message: 'Declared read-only approximation' }]),
+        ...(reduction === undefined ? [] : [{ severity: 'warning' as const, code: 'pptx.autofit-authored-scale-approximate', message: 'Declared read-only approximation' }]),
+      ]
+      element.compatibility = diagnostics.length === 0 ? { status: 'editable', diagnostics } : { status: 'preserveOnly', diagnostics }
+      deck.slides[0]!.elements = [element]
+      const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1', inheritedTextPreview: true, sourceFrameAutoFitPreview: true })
+      const body = findNode(tree, 'text', element.id).textBody
+      return { pitch: body.paragraphs[1]!.y - body.paragraphs[0]!.y, box: body.paragraphs[0]!.heightEmu }
+    }
+    const { box } = await laidOut(undefined, undefined)
+    // 90% authored spacing reduced by 20% is 70% of the box, not 72%.
+    const both = await laidOut(90_000, 20_000)
+    expect(both.pitch).toBe(Math.floor((box * 70_000) / 100_000))
+    expect(both.pitch).not.toBe(Math.floor((Math.floor((box * 90_000) / 100_000) * 80_000) / 100_000))
+    // With no authored a:lnSpc the two readings agree, so #235 is unchanged.
+    const reductionOnly = await laidOut(undefined, 20_000)
+    expect(reductionOnly.pitch).toBe(Math.floor((box * 80_000) / 100_000))
+    // A reduction at least as large as the authored spacing still advances.
+    const collapsed = await laidOut(20_000, 20_000)
+    expect(collapsed.pitch).toBe(1)
+  })
+
+  it('takes a percentage line spacing against 1.2 x the font size, not against the face line box', async () => {
+    const text = 'AA AA AA AA AA AA'
+    const frame = { x: 0, y: 0, cx: 60_000, cy: 900_000 }
+    // The default fixture face measures exactly 1.2 em, which cannot tell the
+    // two candidate bases apart. This face measures 1.3 em (0.95 ascent, 0.35
+    // descent, no line gap), the shape of a real text face whose own box is
+    // wider than PowerPoint's single-spaced line.
+    const design = { unitsPerEm: 1_000, ascender: 950, descender: -350, lineGap: 0 }
+    const base = fixtureShaper()
+    const wideBoxLayout: NativePptxTextLayout = {
+      manifest,
+      resolver: { ...resolver, load: (resolved) => ({ face: resolved, bytes: new Uint8Array([0, 1, 2, 3]), metrics: design }) },
+      shaper: {
+        ...base,
+        shape(request) {
+          const shaped = base.shape(request)
+          return 'status' in shaped ? shaped : { ...shaped, metrics: scaleLineMetrics(design, request.run.fontSizeMilliPoints) }
+        },
+      },
+      defaults: { fontFamilies: ['Fixture Sans'], fontSizeHundredthPt: 1_000, script: 'Latn', language: 'en-US', direction: 'ltr', fallbackChainIds: ['fixture.default'] },
+    }
+    const laidOut = async (percent: number | undefined, reduction: number | undefined) => {
+      const deck = structuredClone(parsedFull), element = deck.slides[0]!.elements.find((item) => item.kind === 'text')!
+      if (element.kind !== 'text') throw new Error('text missing')
+      const authored = nativeTextElement(element.id, text, reduction === undefined ? nativeTextBody() : nativeTextBody({ lineSpacingReductionPercent1000: reduction }), frame)
+      element.paragraphs = authored.paragraphs.map((paragraph) => ({ ...paragraph, ...(percent === undefined ? {} : { lineSpacingPercent1000: percent }), runs: paragraph.runs.map((run) => ({ ...run, fontFamily: 'Fixture Sans' })) }))
+      element.textBody = authored.textBody; element.transform = authored.transform
+      const diagnostics = [
+        ...(percent === undefined ? [] : [{ severity: 'warning' as const, code: 'pptx.paragraph-spacing-approximate', message: 'Declared read-only approximation' }]),
+        ...(reduction === undefined ? [] : [{ severity: 'warning' as const, code: 'pptx.autofit-authored-scale-approximate', message: 'Declared read-only approximation' }]),
+      ]
+      element.compatibility = diagnostics.length === 0 ? { status: 'editable', diagnostics } : { status: 'preserveOnly', diagnostics }
+      deck.slides[0]!.elements = [element]
+      const tree = await compileNativePptxSlide(deck, 0, { textLayout: wideBoxLayout, lineLayoutPolicy: 'max-run-natural-v1', inheritedTextPreview: true, sourceFrameAutoFitPreview: true })
+      const body = findNode(tree, 'text', element.id).textBody
+      return {
+        pitch: body.paragraphs[1]!.y - body.paragraphs[0]!.y,
+        box: body.paragraphs[0]!.heightEmu,
+        baseline: body.paragraphs[0]!.runs[0]!.baselineY,
+        sizeMilliPoints: body.paragraphs[0]!.runs[0]!.fontSizeMilliPoints,
+      }
+    }
+    const emu = (milliPoints: number) => Math.round((milliPoints * 127) / 10)
+    const natural = await laidOut(undefined, undefined)
+    const { box, sizeMilliPoints } = natural
+    const singleSpaced = emu(Math.floor((sizeMilliPoints * 12 + 5) / 10))
+    // The measured face box really is wider than the single-spaced line here,
+    // so every assertion below discriminates the two bases.
+    expect(box).toBe(emu((sizeMilliPoints * 13) / 10))
+    expect(singleSpaced).toBeLessThan(box)
+
+    // 90% authored spacing less a 20% reduction is 70% of 1.2 x the size.
+    const both = await laidOut(90_000, 20_000)
+    expect(both.pitch).toBe(Math.floor((singleSpaced * 70_000) / 100_000))
+    expect(both.pitch).not.toBe(Math.floor((box * 70_000) / 100_000))
+    // A reduction with no authored a:lnSpc is still a percentage of the same
+    // single-spaced line, which is what the font-scale.pptx export measures.
+    const reductionOnly = await laidOut(undefined, 20_000)
+    expect(reductionOnly.pitch).toBe(Math.floor((singleSpaced * 80_000) / 100_000))
+    expect(reductionOnly.pitch).not.toBe(Math.floor((box * 80_000) / 100_000))
+    // An authored 100% spacing is the single-spaced line itself.
+    expect((await laidOut(100_000, undefined)).pitch).toBe(singleSpaced)
+
+    // ECMA-376 21.1.2.2.5: with no percentage in effect the omitted-a:lnSpc
+    // rule stands and the measured face box is the pitch, unchanged.
+    expect(natural.pitch).toBe(box)
+    // The face box also stays the reported line height in every case, because
+    // overflow, column breaks and anchoring still measure the real box.
+    for (const measured of [both, reductionOnly, natural]) expect(measured.box).toBe(box)
+    // The removed leading still comes off the top of the box.
+    expect(both.baseline).toBe(natural.baseline - (box - both.pitch))
+  })
+
+  it('flows approximate text bodies through the authored columns instead of one wide block', async () => {
+    const text = 'AA AA AA AA AA AA AA AA AA'
+    const spacingEmu = 20_000
+    const frame = { x: 0, y: 0, cx: 260_000, cy: 900_000 }
+    const laidOut = async (body: NativeTextBodyLayout, transform = frame) => {
+      const deck = structuredClone(parsedFull), element = deck.slides[0]!.elements.find((item) => item.kind === 'text')!
+      if (element.kind !== 'text') throw new Error('text missing')
+      const authored = nativeTextElement(element.id, text, body, transform)
+      element.paragraphs = authored.paragraphs.map((paragraph) => ({ ...paragraph, runs: paragraph.runs.map((run) => ({ ...run, fontFamily: 'Fixture Sans' })) }))
+      element.textBody = authored.textBody; element.transform = authored.transform
+      element.compatibility = { status: 'preserveOnly', diagnostics: [{ severity: 'warning', code: 'pptx.text-columns-approximate', message: 'Declared read-only approximation' }] }
+      deck.slides[0]!.elements = [element]
+      const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1', sourceFrameAutoFitPreview: true })
+      return { body: findNode(tree, 'text', element.id).textBody, tree, id: element.id }
+    }
+    const single = (await laidOut(nativeTextBody())).body
+    const three = await laidOut(nativeTextBody({ columnCount: 3, columnSpacingEmu: spacingEmu }))
+    expect(single.status).toBe('laidOut')
+    expect(three.body.status).toBe('laidOut')
+    const columnWidth = Math.floor((frame.cx - 2 * spacingEmu) / 3)
+    // Narrower columns wrap sooner, so the same text needs more lines.
+    expect(three.body.paragraphs.length).toBeGreaterThan(single.paragraphs.length)
+    for (const line of three.body.paragraphs) {
+      expect(line.widthEmu).toBeLessThanOrEqual(columnWidth)
+      const band = Math.round((line.x - frame.x) / (columnWidth + spacingEmu))
+      expect(band).toBeGreaterThanOrEqual(0)
+      expect(band).toBeLessThanOrEqual(2)
+      // Every line starts exactly on its column origin for left-aligned text.
+      expect(line.x).toBe(frame.x + band * (columnWidth + spacingEmu))
+      expect(line.runs[0]!.x).toBe(line.x)
+    }
+    // Columns fill left to right, top to bottom, and never exceed the frame height.
+    const bands = three.body.paragraphs.map((line) => Math.round((line.x - frame.x) / (columnWidth + spacingEmu)))
+    expect(bands).toEqual([...bands].sort((a, b) => a - b))
+    for (let index = 1; index < three.body.paragraphs.length; index++) {
+      const previous = three.body.paragraphs[index - 1]!, line = three.body.paragraphs[index]!
+      if (bands[index] === bands[index - 1]) expect(line.y).toBeGreaterThan(previous.y)
+      else expect(line.y).toBe(three.body.paragraphs[0]!.y)
+    }
+    expect(three.tree.diagnostics.filter((diagnostic) => diagnostic.code === 'text.authoredColumnsApproximate' && diagnostic.severity === 'warning' && diagnostic.elementId === three.id)).toHaveLength(1)
+
+    // A frame exactly two lines tall balances a four-line body across two columns.
+    const lineHeight = single.paragraphs[0]!.heightEmu
+    const balancedFrame = { x: 0, y: 0, cx: 260_000, cy: 2 * lineHeight }
+    const balanced = (await laidOut(nativeTextBody({ columnCount: 2, columnSpacingEmu: spacingEmu }), balancedFrame)).body
+    const balancedWidth = Math.floor((balancedFrame.cx - spacingEmu) / 2)
+    const balancedBands = balanced.paragraphs.map((line) => Math.round((line.x - balancedFrame.x) / (balancedWidth + spacingEmu)))
+    expect(balancedBands.filter((band) => band === 0)).toHaveLength(2)
+    expect(balancedBands.slice(0, 2)).toEqual([0, 0])
+    expect(balancedBands[2]).toBe(1)
+
+    // The exact lane never sees a column projection: the field needs its evidence.
+    const exactDeck = structuredClone(parsedFull), exact = exactDeck.slides[0]!.elements.find((item) => item.kind === 'text')!
+    if (exact.kind !== 'text') throw new Error('text missing')
+    const authored = nativeTextElement(exact.id, text, nativeTextBody({ columnCount: 3, columnSpacingEmu: spacingEmu }), frame)
+    exact.paragraphs = authored.paragraphs; exact.textBody = authored.textBody; exact.transform = authored.transform
+    exact.compatibility = { status: 'editable', diagnostics: [] }
+    exactDeck.slides[0]!.elements = [exact]
+    await expect(compileNativePptxSlide(exactDeck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1', sourceFrameAutoFitPreview: true })).rejects.toThrow('authored column projection')
+  })
+
+  it('warps modeled preset text along the deflate envelope at paint time', async () => {
+    const text = 'First'
+    const frame = { x: 0, y: 0, cx: 2_000_000, cy: 800_000 }
+    const deck = structuredClone(parsedFull), element = deck.slides[0]!.elements.find((item) => item.kind === 'text')!
+    if (element.kind !== 'text') throw new Error('text missing')
+    const authored = nativeTextElement(element.id, text, nativeTextBody({ wrap: 'none', presetTextWarp: 'textDeflate', presetTextWarpAdj: 37_500 }), frame)
+    element.paragraphs = authored.paragraphs.map((paragraph) => ({ ...paragraph, runs: paragraph.runs.map((run) => ({ ...run, fontFamily: 'Fixture Sans' })) }))
+    element.textBody = authored.textBody
+    element.transform = authored.transform
+    element.compatibility = { status: 'preserveOnly', diagnostics: [{ severity: 'warning', code: 'pptx.text-warp-approximate', message: 'Declared read-only approximation' }] }
+    deck.slides[0]!.elements = [element]
+    await expect(compileNativePptxSlide(deck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1' })).rejects.toThrow('opt-in')
+    const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1', sourceFrameAutoFitPreview: true })
+    const body = findNode(tree, 'text', element.id).textBody
+    expect(body).toMatchObject({ status: 'laidOut', presetTextWarp: 'textDeflate', presetTextWarpAdj: 37_500 })
+    expect(tree.diagnostics.some((diagnostic) => diagnostic.code === 'text.authoredWarpApproximate' && diagnostic.elementId === element.id)).toBe(true)
+    const surface = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, surface)
+    const commands = surface.finish()
+    const glyphRuns = commands.filter((command) => command.kind === 'glyphRun')
+    expect(glyphRuns.length).toBeGreaterThan(0)
+    const warped = commands.some((command, index) => command.kind === 'transform' && (command.transform.bPpm !== 0 || command.transform.cPpm !== 0 || command.transform.tyEmu !== 0) && commands[index + 1]?.kind === 'glyphRun')
+    expect(warped).toBe(true)
+    await expect(compileNativePptxSlide({ ...deck, slides: [{ ...deck.slides[0]!, elements: [{ ...element, compatibility: { status: 'editable', diagnostics: [] } }] }] }, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1', sourceFrameAutoFitPreview: true })).rejects.toThrow('authored text-warp')
+  })
+
+  it('warps modeled preset text in local space then composes a vertical body transform', async () => {
+    const text = 'AB'
+    const frame = { x: 0, y: 0, cx: 500_000, cy: 110_000 }
+    const deck = structuredClone(parsedFull), element = deck.slides[0]!.elements.find((item) => item.kind === 'text')!
+    if (element.kind !== 'text') throw new Error('text missing')
+    const authored = nativeTextElement(element.id, text, nativeTextBody({ wrap: 'none', writingMode: 'vertical-clockwise', presetTextWarp: 'textDeflate', presetTextWarpAdj: 37_500 }), frame)
+    element.paragraphs = authored.paragraphs.map((paragraph) => ({ ...paragraph, runs: paragraph.runs.map((run) => ({ ...run, fontFamily: 'Fixture Sans' })) }))
+    element.textBody = authored.textBody
+    element.transform = authored.transform
+    element.compatibility = { status: 'preserveOnly', diagnostics: [{ severity: 'warning', code: 'pptx.text-warp-approximate', message: 'Declared read-only approximation' }] }
+    deck.slides[0]!.elements = [element]
+    const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout(), lineLayoutPolicy: 'max-run-natural-v1', sourceFrameAutoFitPreview: true })
+    const body = findNode(tree, 'text', element.id).textBody
+    expect(body).toMatchObject({ status: 'laidOut', presetTextWarp: 'textDeflate', transform: { aPpm: 0, bPpm: 1_000_000, cPpm: -1_000_000, dPpm: 0 } })
+    const surface = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, surface)
+    const commands = surface.finish()
+    expect(commands).toContainEqual({ kind: 'transform', transform: body.transform })
+    expect(commands.some((command, index) => command.kind === 'transform' && (command.transform.bPpm !== 0 || command.transform.cPpm !== 0 || command.transform.tyEmu !== 0) && commands[index + 1]?.kind === 'glyphRun')).toBe(true)
+  })
+
+  it('refuses an overfull unbreakable shaped cluster visibly instead of splitting or approximating it', async () => {
+    const base = fixtureShaper()
+    const ligatureShaper: NativeTextShaper = {
+      ...base,
+      async shape(request) {
+        const result = await base.shape(request)
+        if ('status' in result || request.run.text !== 'AB') return result
+        return {
+          ...result,
+          glyphs: result.glyphs.map((glyph) => ({ ...glyph, clusterIndex: 0 })),
+          clusters: [{ startUtf16: 0, endUtf16: 2, glyphStart: 0, glyphEnd: result.glyphs.length, advanceInlineMilliPoints: 2_000, unsafeToBreak: true }],
+        }
+      },
+    }
+    const element = nativeTextElement('overfull-cluster', 'AB', nativeTextBody(), { x: 0, y: 0, cx: 20_000, cy: 200_000 })
+    const tree = await compileNativePptxSlide(authoredDeck([element]), 0, { textLayout: textLayout(ligatureShaper) })
+    expect(findNode(tree, 'text', element.id).textBody).toMatchObject({ status: 'refused', paragraphs: [], refusalLabel: 'Exact text layout unavailable' })
+    // Approximate previews may break between clusters, never inside one.
+    const markedDeck = structuredClone(parsedFull), marked = markedDeck.slides[0]!.elements.find((item) => item.kind === 'text')!
+    if (marked.kind !== 'text') throw new Error('text missing')
+    marked.paragraphs = element.paragraphs; marked.textBody = element.textBody; marked.transform = element.transform
+    marked.compatibility = { status: 'preserveOnly', diagnostics: [{ severity: 'warning', code: 'pptx.autofit-authored-scale-approximate', message: 'Declared read-only approximation' }] }
+    markedDeck.slides[0]!.elements = [marked]
+    const approximate = await compileNativePptxSlide(markedDeck, 0, { textLayout: textLayout(ligatureShaper), sourceFrameAutoFitPreview: true })
+    expect(findNode(approximate, 'text', marked.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    expect(approximate.diagnostics.some((diagnostic) => diagnostic.code === 'text.emergencyBreakApproximate')).toBe(false)
+    expect(tree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.wrapUnavailable', severity: 'refusal', elementId: element.id })]))
+    const recording = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, recording)
+    expect(recording.finish()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'placeholder', reason: 'textRefusal', sourceElementId: element.id, rect: { x: 0, y: 0, cx: 20_000, cy: 200_000 } }),
+    ]))
+  })
+
+  it('handles provider-sized no-wrap and one-line square cluster vectors without per-cluster wrap materialization', async () => {
+    const clusterCount = 150_000
+    const largeClusterShaper: NativeTextShaper = {
+      providerId: 'large-cluster-fixture', providerRevision: '1',
+      shape({ run, startUtf16, endUtf16, font }) {
+        return {
+          startUtf16, endUtf16, face: font.face, glyphs: [],
+          clusters: Array.from({ length: clusterCount }, (_, index) => ({
+            startUtf16: index, endUtf16: index + 1, glyphStart: 0, glyphEnd: 0,
+            advanceInlineMilliPoints: 0,
+          })),
+          metrics: { fontSizeMilliPoints: run.fontSizeMilliPoints, ascentMilliPoints: 8_000, descentMilliPoints: -2_000, lineGapMilliPoints: 2_000, lineHeightMilliPoints: 12_000 },
+          advanceInlineMilliPoints: 0, advanceBlockMilliPoints: 0,
+        }
+      },
+    }
+    const elements = [
+      nativeTextElement('large-cluster-no-wrap', 'A'.repeat(clusterCount), nativeTextBody({ wrap: 'none' })),
+      nativeTextElement('large-cluster-square', 'A'.repeat(clusterCount), nativeTextBody()),
+    ]
+    const tree = await compileNativePptxSlide(authoredDeck(elements), 0, { textLayout: textLayout(largeClusterShaper) })
+    for (const element of elements) {
+      const body = findNode(tree, 'text', element.id).textBody
+      expect(body.paragraphs).toHaveLength(1)
+      const clusters = body.paragraphs[0]!.runs[0]!.clusters
+      expect(clusters).toHaveLength(clusterCount)
+      expect(clusters[0]).toMatchObject({ startUtf16: 0, endUtf16: 1, glyphStart: 0, glyphEnd: 0 })
+      expect(clusters.at(-1)).toMatchObject({ startUtf16: clusterCount - 1, endUtf16: clusterCount })
+    }
+  })
+
+  it('refuses incomplete cluster coverage, invalid glyph ownership, and negative cluster advances', async () => {
+    const mutations: Array<[(segment: ShapedSegment) => ShapedSegment, string]> = [
+      [(segment) => ({ ...segment, clusters: segment.clusters.slice(1) }), 'render.invalidShaping'],
+      [(segment) => ({ ...segment, glyphs: segment.glyphs.map((glyph, index) => index === 0 ? { ...glyph, clusterIndex: 1 } : glyph) }), 'render.invalidShaping'],
+      [(segment) => ({ ...segment, clusters: segment.clusters.map((cluster, index) => index === 0 ? { ...cluster, advanceInlineMilliPoints: -1 } : cluster) }), 'render.invalidProviderOutput'],
+      [(segment) => ({ ...segment, metrics: { ...segment.metrics, lineHeightMilliPoints: segment.metrics.lineHeightMilliPoints - 1 } }), 'render.invalidShaping'],
+    ]
+    for (const [mutate, code] of mutations) {
+      const base = fixtureShaper()
+      const corrupt: NativeTextShaper = {
+        providerId: 'corrupt-fixture', providerRevision: '1',
+        async shape(request) {
+          const result = await base.shape(request)
+          if ('status' in result) return result
+          return mutate(result)
+        },
+      }
+      const tree = await compileNativePptxSlide(authoredDeck([textElement('invalid-clusters', 'left', 0)]), 0, { textLayout: textLayout(corrupt) })
+      expect(findNode(tree, 'text', 'invalid-clusters').textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+      expect(tree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.refused', elementId: 'invalid-clusters' })]))
+      expect(code).toMatch(/^render\./)
+    }
+  })
+
+  it('accepts complete descending RTL clusters and glyphless zero-advance clusters, but refuses vertical layout', async () => {
+    const base = fixtureShaper()
+    const invisible: NativeTextShaper = {
+      providerId: 'invisible-fixture', providerRevision: '1',
+      async shape(request) {
+        const result = await base.shape(request)
+        if ('status' in result || request.run.text !== 'AB') return result
+        return {
+          ...result,
+          glyphs: [{ ...result.glyphs[1]!, clusterIndex: 1 }],
+          clusters: [
+            { ...result.clusters[0]!, glyphStart: 0, glyphEnd: 0, advanceInlineMilliPoints: 0 },
+            { ...result.clusters[1]!, glyphStart: 0, glyphEnd: 1 },
+          ],
+          advanceInlineMilliPoints: 1_000,
+        }
+      },
+    }
+    const invisibleTree = await compileNativePptxSlide(authoredDeck([textElement('invisible-cluster', 'left', 0)]), 0, { textLayout: textLayout(invisible) })
+    expect(findNode(invisibleTree, 'text', 'invisible-cluster').textBody.paragraphs[0]!.runs[0]).toMatchObject({
+      status: 'shaped', glyphs: [expect.objectContaining({ clusterIndex: 1 })],
+      clusters: [expect.objectContaining({ glyphStart: 0, glyphEnd: 0, advanceInlineEmu: 0 }), expect.objectContaining({ glyphStart: 0, glyphEnd: 1 })],
+    })
+
+    let providerInvoked = false
+    const verticalLayout = textLayout({
+      ...fixtureShaper(),
+      shape(request) { providerInvoked = true; return fixtureShaper().shape(request) },
+    }, () => ({ direction: 'ttb', script: 'Hani', language: 'zh' }))
+    const verticalTree = await compileNativePptxSlide(authoredDeck([textElement('vertical', 'left', 0)]), 0, { textLayout: verticalLayout })
+    expect(providerInvoked).toBe(false)
+    expect(findNode(verticalTree, 'text', 'vertical').textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    expect(verticalTree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.verticalUnsupported', severity: 'refusal' })]))
+
+    const nativeVertical = nativeTextElement('native-vertical', 'AB', nativeTextBody())
+    const nativeVerticalTree = await compileNativePptxSlide(authoredDeck([nativeVertical]), 0, { textLayout: verticalLayout })
+    expect(providerInvoked).toBe(false)
+    expect(findNode(nativeVerticalTree, 'text', nativeVertical.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    expect(nativeVerticalTree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.verticalUnsupported', severity: 'refusal', elementId: nativeVertical.id })]))
+  })
+
+  it('turns shaping refusals and missing chart previews into visible commands and diagnostics', async () => {
+    const refused = await compileNativePptxSlide(authoredDeck([textElement('refused-text', 'left', 0)]), 0, { textLayout: textLayout(fixtureShaper((text) => text === 'CD')) })
+    expect(findNode(refused, 'text', 'refused-text').textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    expect(refused.diagnostics.map((diagnostic) => diagnostic.code)).toContain('text.refused')
+    const recording = createRecordingPaintSurface()
+    paintSlideRenderTree(refused, recording)
+    expect(recording.finish()).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'placeholder', reason: 'textRefusal', sourceElementId: 'refused-text' })]))
+
+    const noPreview = structuredClone(parsedFull)
+    const chart = noPreview.slides[0]!.elements.find((element) => element.kind === 'chart')!
+    if (chart.kind !== 'chart') throw new Error('chart fixture changed')
+    delete chart.chart.previewAssetId
+    const chartTree = await compileNativePptxSlide(noPreview, 0, { textLayout: textLayout() })
+    expect(findNode(chartTree, 'placeholder', 'el-chart')).toMatchObject({ reason: 'missingPreview' })
+    expect(chartTree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'chart.missingPreview', severity: 'refusal' })]))
+  })
+
+  it('records headlessly and replays through a host-owned context adapter', async () => {
+    const tree = await compileNativePptxSlide(parsedFull, 0, { textLayout: textLayout() })
+    const recording = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, recording)
+    const commands = recording.finish()
+    expect(Object.isFrozen(commands)).toBe(true)
+    expect(Object.isFrozen(commands[0])).toBe(true)
+    expect(commands[0]).toMatchObject({ kind: 'beginSlide', background: 'FFFFFF' })
+    expect(commands.at(-1)).toEqual({ kind: 'endSlide' })
+    expect(commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'path', sourceElementId: 'el-line', tailArrow: true }),
+      expect.objectContaining({ kind: 'image', role: 'chartPreview', assetId: 'a-preview' }),
+      expect.objectContaining({ kind: 'glyphRun', sourceElementId: 'el-title' }),
+    ]))
+    const context: PaintCommand[] = []
+    paintSlideRenderTreeToCanvas2D(tree, context, { execute(target, command) { target.push(command) } })
+    expect(context).toEqual(commands)
+  })
+
+  it('enforces coordinate, depth, node, glyph, and paint-command budgets', async () => {
+    await expect(compileNativePptxSlide(authoredDeck([textElement('bounded', 'left', 0)]), 0, { textLayout: textLayout(), maxNodes: 2 })).rejects.toMatchObject({ code: 'render.nodeBudget' })
+    await expect(compileNativePptxSlide(authoredDeck([textElement('bounded', 'left', 0)]), 0, { textLayout: textLayout(), maxGlyphs: 1 })).rejects.toMatchObject({ code: 'render.glyphBudget' })
+    await expect(compileNativePptxSlide(authoredDeck([textElement('bounded', 'left', 0)]), 0, { textLayout: textLayout(), maxClusters: 1 })).rejects.toMatchObject({ code: 'render.clusterBudget' })
+    await expect(compileNativePptxSlide(authoredDeck([{ kind: 'shape', id: 'far', provenance: 'authored', transform: { x: 2_000_000, y: 0, cx: 1, cy: 1 }, preset: 'rect', paragraphs: [], passthrough: [], compatibility: { status: 'editable', diagnostics: [] } }]), 0, { textLayout: textLayout(), maxCoordinateEmu: 1_000_000 })).rejects.toMatchObject({ code: 'render.coordinateBudget' })
+    const strokeDeck = authoredDeck([{ kind: 'shape', id: 'wide-stroke', provenance: 'authored', transform: { x: 0, y: 0, cx: 1, cy: 1 }, preset: 'rect', stroke: { color: '000000', widthEmu: 12_700 }, paragraphs: [], passthrough: [], compatibility: { status: 'editable', diagnostics: [] } }])
+    strokeDeck.size = { cx: 10_000, cy: 10_000 }
+    await expect(compileNativePptxSlide(strokeDeck, 0, { textLayout: textLayout(), maxCoordinateEmu: 10_000 })).rejects.toMatchObject({ code: 'render.coordinateBudget' })
+    const nested: NativeElement = {
+      kind: 'group', id: 'outer', provenance: 'authored', transform: { x: 0, y: 0, cx: 100, cy: 100 }, passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+      children: [{
+        kind: 'group', id: 'inner', provenance: 'authored', transform: { x: 0, y: 0, cx: 100, cy: 100 }, passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+        children: [{ kind: 'shape', id: 'leaf', provenance: 'authored', transform: { x: 0, y: 0, cx: 10, cy: 10 }, preset: 'rect', paragraphs: [], passthrough: [], compatibility: { status: 'editable', diagnostics: [] } }],
+      }],
+    }
+    await expect(compileNativePptxSlide(authoredDeck([nested]), 0, { textLayout: textLayout(), maxDepth: 1 })).rejects.toMatchObject({ code: 'render.depthBudget' })
+    const recording = createRecordingPaintSurface(1)
+    recording.push({ kind: 'endSlide' })
+    expect(() => recording.push({ kind: 'endSlide' })).toThrowError(RenderCompileError)
+    const tree = await compileNativePptxSlide(authoredDeck([]), 0, { textLayout: textLayout() })
+    const atomic = createRecordingPaintSurface()
+    expect(() => paintSlideRenderTree(tree, atomic, 1)).toThrowError(expect.objectContaining({ code: 'render.paintBudget' }))
+    expect(atomic.commands).toEqual([])
+  })
+
+  it('emits deterministic bounded paths for every supported preset', () => {
+    for (const preset of ['rect', 'roundRect', 'ellipse', 'triangle', 'diamond', 'rightArrow', 'pentagon', 'hexagon', 'star5'] as const) {
+      const first = presetPath(preset, 1_000_003, 700_001)
+      expect(presetPath(preset, 1_000_003, 700_001)).toEqual(first)
+      expect(first.length).toBeLessThanOrEqual(11)
+      expect(JSON.stringify(first)).not.toMatch(/\.\d/)
+    }
+  })
+
+  it('evaluates default preset guides with the shorter side and final EMU rounding', () => {
+    expect(presetPath('roundRect', 1, 2)).toEqual([{kind:'roundRect',rect:{x:0,y:0,cx:1,cy:2},radiusEmu:0}])
+    expect(presetPath('roundRect', 2000000, 1000000)).toEqual([{kind:'roundRect',rect:{x:0,y:0,cx:2000000,cy:1000000},radiusEmu:166670}])
+    expect(presetPath('rightArrow', 2000000, 1000000)).toEqual([
+      {kind:'moveTo',x:0,y:250000},{kind:'lineTo',x:1500000,y:250000},
+      {kind:'lineTo',x:1500000,y:0},{kind:'lineTo',x:2000000,y:500000},
+      {kind:'lineTo',x:1500000,y:1000000},{kind:'lineTo',x:1500000,y:750000},
+      {kind:'lineTo',x:0,y:750000},{kind:'close'},
+    ])
+    expect(presetPath('hexagon', 2000000, 1000000)).toEqual([
+      {kind:'moveTo',x:0,y:500000},{kind:'lineTo',x:250000,y:0},
+      {kind:'lineTo',x:1750000,y:0},{kind:'lineTo',x:2000000,y:500000},
+      {kind:'lineTo',x:1750000,y:1000000},{kind:'lineTo',x:250000,y:1000000},{kind:'close'},
+    ])
+    expect(defaultPresetTextRect('roundRect',2000000,1000000)).toEqual({x:48816,y:48816,cx:1902368,cy:902368})
+    expect(defaultPresetTextRect('rightArrow',2000000,1000000)).toEqual({x:0,y:250000,cx:1750000,cy:500000})
+    expect(defaultPresetTextRect('hexagon',2000000,1000000)).toEqual({x:250000,y:125000,cx:1500000,cy:750000})
+    expect(presetPath('rightArrow', 1000000, 2000000)[1]).toEqual({kind:'lineTo',x:500000,y:500000})
+    expect(defaultPresetTextRect('hexagon',1000000,2000000)).toEqual({x:166667,y:333333,cx:666666,cy:1333334})
+  })
+
+  it('lays out and paints default preset text within guide rectangles', async () => {
+    for (const preset of ['roundRect','rightArrow','hexagon'] as const) {
+      const source=nativeTextElement('preset-text','AB',nativeTextBody({leftInsetEmu:1000,rightInsetEmu:2000,topInsetEmu:3000,bottomInsetEmu:4000}),{x:100,y:200,cx:2000000,cy:1000000})
+      const shape:NativeElement={...source,kind:'shape',preset,transform:{...source.transform,quarterTurns:1}}
+      const tree=await compileNativePptxSlide(authoredDeck([shape]),0,{textLayout:textLayout()})
+      const r=defaultPresetTextRect(preset,2000000,1000000)
+      expect(findNode(tree,'shape',shape.id).textBody).toMatchObject({status:'laidOut',bounds:{x:r.x+1000,y:r.y+3000,cx:r.cx-3000,cy:r.cy-7000}})
+      const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+      expect(surface.finish().some(c=>c.kind==='glyphRun')).toBe(true)
+      const collapsed={...shape,textBody:nativeTextBody({topInsetEmu:400000,bottomInsetEmu:400000})}
+      if(preset==='rightArrow') await expect(compileNativePptxSlide(authoredDeck([collapsed]),0,{textLayout:textLayout()})).rejects.toMatchObject({code:'render.coordinateBudget'})
+    }
+  })
+
+  it('uses DrawingML default pentagon guides instead of an inscribed polygon', () => {
+    // Independent trigonometric evaluation of the official guide equations.
+    expect(defaultPentagonTextRect(1_000_000, 1_000_000)).toEqual({x:190984,y:236067,cx:618032,cy:763930})
+    expect(defaultPentagonTextRect(1417740, 1317072)).toEqual({x:270765,y:310918,cx:876210,cy:1006151})
+    expect(presetPath('pentagon', 1_000_000, 1_000_000)).toEqual([
+      {kind:'moveTo',x:1,y:381965},{kind:'lineTo',x:500000,y:0},
+      {kind:'lineTo',x:999999,y:381965},{kind:'lineTo',x:809016,y:999997},
+      {kind:'lineTo',x:190984,y:999997},{kind:'close'},
+    ])
+    expect(presetPath('pentagon', 1417740, 1317072)).toEqual([
+      {kind:'moveTo',x:1,y:503075},{kind:'lineTo',x:708870,y:0},
+      {kind:'lineTo',x:1417739,y:503075},{kind:'lineTo',x:1146975,y:1317069},
+      {kind:'lineTo',x:270765,y:1317069},{kind:'close'},
+    ])
+  })
+
+  it('places pentagon text inside the preset rectangle before body insets and frame rotation', async () => {
+    for (const quarterTurns of [0,1,2] as const) {
+      const source=nativeTextElement('pentagon-text','AB',nativeTextBody({leftInsetEmu:1000,rightInsetEmu:2000,topInsetEmu:3000,bottomInsetEmu:4000}),{x:100,y:200,cx:1000000,cy:1000000})
+      const shape:NativeElement={...source,kind:'shape',preset:'pentagon',transform:{...source.transform,...(quarterTurns?{quarterTurns}:{})}}
+      const tree=await compileNativePptxSlide(authoredDeck([shape]),0,{textLayout:textLayout()})
+      expect(findNode(tree,'shape',shape.id).textBody).toMatchObject({status:'laidOut',bounds:{x:191984,y:239067,cx:615032,cy:756930}})
+      const rectangular=await compileNativePptxSlide(authoredDeck([{...shape,preset:'rect'}]),0,{textLayout:textLayout()})
+      expect(findNode(rectangular,'shape',shape.id).textBody?.bounds).toEqual({x:1000,y:3000,cx:997000,cy:993000})
+      const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+      expect(surface.finish().some(command=>command.kind==='glyphRun')).toBe(true)
+      const group:NativeElement={kind:'group',id:'pentagon-parent',provenance:'authored',transform:{x:0,y:0,cx:2000000,cy:3000000},childTransform:{x:0,y:0,cx:1000000,cy:1000000},children:[shape],passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+      const grouped=await compileNativePptxSlide(authoredDeck([group]),0,{textLayout:textLayout()})
+      const parent=findNode(grouped,'group',group.id)
+      expect(parent.children[0]).toMatchObject({kind:'shape',textBody:{bounds:{x:191984,y:239067,cx:615032,cy:756930},status:'laidOut'}})
+      const groupSurface=createRecordingPaintSurface();paintSlideRenderTree(grouped,groupSurface)
+      expect(groupSurface.finish().filter(command=>command.kind==='glyphRun')).toHaveLength(surface.finish().filter(command=>command.kind==='glyphRun').length)
+    }
+  })
+
+  it('refuses insets that collapse the smaller pentagon text rectangle', async () => {
+    const source=nativeTextElement('collapsed','AB',nativeTextBody({leftInsetEmu:400000,rightInsetEmu:400000}),{x:0,y:0,cx:1000000,cy:1000000})
+    const shape:NativeElement={...source,kind:'shape',preset:'pentagon'}
+    await expect(compileNativePptxSlide(authoredDeck([shape]),0,{textLayout:textLayout()})).rejects.toMatchObject({code:'render.coordinateBudget'})
+  })
+
+  it('paints preserved geometry with explicit omitted-text diagnostics and no invented glyphs', async () => {
+    const shape:NativeElement={kind:'shape',id:'partial-pentagon',provenance:'authored',
+      transform:{x:100000,y:100000,cx:1000000,cy:800000,quarterTurns:2},preset:'pentagon',fill:'123456',paragraphs:[],passthrough:[],
+      compatibility:{status:'preserveOnly',diagnostics:[{severity:'warning',code:'pptx.autoshape-text-layout-unavailable',message:'Vertical text omitted'}]}}
+    const deck=authoredDeck([shape]);deck.compatibility=shape.compatibility;deck.slides[0]!.compatibility=shape.compatibility
+    const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+    const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+    const commands=surface.finish()
+    expect(commands).toContainEqual(expect.objectContaining({kind:'path',fill:'123456'}))
+    expect(commands.some(command=>command.kind==='glyphRun'||command.kind==='placeholder')).toBe(false)
+    expect(tree.diagnostics).toContainEqual(expect.objectContaining({sourceCode:'pptx.autoshape-text-layout-unavailable'}))
+  })
+
+  it('preserves native AutoShape stroke semantics and placeholders refused custom geometry', async () => {
+    const exact: NativeElement = {
+      kind: 'shape', id: 'native-autoshape', provenance: 'authored',
+      transform: { x: 100, y: 200, cx: 1_000_000, cy: 500_000 }, preset: 'rect', fill: 'DDEEFF',
+      stroke: { color: '112233', widthEmu: 12_700, cap: 'square', join: 'miter', dash: 'solid', miterLimit: 800_000 },
+      paragraphs: [], passthrough: [], compatibility: { status: 'editable', diagnostics: [] },
+    }
+    const tree = await compileNativePptxSlide(authoredDeck([exact]), 0, { textLayout: textLayout() })
+    expect(findNode(tree, 'shape', exact.id)).toMatchObject({
+      fill: { color: 'DDEEFF' },
+      stroke: { color: '112233', widthEmu: 12_700, cap: 'square', join: 'miter', dash: 'solid', miterLimit: 800_000 },
+      path: [{ kind: 'rect', rect: { x: 0, y: 0, cx: 1_000_000, cy: 500_000 } }],
+    })
+    const recording = createRecordingPaintSurface()
+    paintSlideRenderTree(tree, recording)
+    expect(recording.finish()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'path', sourceElementId: exact.id, stroke: expect.objectContaining({ cap: 'square', join: 'miter', dash: 'solid', miterLimit: 800_000 }) }),
+    ]))
+
+    const refused: NativeElement = {
+      kind: 'shape', id: 'custom-geometry', provenance: 'authored',
+      transform: { x: 0, y: 0, cx: 100_000, cy: 100_000 }, paragraphs: [], passthrough: [],
+      compatibility: { status: 'refused', diagnostics: [{ severity: 'refusal', code: 'pptx.autoshape-geometry-unavailable', message: 'custom geometry is opaque' }] },
+    }
+    const refusedDeck = authoredDeck([refused])
+    refusedDeck.slides[0]!.compatibility = { status: 'refused', diagnostics: [{ severity: 'refusal', code: 'pptx.autoshape-geometry-unavailable', message: 'contains refused geometry', scope: { slideId: refusedDeck.slides[0]!.id, elementId: refused.id } }] }
+    refusedDeck.compatibility = { status: 'refused', diagnostics: [{ severity: 'refusal', code: 'deck.refused', message: 'contains refused geometry' }] }
+    const refusedTree = await compileNativePptxSlide(refusedDeck, 0, { textLayout: textLayout() })
+    expect(findNode(refusedTree, 'placeholder', refused.id)).toMatchObject({ reason: 'refused', label: 'Unsupported shape' })
+
+    refusedDeck.slides[0]!.compatibility = { status: 'refused', diagnostics: [{ severity: 'refusal', code: 'slide.markup-unavailable', message: 'slide root is opaque', scope: { slideId: refusedDeck.slides[0]!.id } }] }
+    const refusedSlideTree = await compileNativePptxSlide(refusedDeck, 0, { textLayout: textLayout() })
+    expect(refusedSlideTree.nodes).toEqual([expect.objectContaining({ kind: 'placeholder', sourceElementId: refusedDeck.slides[0]!.id, label: 'Slide rendering refused' })])
+  })
+
+  it('normalizes provider output exactly and fails closed on hostile runtime values', async () => {
+    const cycle: Record<string, unknown> = { code: 'provider-failure', message: 'cycle', recoverable: false }
+    cycle.cycle = cycle
+    const hostileResolvers: NativeFontResolver[] = [
+      { ...resolver, resolve() { return { status: 'unexpected' } as never } },
+      { ...resolver, resolve({ run }) { return { status: 'resolved', face: face(run.font.weight), attemptedFaceIds: ['bad face id!'], decisions: [] } as never } },
+      { ...resolver, resolve({ run }) { return { status: 'resolved', face: { ...face(run.font.weight), injected: true }, attemptedFaceIds: [], decisions: [] } as never } },
+      { ...resolver, resolve({ run }) { return { status: 'resolved', face: face(run.font.weight), attemptedFaceIds: [], decisions: [cycle] } as never } },
+      { ...resolver, load() { return { status: 'broken' } as never } },
+    ]
+    for (const hostile of hostileResolvers) {
+      const tree = await compileNativePptxSlide(authoredDeck([textElement('hostile-provider', 'left', 0)]), 0, {
+        textLayout: { ...textLayout(), resolver: hostile },
+      })
+      expect(findNode(tree, 'text', 'hostile-provider').textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    }
+
+    const base = fixtureShaper()
+    const hostileShaper: NativeTextShaper = {
+      ...base,
+      async shape(request) {
+        const result = await base.shape(request)
+        if ('status' in result) return result
+        return { ...result, glyphs: result.glyphs.map((glyph, index) => index === 0 ? { ...glyph, injected: { cycle } } : glyph) } as never
+      },
+    }
+    const hostileTree = await compileNativePptxSlide(authoredDeck([textElement('hostile-shaper', 'left', 0)]), 0, { textLayout: textLayout(hostileShaper) })
+    expect(findNode(hostileTree, 'text', 'hostile-shaper').textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+
+    const mismatchedLoad: NativeFontResolver = {
+      ...resolver,
+      load(resolved) {
+        return { face: { ...resolved, family: 'Changed Family' }, bytes: new Uint8Array([1]), metrics: { unitsPerEm: 1_000, ascender: 800, descender: -200, lineGap: 0 } }
+      },
+    }
+    const mismatchedTree = await compileNativePptxSlide(authoredDeck([textElement('mismatched-face', 'left', 0)]), 0, { textLayout: { ...textLayout(), resolver: mismatchedLoad } })
+    expect(findNode(mismatchedTree, 'text', 'mismatched-face').textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+  })
+
+  it('binds shaping to manifest bytes and design metrics, caches one bounded font load, and refuses provider mutation atomically', async () => {
+    const twoRuns = nativeTextElement('provider-authority', 'unused', nativeTextBody({ wrap: 'none' }))
+    twoRuns.paragraphs = [{
+      align: 'left', level: 0, bullet: false,
+      runs: [
+        { text: 'A', fontFamily: 'Aptos', fontSizeHundredthPt: 1_000 },
+        { text: 'B', fontFamily: 'Aptos', fontSizeHundredthPt: 1_000 },
+      ],
+    }]
+    let loads = 0
+    const countingResolver: NativeFontResolver = {
+      ...resolver,
+      load(resolved) { loads++; return resolver.load(resolved) },
+    }
+    const exactTree = await compileNativePptxSlide(authoredDeck([twoRuns]), 0, { textLayout: { ...textLayout(), resolver: countingResolver } })
+    expect(findNode(exactTree, 'text', twoRuns.id).textBody).toMatchObject({ status: 'laidOut' })
+    expect(loads).toBe(1)
+
+    let byteMutationShapeCalls = 0
+    const mutatingShaper: NativeTextShaper = {
+      ...fixtureShaper(),
+      async shape(request) {
+        byteMutationShapeCalls++
+        const result = await fixtureShaper().shape(request)
+        request.font.bytes[0] = request.font.bytes[0]! ^ 0xff
+        return result
+      },
+    }
+    const byteMutationTree = await compileNativePptxSlide(authoredDeck([twoRuns]), 0, { textLayout: textLayout(mutatingShaper) })
+    expect(byteMutationShapeCalls).toBe(1)
+    expect(findNode(byteMutationTree, 'text', twoRuns.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+
+    let shapedAfterBadDigest = false
+    const badDigestResolver: NativeFontResolver = {
+      ...resolver,
+      load(resolved) { return { face: resolved, bytes: new Uint8Array([9]), metrics: { unitsPerEm: 1_000, ascender: 800, descender: -200, lineGap: 200 } } },
+    }
+    const guardedShaper: NativeTextShaper = { ...fixtureShaper(), shape(request) { shapedAfterBadDigest = true; return fixtureShaper().shape(request) } }
+    const badDigestTree = await compileNativePptxSlide(authoredDeck([twoRuns]), 0, { textLayout: { ...textLayout(guardedShaper), resolver: badDigestResolver } })
+    expect(shapedAfterBadDigest).toBe(false)
+    expect(findNode(badDigestTree, 'text', twoRuns.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+
+    const digestlessManifest: NativeFontManifest = {
+      ...manifest,
+      faces: manifest.faces.map((item) => ({ ...item, source: { ...item.source, contentDigest: undefined } })),
+    }
+    const digestlessTree = await compileNativePptxSlide(authoredDeck([twoRuns]), 0, {
+      textLayout: { ...textLayout(), manifest: digestlessManifest },
+    })
+    expect(findNode(digestlessTree, 'text', twoRuns.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+
+    const metricForgery: NativeTextShaper = {
+      ...fixtureShaper(),
+      async shape(request) {
+        const result = await fixtureShaper().shape(request)
+        if ('status' in result) return result
+        return { ...result, metrics: { ...result.metrics, ascentMilliPoints: result.metrics.ascentMilliPoints + 1, lineHeightMilliPoints: result.metrics.lineHeightMilliPoints + 1 } }
+      },
+    }
+    const metricTree = await compileNativePptxSlide(authoredDeck([twoRuns]), 0, { textLayout: textLayout(metricForgery) })
+    expect(findNode(metricTree, 'text', twoRuns.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+
+    const identityResolver: NativeFontResolver = {
+      ...resolver,
+      resolve(request) {
+        ;(identityResolver as { providerRevision: string }).providerRevision = 'forged'
+        return resolver.resolve(request)
+      },
+    }
+    const identityTree = await compileNativePptxSlide(authoredDeck([twoRuns]), 0, { textLayout: { ...textLayout(), resolver: identityResolver } })
+    expect(findNode(identityTree, 'text', twoRuns.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+
+    const runMutationResolver: NativeFontResolver = {
+      ...resolver,
+      resolve(request) {
+        ;(request.run as { text: string }).text = 'forged'
+        return resolver.resolve(request)
+      },
+    }
+    const runMutationTree = await compileNativePptxSlide(authoredDeck([twoRuns]), 0, { textLayout: { ...textLayout(), resolver: runMutationResolver } })
+    expect(findNode(runMutationTree, 'text', twoRuns.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+
+    const mutableDeck = authoredDeck([structuredClone(twoRuns)])
+    const deckMutationResolver: NativeFontResolver = {
+      ...resolver,
+      resolve(request) {
+        ;(mutableDeck.slides[0]!.elements[0] as typeof twoRuns).paragraphs[0]!.runs[1]!.text = 'FORGED'
+        return resolver.resolve(request)
+      },
+    }
+    const snapshottedTree = await compileNativePptxSlide(mutableDeck, 0, { textLayout: { ...textLayout(), resolver: deckMutationResolver } })
+    const snapshottedText = findNode(snapshottedTree, 'text', twoRuns.id).textBody.paragraphs
+      .flatMap((line) => line.runs.map((run) => run.text)).join('')
+    expect(snapshottedText).toBe('AB')
+  })
+
+  it('refuses paragraph semantics and separator metrics that cannot be painted exactly without emitting partial runs', async () => {
+    const semanticCases = [
+      { align: undefined, level: 0, bullet: false },
+      { align: 'left' as const, level: 1, bullet: false },
+      { align: 'left' as const, level: 0, bullet: true },
+    ]
+    let providerCalls = 0
+    const countingShaper: NativeTextShaper = { ...fixtureShaper(), shape(request) { providerCalls++; return fixtureShaper().shape(request) } }
+    for (const [index, semantics] of semanticCases.entries()) {
+      const element = nativeTextElement(`paragraph-semantics-${index}`, 'AB', nativeTextBody())
+      Object.assign(element.paragraphs[0]!, semantics)
+      if (semantics.align === undefined) delete element.paragraphs[0]!.align
+      const tree = await compileNativePptxSlide(authoredDeck([element]), 0, { textLayout: textLayout(countingShaper) })
+      expect(findNode(tree, 'text', element.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+      expect(tree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.paragraphSemanticsUnavailable', elementId: element.id })]))
+    }
+    expect(providerCalls).toBe(0)
+
+    const emptyParagraph = nativeTextElement('empty-paragraph-metrics', 'AB', nativeTextBody())
+    emptyParagraph.paragraphs[0]!.runs = []
+    const emptyParagraphTree = await compileNativePptxSlide(authoredDeck([emptyParagraph]), 0, { textLayout: textLayout(countingShaper) })
+    expect(findNode(emptyParagraphTree, 'text', emptyParagraph.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    expect(emptyParagraphTree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.metricsUnavailable', elementId: emptyParagraph.id })]))
+    expect(providerCalls).toBe(0)
+
+    const inherited = nativeTextElement('unresolved-inheritance', 'AB', nativeTextBody())
+    inherited.paragraphs[0]!.runs[0] = { text: 'AB' }
+    const inheritedDeck = authoredDeck([inherited])
+    inheritedDeck.slides[0]!.compatibility = {
+      status: 'preserveOnly',
+      diagnostics: [{ severity: 'warning', code: 'pptx.unsupported-master-dependency', message: 'master text styles are preserved but unresolved' }],
+    }
+    inheritedDeck.compatibility = {
+      status: 'preserveOnly',
+      diagnostics: [{ severity: 'warning', code: 'pptx.unsupported-master-dependency', message: 'master text styles are preserved but unresolved' }],
+    }
+    const inheritedTree = await compileNativePptxSlide(inheritedDeck, 0, { textLayout: textLayout(countingShaper) })
+    expect(findNode(inheritedTree, 'text', inherited.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    expect(inheritedTree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.inheritanceUnavailable', elementId: inherited.id })]))
+    expect(providerCalls).toBe(0)
+
+    const token = nativeTextElement('theme-token', 'AB', nativeTextBody())
+    token.paragraphs[0]!.runs[0] = { text: 'AB', fontFamily: '+mj-lt', fontSizeHundredthPt: 1_000 }
+    const tokenTree = await compileNativePptxSlide(authoredDeck([token]), 0, { textLayout: textLayout(countingShaper) })
+    expect(findNode(tokenTree, 'text', token.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+    expect(tokenTree.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'text.inheritanceUnavailable', elementId: token.id })]))
+    expect(providerCalls).toBe(0)
+
+    const separator = nativeTextElement('separator-metrics', 'unused', nativeTextBody(), { x: 0, y: 0, cx: 25_400, cy: 500_000 })
+    separator.paragraphs = [{ align: 'left', level: 0, bullet: false, runs: [
+      { text: 'A', fontFamily: 'Aptos', fontSizeHundredthPt: 1_000 },
+      { text: ' ', fontFamily: 'Aptos', fontSizeHundredthPt: 2_000 },
+      { text: 'B', fontFamily: 'Aptos', fontSizeHundredthPt: 1_000 },
+    ] }]
+    const separatorTree = await compileNativePptxSlide(authoredDeck([separator]), 0, { textLayout: textLayout() })
+    expect(findNode(separatorTree, 'text', separator.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+  })
+
+  it('lays out self-contained native text while unresolved theme/master parts remain preserve-only', async () => {
+    const element = nativeTextElement('self-contained-with-theme', 'AB', nativeTextBody())
+    const deck = authoredDeck([element])
+    const diagnostics = [
+      { severity: 'warning' as const, code: 'pptx.unsupported-theme-dependency', message: 'fmtScheme remains opaque' },
+      { severity: 'warning' as const, code: 'pptx.unsupported-master-dependency', message: 'master text styles are preserved but unresolved' },
+      { severity: 'warning' as const, code: 'pptx.unsupported-layout-dependency', message: 'layout placeholders are preserved but unresolved' },
+    ]
+    deck.compatibility = { status: 'preserveOnly', diagnostics }
+    deck.slides[0]!.compatibility = { status: 'preserveOnly', diagnostics }
+    const tree = await compileNativePptxSlide(deck, 0, { textLayout: textLayout() })
+    const textBody = findNode(tree, 'text', element.id).textBody
+    expect(textBody).toMatchObject({ fidelity: 'approximateFontSubstitution', status: 'laidOut' })
+    expect(textBody.paragraphs.flatMap((paragraph) => paragraph.runs.map((run) => run.text)).join('')).toBe('AB')
+    expect(tree.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('text.inheritanceUnavailable')
+  })
+
+  it('rejects positive-advance or painted default-ignorable clusters from a hostile shaper', async () => {
+    const base = fixtureShaper()
+    const hostile: NativeTextShaper = {
+      ...base,
+      async shape(request) {
+        const result = await base.shape(request)
+        if ('status' in result) return result
+        const control = result.clusters.findIndex((cluster) => request.run.text.charCodeAt(cluster.startUtf16) === 0x200b)
+        if (control < 0) return result
+        const clusters = result.clusters.map((cluster, index) => index === control ? { ...cluster, glyphStart: 1, glyphEnd: 2, advanceInlineMilliPoints: 1_000 } : cluster)
+        const glyphs = [...result.glyphs, { glyphId: 1, clusterIndex: control, advanceXMilliPoints: 1_000, advanceYMilliPoints: 0, offsetXMilliPoints: 0, offsetYMilliPoints: 0 }]
+        return { ...result, glyphs, clusters, advanceInlineMilliPoints: result.advanceInlineMilliPoints + 1_000 }
+      },
+    }
+    const element = nativeTextElement('hostile-zwsp', 'A\u200bB', nativeTextBody({ wrap: 'none' }))
+    const tree = await compileNativePptxSlide(authoredDeck([element]), 0, { textLayout: textLayout(hostile) })
+    expect(findNode(tree, 'text', element.id).textBody).toMatchObject({ status: 'refused', paragraphs: [] })
+  })
+
+  it('preserves only valid optional provider fields after normalization', async () => {
+    const decisionResolver: NativeFontResolver = {
+      ...resolver,
+      resolve({ run }) {
+        return {
+          status: 'resolved', face: face(run.font.weight, run.font.families[0]), attemptedFaceIds: ['fixture.regular'],
+          decisions: [{ code: 'font-not-found', message: 'fallback inspected', recoverable: true, faceId: 'fixture.regular', startUtf16: 0, endUtf16: 1 }],
+        }
+      },
+    }
+    const base = fixtureShaper()
+    const flagShaper: NativeTextShaper = {
+      ...base,
+      async shape(request) {
+        const result = await base.shape(request)
+        if ('status' in result) return result
+        return {
+          ...result,
+          clusters: result.clusters.map((cluster, index) => index === 0 ? { ...cluster, unsafeToBreak: true, whitespace: false } : cluster),
+        }
+      },
+    }
+    const tree = await compileNativePptxSlide(authoredDeck([textElement('normalized-provider', 'left', 0)]), 0, {
+      textLayout: { ...textLayout(flagShaper), resolver: decisionResolver },
+    })
+    const run = findNode(tree, 'text', 'normalized-provider').textBody.paragraphs[0]!.runs[0]!
+    expect(run.attemptedFaceIds).toEqual(['fixture.regular'])
+    expect(run.decisions).toEqual([{ code: 'font-not-found', message: 'fallback inspected', recoverable: true, faceId: 'fixture.regular', startUtf16: 0, endUtf16: 1 }])
+    expect(run.clusters[0]).toMatchObject({ unsafeToBreak: true, whitespace: false })
+    expect(Object.keys(run.clusters[0]!).sort()).toEqual(['advanceInlineEmu', 'advanceInlineMilliPoints', 'endUtf16', 'glyphEnd', 'glyphStart', 'startUtf16', 'unsafeToBreak', 'whitespace'])
+  })
+
+  it('rejects invalid native input before any provider is called', async () => {
+    const invalid = authoredDeck([]) as NativePptxDeck & { unexpected?: boolean }
+    invalid.unexpected = true
+    let invoked = false
+    const layout = textLayout()
+    const guarded: NativePptxTextLayout = { ...layout, resolver: { ...layout.resolver, resolve(request) { invoked = true; return layout.resolver.resolve(request) } } }
+    await expect(compileNativePptxSlide(invalid, 0, { textLayout: guarded })).rejects.toThrow(/invalid native PPTX contract/)
+    expect(invoked).toBe(false)
+  })
+})
+
+describe('DOM-free dependency guard', () => {
+  it('keeps the runtime source free of UI frameworks, browser globals, JSX, and layout markup', () => {
+    const sourceRoot = resolve(import.meta.dirname)
+    const files = readdirSync(sourceRoot).filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
+    const source = files.map((name) => readFileSync(resolve(sourceRoot, name), 'utf8')).join('\n')
+    expect(source).not.toMatch(/from\s+['"](?:react|konva|react-konva)['"]/)
+    expect(source).not.toMatch(/\b(?:window|document|OffscreenCanvas|CanvasRenderingContext2D|devicePixelRatio)\b\s*[.[]/)
+    expect(source).not.toMatch(/\b(?:measureText|getContext)\b/)
+    expect(source).not.toMatch(/Math\.(?:min|max)\(\s*\.\.\./)
+    expect(source).not.toMatch(/function\s+wrapAtoms\b/)
+    expect(source).not.toMatch(/\.text\.slice\(\s*cluster\.(?:startUtf16|endUtf16)/)
+    expect(source).not.toMatch(/for\s*\([^)]*=\s*0;[^)]*<\s*(?:clusterEnd|glyphStart)\b/)
+    expect(source).not.toMatch(/<svg\b|<canvas\b|\.tsx\b/)
+    expect(source).not.toMatch(/\{\s*\.\.\.(?:glyph|cluster|decision|face|resolution|loaded|shaped)\b/)
+    const packageJson = JSON.parse(readFileSync(resolve(sourceRoot, '../package.json'), 'utf8')) as { dependencies?: Record<string, string> }
+    expect(Object.keys(packageJson.dependencies ?? {}).sort()).toEqual(['@injoffice/font-metrics', '@injoffice/pptx-native', '@noble/hashes'].sort())
+  })
+})
+
+it('applies authored kerning thresholds and clips only table horizontal cell edges',async()=>{
+ const base=fixtureShaper(),features:unknown[]=[]
+ const shaper:NativeTextShaper={...base,shape(request){features.push(request.run.features);return base.shape(request)}}
+ const cell={text:'AV',paragraphs:[{align:'left' as const,level:0,bullet:false,runs:[{text:'AV',fontFamily:'Aptos',fontSizeHundredthPt:1000,kerningThresholdHundredthPt:1200}]}],textBody:{...nativeTextBody(),wrap:'none' as const,horizontalOverflow:'clip' as const,leftInsetEmu:10000,rightInsetEmu:10000,topInsetEmu:0,bottomInsetEmu:0}}
+ const table:Extract<NativeElement,{kind:'table'}>={kind:'table',id:'clipped',provenance:'authored',transform:{x:100000,y:200000,cx:400000,cy:200000},table:{columnWidths:[200000,200000],rowHeights:[200000],rows:[[cell,{...structuredClone(cell),paragraphs:[{align:'left',level:0,bullet:false,runs:[{text:'AV',fontFamily:'Aptos',fontSizeHundredthPt:1800,kerningThresholdHundredthPt:1200}]}]}]]},passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+ const tree=await compileNativePptxSlide(authoredDeck([table]),0,{textLayout:textLayout(shaper,()=>({features:[{tag:'kern',value:0}]})),lineLayoutPolicy:'max-run-natural-v1'})
+ expect(features,JSON.stringify(tree.diagnostics)).toContainEqual([{tag:'kern',value:0}]);expect(features).toContainEqual([{tag:'kern',value:1}])
+ const recording=createRecordingPaintSurface();paintSlideRenderTree(tree,recording)
+ expect(recording.finish().filter(c=>c.kind==='clipRect')).toEqual([{kind:'clipRect',rect:{x:0,y:0,cx:2000000,cy:1500000}},{kind:'clipRect',rect:{x:0,y:-200000,cx:200000,cy:1500000}},{kind:'clipRect',rect:{x:0,y:-200000,cx:200000,cy:1500000}}])
+ expect(recording.finish().filter(c=>c.kind==='glyphRun')).toHaveLength(2)
+ const group:Extract<NativeElement,{kind:'group'}>={kind:'group',id:'clip-group',provenance:'authored',transform:{x:0,y:0,cx:1000000,cy:1000000},children:[structuredClone(table)],passthrough:[],compatibility:{status:'editable',diagnostics:[]}}
+ await expect(compileNativePptxSlide(authoredDeck([group]),0,{textLayout:textLayout()})).rejects.toThrow()
+ const rotated=structuredClone(table);rotated.transform.quarterTurns=1
+ await expect(compileNativePptxSlide(authoredDeck([rotated]),0,{textLayout:textLayout()})).rejects.toThrow()
+})
+
+it.each([0,1200,1201])('uses an exact inclusive kerning threshold %s',async threshold=>{
+ const element=nativeTextElement('kern','AV',nativeTextBody(),{x:0,y:0,cx:1000000,cy:500000})
+ element.paragraphs[0]!.runs[0]!.fontSizeHundredthPt=1200;element.paragraphs[0]!.runs[0]!.kerningThresholdHundredthPt=threshold
+ const base=fixtureShaper(),seen:unknown[]=[]
+ const shaper:NativeTextShaper={...base,shape(request){seen.push(request.run.features);return base.shape(request)}}
+ await compileNativePptxSlide(authoredDeck([element]),0,{textLayout:textLayout(shaper),lineLayoutPolicy:'max-run-natural-v1'})
+ expect(seen).toEqual([[{tag:'kern',value:1200>=threshold?1:0}]])
+})
+
+it('renders literal pie vectors only on opt-in and accounts for slice nodes',async()=>{
+ const deck=structuredClone(parsedFull)
+ const chart=deck.slides[0]!.elements.find(e=>e.kind==='chart')!
+ if(chart.kind!=='chart')throw new Error('missing chart')
+ deck.slides[0]!.elements=[chart]
+ chart.chart.literalPie={profile:'literal-pie-v1',firstSliceAngle:90,values:[1,3],colors:['#FF0000','#00FF00']}
+ const before=JSON.stringify(deck)
+ const defaultTree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+ expect(defaultTree.nodes[0]!.kind).not.toBe('group')
+ const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout(),literalPiePreview:true})
+ expect(tree.nodes[0]).toMatchObject({kind:'group',children:[{kind:'shape',fill:{color:'#FF0000'}},{kind:'shape',fill:{color:'#00FF00'}}]})
+ expect(tree.diagnostics.some(d=>d.code==='chart.literalPiePreview')).toBe(true)
+ const surface=createRecordingPaintSurface();paintSlideRenderTree(tree,surface)
+ expect(surface.finish().filter(c=>c.kind==='path')).toHaveLength(2)
+ expect(JSON.stringify(deck)).toBe(before)
+ await expect(compileNativePptxSlide(deck,0,{textLayout:textLayout(),literalPiePreview:true,maxNodes:2})).rejects.toThrow()
+})
+
+// ST_PositiveCoordinate is minInclusive 0, so cy="0" is conformant DrawingML
+// and is how a horizontal straight connector is authored. Rejecting it failed
+// the whole slide compile, which is why a deck carrying one degenerate box
+// produced no page at all.
+it('compiles a degenerate zero extent as an empty region instead of failing the slide',async()=>{
+ const deck=structuredClone(parsedFull),connector=deck.slides[0]!.elements.find(e=>e.kind==='connector')!
+ if(connector.kind!=='connector')throw new Error('connector fixture')
+ connector.transform={...connector.transform,cy:0}
+ const tree=await compileNativePptxSlide(deck,0,{textLayout:textLayout()})
+ const node=findNode(tree,'connector',connector.id)
+ expect(node.bounds).toMatchObject({x:0,y:0,cx:500000,cy:0})
+ expect(tree.nodes.length).toBeGreaterThan(1)
+ connector.transform={...connector.transform,cy:-1}
+ await expect(compileNativePptxSlide(deck,0,{textLayout:textLayout()})).rejects.toThrow(/transform\.cy/)
+})

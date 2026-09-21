@@ -1,0 +1,367 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it } from 'vitest'
+import { NativeSheetPageImages, NativeSheetPages, NativePositionedChartPlot, assertNativeSheetHeadingDrawings, MAX_PREVIEW_ROWS, MAX_PREVIEW_COLUMNS, MAX_PREVIEW_CELLS } from './NativeSheetPages'
+import type { NativeWorkbook, NativeSheet } from '../nativeRoundTrip'
+import type { NativeWorkbookObjectsV1, NativeSheetGeometryV2, NativeSheetPagePreviewV1, NativeChartPreviewV1, NativePositionedDrawingV1 } from '@injoffice/sheets/browser'
+
+function fixture() {
+  const revision = `sha256:${'a'.repeat(64)}`
+  const sheet = { id: '1', name: 'Budget', part_name: 'xl/worksheets/sheet1.xml', rows: [], columns: [], cells: [
+    { row: 0, column: 0, ref: 'A1', style_id: 0, value: { kind: 'string', text: 'Rent <script>bad</script>' } },
+    { row: 1, column: 0, ref: 'A2', style_id: 0, value: { kind: 'string', text: 'Outside page one' } },
+  ] } as unknown as NativeSheet
+  const workbook = { source: { package_sha256: revision }, normal_style: { font_name: 'Exact Font', font_bold: false, font_italic: false }, styles: [{ effective: { font_name: 'Exact Font', font_size_points: 11, unsupported: [] } }], sheets: [sheet] } as unknown as NativeWorkbook
+  const objects = { protocol: 'injoffice.xlsx.objects-preview', version: 1, package_sha256: revision, tables: [], charts: [] } as unknown as NativeWorkbookObjectsV1
+  const geometry = { sheet_id: '1', source_package_sha256: revision, geometry_sha256: `sha256:${'b'.repeat(64)}`, rows: [{ row: 0, y_emu: 0, height_emu: 190500, hidden: false }, { row: 1, y_emu: 190500, height_emu: 190500, hidden: false }], columns: [{ column: 0, x_emu: 0, width_emu: 952500, hidden: false }], merged_ranges: [] } as unknown as NativeSheetGeometryV2
+  const plan = { source_package_sha256: revision, sheet_id: '1', geometry_sha256: geometry.geometry_sha256, pages: [{ number: 1, width_emu: 7772400, height_emu: 10058400, source_clip: { x_emu: 0, y_emu: 0, width_emu: 952500, height_emu: 190500 }, content_clip: { x_emu: 457200, y_emu: 457200, width_emu: 6858000, height_emu: 9144000 }, scale: 1, translate_x_emu: 457200, translate_y_emu: 457200, rows: { start: 0, end: 0 }, columns: { start: 0, end: 0 } }] } as unknown as NativeSheetPagePreviewV1
+  return { workbook, sheet, objects, geometry, plan, fontFamily: 'uploaded-exact-font' }
+}
+const render = (props = fixture()) => renderToStaticMarkup(createElement(NativeSheetPageImages, props))
+
+describe('selected-range page presentation', () => {
+  it('right-aligns General numeric values but retains left-aligned numeric-looking text', () => {
+    const props = fixture()
+    props.workbook.styles[0]!.effective.number_format = 'General'
+    props.sheet.cells[0] = { ...props.sheet.cells[0]!, value: { kind: 'number', storage: 'number', lexical: '123', rich: false } }
+    expect(render(props)).toMatch(/<text[^>]*x="98"[^>]*text-anchor="end"[^>]*>123<\/text>/)
+    props.sheet.cells[0] = { ...props.sheet.cells[0]!, value: { kind: 'string', storage: 'inline-string', text: '123', rich: false } } as NativeSheet['cells'][number]
+    expect(render(props)).toMatch(/<text[^>]*x="2"[^>]*text-anchor="start"[^>]*>123<\/text>/)
+    props.workbook.styles[0]!.effective.horizontal_alignment = 'center'
+    expect(render(props)).toMatch(/<text[^>]*x="50"[^>]*text-anchor="middle"[^>]*>123<\/text>/)
+  })
+  it('draws the print tier\u2019s header above the body and its footer below, and nothing without one', () => {
+    const props = fixture()
+    const page = { area_index: 0, number: 1, sequence: 1,
+      header: { kind: 'header', x_css_px: 48, width_css_px: 720, y_css_px: 28.8, sections: [{ align: 'center', runs: [{ text: 'Budget', font_size_points: 12, bold: false, italic: false }] }] },
+      footer: { kind: 'footer', x_css_px: 48, width_css_px: 720, y_css_px: 1032, sections: [{ align: 'right', runs: [{ text: 'Page 1', font_name: 'Times New Roman', font_size_points: 10, bold: true, italic: false }] }] } }
+    const printPage = { status: 'available', pages: [page] } as never
+    const html = renderToStaticMarkup(createElement(NativeSheetPageImages, { ...props, printPage }))
+    // The header line starts at its own margin and the footer line ends at its
+    // own, so the two sit outside the body rectangle rather than inside it.
+    expect(html).toMatch(/data-page-band="header"[\s\S]*?<text x="408" y="42.88" text-anchor="middle"[^>]*>[\s\S]*?Budget/)
+    expect(html).toMatch(/data-page-band="footer"[\s\S]*?<text x="768" y="1029.2" text-anchor="end"/)
+    expect(html).toContain('font-family="uploaded-exact-font"')
+    expect(html).toContain('font-family="Times New Roman"')
+    // A selected-range preview has no paper edge to measure a header from.
+    expect(render(props)).not.toContain('data-page-band')
+  })
+  it('paints a source colour scale behind a cell that has no fill of its own', () => {
+    const props = fixture()
+    const revision = props.workbook.source.package_sha256
+    props.objects = { ...props.objects, conditional_scale_fills: [{ sheet_id: '1', sheet_part: 'xl/worksheets/sheet1.xml', status: 'available', warnings: ['Read-only colour-scale preview.'], ranges: [{ ref: 'A1:A2', priority: 1, stops: 2 }], cells: [{ row: 0, column: 0, color: '#FF0000' }, { row: 1, column: 0, color: '#0000FF' }] }] } as unknown as NativeWorkbookObjectsV1
+    expect(props.objects.package_sha256).toBe(revision)
+    expect(render(props)).toMatch(/<rect x="0" y="0" width="100" height="20" fill="#FF0000" data-conditional-scale-fill="true">/)
+    // Excel paints a colour scale behind the cell, so an explicit source fill
+    // stays on top and the scale must not overwrite it.
+    props.workbook.styles[0]!.effective.fill_color = '#00FF00'
+    const html = render(props)
+    expect(html).toMatch(/<rect x="0" y="0" width="100" height="20" fill="#00FF00">/)
+    expect(html).not.toContain('data-conditional-scale-fill')
+  })
+  it('draws a source data bar over the cell fill and under its text', () => {
+    const props = fixture()
+    props.objects = { ...props.objects, conditional_bar_fills: [{ sheet_id: '1', sheet_part: 'xl/worksheets/sheet1.xml', status: 'available', warnings: ['Read-only data-bar preview.'], ranges: [{ ref: 'A1:A2', priority: 1 }], cells: [
+      { row: 0, column: 0, start_permille: 400, end_permille: 600, axis_permille: 400, color: '#0000FF', border_color: '#000080', axis_color: '#008000' },
+      { row: 1, column: 0, start_permille: 0, end_permille: 400, axis_permille: 400, color: '#FF0000', border_color: '#800000', axis_color: '#008000' },
+    ] }] } as unknown as NativeWorkbookObjectsV1
+    const html = render(props)
+    // The cell is 100px wide, so the span is 40%..60% of it and the axis sits
+    // on the 40% mark; the bar follows the cell fill and precedes the text.
+    expect(html).toMatch(/fill="#FFFFFF"><\/rect><g data-conditional-bar-fill="true"><rect x="40" y="0" width="20" height="20" fill="#0000FF" stroke="#000080" stroke-width="1"><\/rect><rect x="40" y="0" width="1" height="20" fill="#008000">/)
+    expect(html.indexOf('data-conditional-bar-fill')).toBeLessThan(html.indexOf('<text'))
+  })
+  it('draws no data bar when the engine reported the sheet as unavailable', () => {
+    const props = fixture()
+    props.objects = { ...props.objects, conditional_bar_fills: [{ sheet_id: '1', sheet_part: 'xl/worksheets/sheet1.xml', status: 'unavailable', warnings: ['Data-bar preview unavailable.'] }] } as unknown as NativeWorkbookObjectsV1
+    expect(render(props)).not.toContain('data-conditional-bar-fill')
+  })
+  it('paints no colour scale when the engine reported the sheet as unavailable', () => {
+    const props = fixture()
+    props.objects = { ...props.objects, conditional_scale_fills: [{ sheet_id: '1', sheet_part: 'xl/worksheets/sheet1.xml', status: 'unavailable', warnings: ['Colour-scale preview unavailable.'] }] } as unknown as NativeWorkbookObjectsV1
+    const html = render(props)
+    expect(html).not.toContain('data-conditional-scale-fill')
+    expect(html).toMatch(/<rect x="0" y="0" width="100" height="20" fill="#FFFFFF">/)
+  })
+  it('shows visible cache and compact-number disclosures without changing strict default output', () => {
+    const props = fixture()
+    props.workbook.styles[0]!.effective.number_format = 'General'
+    props.sheet.cells[0] = { ...props.sheet.cells[0]!, value: undefined, formula: { type: 'normal', text: '16/3', cached: { kind: 'number', storage: 'number', lexical: '5.3333333333333304', rich: false } } }
+    expect(render(props)).toContain('5.3333333333333304')
+    const html = renderToStaticMarkup(createElement(NativeSheetPageImages, { ...props, compactGeneral: true }))
+    expect(html).toContain('>5.333333</text>')
+    expect(html).toContain('1 saved formula results; freshness is unknown')
+    expect(html).toContain('A1: Saved formula result; freshness unknown.')
+    expect(html).toContain('Host rounding applied; not Excel General.')
+    expect(html).toContain('Stored value: 5.3333333333333304')
+  })
+  it('makes unsupported display and truncation visible outside the SVG tooltip', () => {
+    const props = fixture()
+    props.sheet.cells[0] = { ...props.sheet.cells[0]!, value: { kind: 'number', storage: 'number', lexical: '123.45', rich: false } }
+    props.sheet.cells[1] = { ...props.sheet.cells[1]!, value: { kind: 'string', storage: 'shared-string', text: 'x'.repeat(2049), rich: false } } as never
+    const html = render(props)
+    expect(html).toContain('1 cells have display warnings. 1 cells exceed')
+    expect(html).toContain('<li>A1: Number format unavailable; showing the stored value.')
+    expect(html).toContain('<li>A2:  Text is truncated in this preview.')
+  })
+  it('escapes text and renders only source cells on the selected page', () => {
+    const html = render()
+    expect(html).toContain('&lt;script&gt;bad&lt;/script&gt;')
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain('Outside page one')
+    expect(html).toContain('Approximate spreadsheet page 1')
+    expect(html).toContain('translate(48 48) scale(1)')
+    expect(html).toContain('width="100" height="20"')
+    expect(html).toContain('font-family="uploaded-exact-font"')
+    expect(html).not.toContain('<button')
+  })
+  it('sits a bottom-aligned baseline the font\u2019s own descent above the row edge', () => {
+    // Excel 16.112.4 prints the first baseline of a bottom-aligned cell exactly
+    // the face's hhea descent above the row's bottom edge; a fixed inset is
+    // wrong by a different amount for every face and every font size.
+    const props = fixture()
+    props.workbook.styles[0]!.effective.font_size_points = 12
+    expect(render({ ...props, descentEm: 0.25 })).toMatch(/<text[^>]*y="16"/)
+    // The gap is a fraction of the em, so it grows with the size rather than
+    // staying put.
+    props.workbook.styles[0]!.effective.font_size_points = 24
+    expect(render({ ...props, descentEm: 0.25 })).toMatch(/<text[^>]*y="12"/)
+  })
+  it('keeps the fixed inset when no font bytes supplied a descent', () => {
+    const props = fixture()
+    props.workbook.styles[0]!.effective.font_size_points = 12
+    expect(render(props)).toMatch(/<text[^>]*y="18"/)
+  })
+  it.each(['objects', 'geometry', 'plan'] as const)('rejects stale %s source identity', field => {
+    const props = fixture()
+    if (field === 'objects') props.objects = { ...props.objects, package_sha256: 'other' }
+    else props[field] = { ...props[field], source_package_sha256: 'other' } as never
+    expect(render(props)).toContain('no longer matches')
+    expect(render(props)).not.toContain('<svg')
+  })
+  it('rejects mismatched sheet and geometry-plan joins', () => {
+    const props = fixture()
+    props.plan = { ...props.plan, geometry_sha256: 'other' }
+    expect(render(props)).not.toContain('<svg')
+    props.plan = { ...fixture().plan, sheet_id: '2' }
+    expect(render(props)).not.toContain('<svg')
+  })
+  it('does not map unrelated font families to the uploaded Normal face', () => {
+    const props = fixture()
+    props.workbook = { ...props.workbook, normal_style: { ...props.workbook.normal_style!, font_name: 'Different Font' } }
+    expect(render(props)).toContain('font-family="Exact Font"')
+    expect(render(props)).not.toContain('font-family="uploaded-exact-font"')
+  })
+  it('omits hidden rows without renumbering their source positions', () => {
+    const props = fixture()
+    props.geometry = { ...props.geometry, rows: props.geometry.rows.map(row => ({ ...row, hidden: true })) }
+    expect(render(props)).not.toContain('Rent')
+  })
+  it('suppresses non-origin merged cells', () => {
+    const props = fixture()
+    props.geometry = { ...props.geometry, merged_ranges: [{ ref: 'A1:A2', row: 0, column: 0, end_row: 1, end_column: 0, rect: { x_emu: 0, y_emu: 0, width_emu: 952500, height_emu: 381000 } }] }
+    props.plan.pages[0]!.rows.end = 1
+    expect(render(props)).not.toContain('Outside page one')
+    expect(render(props)).toContain('height="40"')
+  })
+  it('labels the setup as approximate and requires an explicit local font', () => {
+    const props = fixture()
+    const html = renderToStaticMarkup(createElement(NativeSheetPages, { ...props, rows: 2, columns: 1 }))
+    expect(html).toContain('not Excel print fidelity')
+    expect(html).toContain('type="file"')
+    expect(html).toContain('Normal font: Exact Font')
+    expect(html).toContain('Use saved page settings')
+    expect(html).toContain('Repeat saved print headings')
+    expect(html).not.toContain('checked=""/> Repeat saved print headings')
+    expect(html).toContain('aria-label="Preview range"')
+    expect(html).toContain('value="a1" selected=""')
+    expect(html).toContain('Use saved print area')
+    expect(html).toContain('disabled=""')
+    expect(html).toContain('draws an authored odd-page header and footer')
+    expect(html).not.toContain('<svg')
+    // The demo's own responsiveness bound, not a library one. What it bounds is
+    // one browser layout pass, so the cell budget is the real limit and stays at
+    // the 2560 cells the previous 64 x 40 pair allowed; the row cap rises to 128
+    // because the tallest area in the hard-v2 corpus is now a drawing-derived
+    // 72 rows x 10 columns (720 cells) that a 64-row cap refused outright, while
+    // the widest is still 28 columns. The library already paginated both.
+    expect(html).toContain(`max="${MAX_PREVIEW_ROWS}"`)
+    expect(html).toContain(`max="${MAX_PREVIEW_COLUMNS}"`)
+    expect([MAX_PREVIEW_ROWS, MAX_PREVIEW_COLUMNS, MAX_PREVIEW_CELLS]).toEqual([128, 40, 2560])
+    // The budget is the bound, so neither axis cap may be spent in full: a
+    // 128 x 40 request is still refused, while the corpus's tallest derived
+    // print area (72 x 10, testShapeRotationImport) and its widest (8 x 28,
+    // pivot_table_first_header_row) both fit.
+    expect(MAX_PREVIEW_ROWS * MAX_PREVIEW_COLUMNS).toBeGreaterThan(MAX_PREVIEW_CELLS)
+    for (const [rows, columns] of [[72, 10], [8, 28], [34, 8]] as const) {
+      expect(rows).toBeLessThanOrEqual(MAX_PREVIEW_ROWS)
+      expect(columns).toBeLessThanOrEqual(MAX_PREVIEW_COLUMNS)
+      expect(rows * columns).toBeLessThanOrEqual(MAX_PREVIEW_CELLS)
+    }
+    expect(html).toContain('Compact General numbers (host preview)')
+    expect(html).not.toContain('checked=""/> Compact General')
+  })
+  it('draws cache graphics only inside qualified page intersections', () => {
+    const props = fixture()
+    const drawings: NativePositionedDrawingV1[] = [{ source: { sheet_id: '1', sheet_part: props.sheet.part_name, drawing_part: 'xl/drawings/drawing1.xml', ordinal: 1, kind: 'unsupported', warnings: ['Unmodeled picture'] }, status: 'positioned', rect: { x_emu: 0, y_emu: 0, width_emu: 952500, height_emu: 190500 }, clip: { x_emu: 0, y_emu: 0, width_emu: 952500, height_emu: 190500 } }]
+    const html = renderToStaticMarkup(createElement(NativeSheetPageImages, { ...props, drawings }))
+    expect(html).toContain('Source-positioned drawing 1')
+    expect(html).toContain('Drawing preview unavailable')
+    expect(html).toContain('scale(0.16666666666666666 0.07692307692307693)')
+    drawings[0] = { ...drawings[0]!, clip: { ...drawings[0]!.clip!, y_emu: 381000 } }
+    expect(renderToStaticMarkup(createElement(NativeSheetPageImages, { ...props, drawings }))).not.toContain('Source-positioned drawing')
+  })
+  it('keeps non-A1 source addresses while painting in viewport-local coordinates', () => {
+    const props = fixture()
+    props.sheet.cells.push({ row: 2, column: 1, ref: 'B3', style_id: 0, value: { kind: 'string', storage: 'inline-string', text: 'Inside saved area', rich: false } } as NativeSheet['cells'][number])
+    props.geometry = { ...props.geometry, viewport: { row: 2, column: 1, end_row: 2, end_column: 1 }, rows: [{ row: 2, y_emu: 0, height_emu: 190500, hidden: false }], columns: [{ column: 1, x_emu: 0, width_emu: 952500, hidden: false }] } as NativeSheetGeometryV2
+    props.plan.pages[0] = { ...props.plan.pages[0]!, rows: { start: 2, end: 2 }, columns: { start: 1, end: 1 } }
+    const html = render(props)
+    expect(html).toContain('rows 3–3, columns 2–2')
+    expect(html).toContain('<title>B3: Inside saved area</title>')
+    expect(html).toContain('translate(48 48) scale(1)')
+    expect(html).toContain('x="2"')
+    expect(html).not.toContain('Rent')
+    expect(html).not.toContain('Outside page one')
+  })
+  it('applies the same effective fit transform to cells and positioned drawings', () => {
+    const props = fixture()
+    props.plan.pages[0]!.scale = 0.37
+    const drawings: NativePositionedDrawingV1[] = [{ source: { sheet_id: '1', sheet_part: props.sheet.part_name, drawing_part: 'xl/drawings/drawing1.xml', ordinal: 1, kind: 'unsupported', warnings: ['Unmodeled picture'] }, status: 'positioned', rect: { x_emu: 0, y_emu: 0, width_emu: 952500, height_emu: 190500 }, clip: { x_emu: 0, y_emu: 0, width_emu: 952500, height_emu: 190500 } }]
+    const html = renderToStaticMarkup(createElement(NativeSheetPageImages, { ...props, drawings }))
+    expect(html).toContain('translate(48 48) scale(0.37)')
+    expect(html).toContain('Source-positioned drawing 1')
+    expect(html).toContain('Rent &lt;script&gt;bad&lt;/script&gt;')
+    expect(html).not.toContain('Outside page one')
+    expect(html.indexOf('scale(0.37)')).toBeLessThan(html.indexOf('Source-positioned drawing 1'))
+  })
+  it('keeps separate area pages clipped and gives their SVG definitions unique identities', () => {
+    const first = fixture(), second = fixture()
+    second.sheet.cells = [{ ...second.sheet.cells[0]!, ref: 'B3', row: 2, column: 1, value: { kind: 'string', text: 'Second saved area' } } as NativeSheet['cells'][number]]
+    second.geometry = { ...second.geometry, rows: [{ ...second.geometry.rows[0]!, row: 2 }], columns: [{ ...second.geometry.columns[0]!, column: 1 }] }
+    second.plan.pages[0] = { ...second.plan.pages[0]!, rows: { start: 2, end: 2 }, columns: { start: 1, end: 1 } }
+    const html = renderToStaticMarkup(createElement('div', null,
+      createElement(NativeSheetPageImages, first), createElement(NativeSheetPageImages, second)))
+    expect(html.match(/aria-label="Approximate spreadsheet page 1"/g)).toHaveLength(2)
+    expect(html.match(/<title>A1:/g)).toHaveLength(1)
+    expect(html.match(/<title>B3:/g)).toHaveLength(1)
+    expect(html).not.toContain('Outside page one')
+    const ids = [...html.matchAll(/<clipPath id="([^"]+)"/g)].map(match => match[1])
+    expect(ids.length).toBeGreaterThan(1)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+  it('paints repeated heading regions separately without duplicating corner cells', () => {
+    const props = fixture(), page = props.plan.pages[0]!
+    props.geometry.columns.push({ ...props.geometry.columns[0]!, column: 1, x_emu: 952500 })
+    props.sheet.cells.push({ ...props.sheet.cells[0]!, row: 0, column: 1, ref: 'B1', value: { kind: 'string', text: 'Column heading' } } as NativeSheet['cells'][number])
+    props.sheet.cells.push({ ...props.sheet.cells[0]!, row: 1, column: 1, ref: 'B2', value: { kind: 'string', text: 'Body value' } } as NativeSheet['cells'][number])
+    const region = (kind: 'body' | 'repeat-rows' | 'repeat-columns' | 'repeat-corner', row: number, column: number) => ({
+      kind, rows: { start: row, end: row }, columns: { start: column, end: column },
+      source_clip: { x_emu: column * 952500, y_emu: row * 190500, width_emu: 952500, height_emu: 190500 },
+      translate_x_emu: 457200, translate_y_emu: 457200,
+    })
+    page.rows = { start: 1, end: 1 }; page.columns = { start: 1, end: 1 }
+    page.regions = [region('repeat-corner', 0, 0), region('repeat-rows', 0, 1), region('repeat-columns', 1, 0), region('body', 1, 1)]
+    const html = render(props)
+    expect(html).toContain('body rows 2–2, columns 2–2')
+    for (const kind of ['body', 'repeat-rows', 'repeat-columns', 'repeat-corner']) expect(html).toContain(`data-page-region="${kind}"`)
+    for (const address of ['A1', 'B1', 'A2', 'B2']) expect(html.match(new RegExp(`<title>${address}:`, 'g'))).toHaveLength(1)
+    expect(html).toContain('>Body value</text>')
+    const drawing: NativePositionedDrawingV1 = { source: { sheet_id: '1', sheet_part: props.sheet.part_name, drawing_part: 'xl/drawings/drawing1.xml', ordinal: 1, kind: 'unsupported', warnings: [] }, status: 'positioned', rect: region('body', 1, 1).source_clip, clip: region('body', 1, 1).source_clip }
+    expect(() => assertNativeSheetHeadingDrawings(props.plan, [drawing])).not.toThrow()
+    expect(() => assertNativeSheetHeadingDrawings(props.plan, [{ ...drawing, rect: region('repeat-corner', 0, 0).source_clip, clip: region('repeat-corner', 0, 0).source_clip }])).not.toThrow()
+    expect(() => assertNativeSheetHeadingDrawings(props.plan, [{ ...drawing, clip: undefined }])).toThrow('unavailable positions')
+  })
+  it('clips crossing drawings into all four heading regions with unique per-page identities', () => {
+    const props = fixture(), page = props.plan.pages[0]!
+    const region = (kind: 'body' | 'repeat-rows' | 'repeat-columns' | 'repeat-corner', row: number, column: number) => ({
+      kind, rows: { start: row, end: row }, columns: { start: column, end: column },
+      source_clip: { x_emu: column * 952500, y_emu: row * 190500, width_emu: 952500, height_emu: 190500 },
+      translate_x_emu: 457200, translate_y_emu: 457200,
+    })
+    page.regions = [region('body', 1, 1), region('repeat-rows', 0, 1), region('repeat-columns', 1, 0), region('repeat-corner', 0, 0)]
+    page.scale = 0.5
+    props.plan.pages.push({ ...page, number: 2 })
+    const rect = { x_emu: 476250, y_emu: 95250, width_emu: 952500, height_emu: 190500 }
+    const drawings: NativePositionedDrawingV1[] = [{ source: { sheet_id: '1', sheet_part: props.sheet.part_name, drawing_part: 'xl/drawings/drawing1.xml', ordinal: 1, kind: 'unsupported', warnings: [] }, status: 'positioned', rect, clip: rect }]
+    expect(() => assertNativeSheetHeadingDrawings(props.plan, drawings)).not.toThrow()
+    const html = renderToStaticMarkup(createElement(NativeSheetPageImages, { ...props, drawings }))
+    expect(html.match(/aria-label="Source-positioned drawing 1"/g)).toHaveLength(8)
+    expect(html.match(/Drawing preview unavailable/g)).toHaveLength(8)
+    for (const [x, y] of [[50, 10], [100, 10], [50, 20], [100, 20]]) {
+      expect(html.match(new RegExp(`<rect x="${x}" y="${y}" width="50" height="10"`, 'g'))).toHaveLength(2)
+    }
+    const ids = [...html.matchAll(/<clipPath id="([^"]+)"/g)].map(match => match[1])
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(html.match(/translate\(48 48\) scale\(0.5\)/g)).toHaveLength(8)
+    drawings[0] = { ...drawings[0]!, rect: { x_emu: 0, y_emu: 0, width_emu: 952500, height_emu: 190500 }, clip: { x_emu: 0, y_emu: 0, width_emu: 952500, height_emu: 190500 } }
+    const cornerOnly = renderToStaticMarkup(createElement(NativeSheetPageImages, { ...props, drawings }))
+    expect(cornerOnly.match(/aria-label="Source-positioned drawing 1"/g)).toHaveLength(2)
+    expect(() => assertNativeSheetHeadingDrawings(props.plan, [{ ...drawings[0]!, status: 'unavailable' }])).toThrow('unavailable positions')
+    expect(() => assertNativeSheetHeadingDrawings(props.plan, [{ ...drawings[0]!, status: 'outside', rect: undefined, clip: undefined }])).not.toThrow()
+  })
+  it('does not expose omitted gap cells through display details', () => {
+    const props = fixture(), page = props.plan.pages[0]!
+    props.sheet.cells[1] = { ...props.sheet.cells[1]!, value: { kind: 'string', text: 'omitted-gap-secret'.repeat(200) } } as NativeSheet['cells'][number]
+    page.regions = [{ kind: 'repeat-rows', source_clip: page.source_clip, rows: page.rows, columns: page.columns, translate_x_emu: page.translate_x_emu, translate_y_emu: page.translate_y_emu }]
+    const html = render(props)
+    expect(html).not.toContain('omitted-gap-secret')
+    expect(html).not.toContain('A2:')
+    expect(html).toContain('0 cells exceed')
+    expect(html).toContain('Rent &lt;script&gt;bad&lt;/script&gt;')
+  })
+  it('labels cached plots as approximate and never activates source links', () => {
+    const chart: NativeChartPreviewV1 = { part: 'xl/charts/chart1.xml', type: 'col', series: [{ name: '<a href="https://example.test">Revenue</a>', labels: ['Q1'], values: [10] }], warnings: [] }
+    const html = renderToStaticMarkup(createElement('svg', null, createElement(NativePositionedChartPlot, { chart, index: 0 })))
+    expect(html).toContain('saved data, approximate plot')
+    expect(html).toContain('&lt;a href=')
+    expect(html).not.toContain('<a ')
+    expect(html).not.toContain('<image')
+    expect(html).toContain('Saved value range:')
+  })
+})
+
+describe('conditional fill page overlay', () => {
+  function conditionalFixture() {
+    const props = fixture()
+    props.objects.protocol = 'injoffice.xlsx.preview-objects'
+    props.sheet.merged_ranges = []
+    props.workbook.unsupported = []
+    props.sheet.cells[0] = { row: 0, column: 0, ref: 'A1', style_id: 0, editable: true, value: { kind: 'number', storage: 'number', lexical: '3', rich: false } }
+    props.objects.conditional_fills = [{ sheet_id: '1', sheet_part: props.sheet.part_name, status: 'available', warnings: ['Read-only conditional fill; saved cache freshness is unknown.'], rule: { ref: 'A1', operator: 'greaterThan', operand: '0', priority: 1, stop_if_true: false, dxf_id: 0, fill: '#12AB34' }, cells: [{ row: 0, column: 0, lexical: '3', cached: false, matches: true }] }]
+    return { ...props, conditionalFills: true }
+  }
+  it('requires opt-in and shows source rule provenance alongside the matching fill', () => {
+    const props = conditionalFixture()
+    expect(render(props)).toContain('fill="#12AB34" data-conditional-fill="true"')
+    expect(render(props)).toContain('Source rule: A1 greaterThan 0; priority 1; stopIfTrue false; differential style 0')
+    expect(render({ ...props, conditionalFills: false } as typeof props)).not.toContain('data-conditional-fill')
+  })
+  it('keeps base pages usable while making unsupported or stale overlays visible', () => {
+    const props = conditionalFixture()
+    props.sheet.cells[0]!.value!.lexical = '2'
+    expect(render(props)).toContain('no longer joins every saved source value')
+    expect(render(props)).not.toContain('data-conditional-fill')
+    props.objects.conditional_fills = [{ sheet_id: '1', sheet_part: props.sheet.part_name, status: 'unavailable', warnings: ['Multiple rules: no conditional fills were applied.'] }]
+    expect(render(props)).toContain('Multiple rules: no conditional fills were applied.')
+    expect(render(props)).toContain('Approximate spreadsheet page 1')
+    expect(render(props)).not.toContain('data-conditional-fill')
+  })
+})
+
+it('keeps rich runs opt-in and paints only source-joined direct spans on qualified pages', () => {
+  const props = fixture(), source = props.sheet.cells[0]!
+  Object.assign(source, { ooxml_type: 'inlineStr', style_id: 0, value: { kind: 'string', storage: 'inline', rich: true, text: 'Bold plain', runs: [{ text: 'Bold ', bold: true }, { text: 'plain', font_color: '#FF0000' }] } })
+  props.sheet.merged_ranges = []
+  Object.assign(props.workbook.styles[0]!, { id: 0 })
+  Object.assign(props.workbook.styles[0]!.effective, { projection: 'full', bold: false, italic: false })
+  props.objects.protocol = 'injoffice.xlsx.preview-objects'
+  props.objects.rich_text = { warnings: [], cells: [{ sheet_id: '1', sheet_part: props.sheet.part_name, row: 0, column: 0, ref: 'A1', style_id: 0, storage: 'inline', source_part: props.sheet.part_name, shared_index: '', text: 'Bold plain', status: 'available', warnings: ['Approximate cell-font fallback.'], runs: [{ text: 'Bold ', properties: 'direct', bold: true, omitted: [] }, { text: 'plain', properties: 'direct', font_color: '#FF0000', omitted: [] }] }] }
+  expect(render(props)).not.toContain('data-rich-run=')
+  const html = renderToStaticMarkup(createElement(NativeSheetPageImages, { ...props, richRuns: true }))
+  expect(html).toContain('data-rich-run="0"'); expect(html).toContain('font-weight="700"'); expect(html).toContain('font-weight="400"')
+  expect(html).toContain('fill="#FF0000"')
+  props.objects.rich_text.cells[0]!.runs![0]!.bold = false
+  const stale = renderToStaticMarkup(createElement(NativeSheetPageImages, { ...props, richRuns: true }))
+  expect(stale).not.toContain('data-rich-run='); expect(stale).toContain('does not join'); expect(stale).toContain('Bold plain')
+})

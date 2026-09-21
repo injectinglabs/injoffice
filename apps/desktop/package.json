@@ -1,0 +1,112 @@
+{
+  "name": "@injoffice/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local InjOffice desktop editor",
+  "homepage": "https://github.com/injectinglabs/injoffice",
+  "author": "Injecting Inc.",
+  "license": "Apache-2.0",
+  "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "prebuild": "npm run build -w @injoffice/docx-wasm -w @injoffice/xlsx-wasm -w @injoffice/pptx-wasm",
+    "build": "vite build",
+    "start": "electron .",
+    "dist": "npm run build && electron-builder",
+    "test": "node --test tests/host-files.test.cjs tests/host-security.test.cjs tests/host-recents.test.cjs tests/host-recovery.test.cjs tests/new-document.test.cjs tests/updates.test.cjs tests/docx-pdf-service.test.cjs tests/pdf-text-service.test.cjs tests/host-creation-ipc.test.cjs tests/start-page.test.cjs tests/updates-dialog.test.cjs tests/preferences.test.cjs tests/engine-result.test.cjs tests/theme.test.cjs tests/command-palette.test.cjs tests/workspace.test.cjs tests/formatting-toolbar.test.cjs tests/context-menu.test.cjs tests/selection-toolbar.test.cjs tests/presentation-text-toolbar.test.cjs tests/document-range.test.cjs tests/document-caret.test.cjs tests/document-style.test.cjs tests/raster-image.test.cjs tests/document-media.test.cjs tests/open-error.test.cjs tests/hidden-apply.test.cjs tests/delimited-text.test.cjs tests/document-statistics.test.cjs tests/pdf-search.test.cjs tests/pdf-recovery.test.cjs tests/spreadsheet-sheet-policy.test.cjs tests/presentation-mode.test.cjs tests/spreadsheet-delimited.test.cjs tests/spreadsheet-chart-geometry.test.cjs tests/shape-art.test.cjs tests/presentation-commands.test.cjs tests/presentation-arrange.test.cjs tests/slide-arrange-panel.test.cjs tests/document-preview.test.cjs tests/document-layout.test.cjs tests/formatting.test.cjs tests/document-authoring.test.cjs tests/spreadsheet-commands.test.cjs tests/spreadsheet-number-format.test.cjs tests/presentation-player.test.cjs tests/pdf-commands.test.cjs tests/office-editor.test.cjs tests/spreadsheet-calculation.test.cjs tests/presentation-editor.test.cjs tests/pdf-editor.test.cjs tests/spreadsheet-charts.test.cjs tests/desktop-update-provider.test.cjs tests/spreadsheet-editor.test.cjs tests/renderer-entry.test.cjs tests/theme-tokens.test.cjs tests/desktop-icons.test.cjs tests/electron-builder.test.cjs tests/native-assets.test.cjs tests/packaged-checks.test.cjs tests/release-validation.test.mjs tests/ribbon.test.cjs tests/typecheck-scope.test.cjs",
+    "test:native": "node --test tests/native-engines.test.cjs",
+    "test:packaged": "node --test tests/packaged-app.test.cjs",
+    "manifest": "node scripts/write-release-manifest.cjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "6.1.0",
+    "electron": "43.7.0",
+    "electron-builder": "^26.0.12",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-test-renderer": "19.2.8",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9",
+    "semver": "7.7.4"
+  },
+  "build": {
+    "appId": "com.injecting.injoffice",
+    "productName": "InjOffice",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*.cjs",
+      "electron/icon.png",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "build/icons/icon.icns"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icons/icon.ico"
+    },
+    "linux": {
+      "maintainer": "Injecting Inc.",
+      "executableName": "injoffice",
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "category": "Office",
+      "icon": "build/icons/icon.png"
+    },
+    "publish": null,
+    "electronVersion": "43.7.0",
+    "fileAssociations": [
+      {
+        "ext": "docx",
+        "name": "Word document",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      },
+      {
+        "ext": "xlsx",
+        "name": "Excel workbook",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      },
+      {
+        "ext": "pptx",
+        "name": "PowerPoint presentation",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      },
+      {
+        "ext": "pdf",
+        "name": "PDF document",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "application/pdf"
+      }
+    ]
+  }
+}

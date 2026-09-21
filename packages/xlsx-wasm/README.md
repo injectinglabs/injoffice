@@ -1,0 +1,169 @@
+# @injoffice/xlsx-wasm
+
+Optional browser distribution of InjOffice's native XLSX extraction and
+mutation engine. It runs the same `go/xlsxpatch` implementation used by the
+server inside a Web Worker; TypeScript does not become a second OOXML writer.
+
+```bash
+npm install @injoffice/xlsx-wasm
+```
+
+```ts
+import {
+  adaptWorkbookMutationBatchV1,
+  createXlsxWasmClient,
+} from '@injoffice/xlsx-wasm'
+import type { WorkbookMutationBatchV1 } from '@injoffice/sheets/browser'
+
+const originalBytes = new Uint8Array(await file.arrayBuffer())
+const client = createXlsxWasmClient()
+const workbook = await client.extract(originalBytes)
+
+// The public Sheets batch uses the outer exact-package CAS.
+const batch = {
+  protocol: 'injoffice.xlsx.mutations',
+  version: 1,
+  batch_id: 'save-1',
+  expected_revision: workbook.source.package_sha256,
+  operations: [{
+    operation_id: 'edit-1',
+    sheet_id: workbook.sheets[0].id,
+    kind: 'cell.set_value',
+    cell: { row: 0, column: 0 },
+    value: 'Hello',
+  }],
+} satisfies WorkbookMutationBatchV1
+
+const transaction = adaptWorkbookMutationBatchV1(workbook, batch)
+const saved = await client.apply(originalBytes, workbook, transaction)
+const download = new Blob([saved], {
+  type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+})
+
+client.terminate()
+```
+
+`workbook.source.package_sha256` is the outer `sha256:<digest>` CAS for the
+exact XLSX bytes. `workbook.revision` is the native contract's inner
+`rev:<same-digest>` CAS. The adapter requires the batch's outer revision and
+creates the inner revision; `apply` validates both against the extracted
+workbook and sends the outer revision to Go. It also validates untrusted
+transaction objects again at the call boundary.
+
+The native transaction currently supports cell value/formula changes,
+`style.patch`, `row.set_height`, and `column.set_width`. Although the public
+Sheets v1 schema recognizes `range.merge` and `range.unmerge`, this adapter
+refuses both because the native XLSX transaction deliberately preserves merge
+topology. To preserve the public batch's strict order, the adapter also requires
+the native engine's family order: cells, then styles, then row/column layout.
+`batch_id` is validated but is not forwarded: the in-memory browser call has no
+persistence/idempotency store.
+
+Importing the package does not access `Worker`, `window`, or `document`, so it
+is safe during Node.js and SSR module evaluation. The default worker is only
+created by the first operation. The package defaults to 32 MiB XLSX inputs and
+1 MiB UTF-8 mutation JSON, below Go's 128 MiB and 3 MiB hard limits. Applications
+may lower or raise the browser limits up to those native ceilings:
+
+```ts
+const client = createXlsxWasmClient({
+  maxPackageBytes: 16 * 1024 * 1024,
+  maxMutationPayloadBytes: 512 * 1024,
+})
+```
+
+Package and mutation limits throw synchronously before the shared runtime
+copies input into a transferable buffer. Caller-owned arrays are never
+transferred. Extraction JSON is validated with `@injoffice/sheets`; invalid
+engine output permanently terminates that client. A settled Go runtime emits a
+fatal lifecycle notification and is discarded instead of being reused.
+
+## Assets, origins, and CSP
+
+The three files `xlsxnative.worker.js`, `xlsxnative.wasm`, and `wasm_exec.js`
+are one version-matched unit. Default URLs use `new URL(asset, import.meta.url)`;
+the packed-package smoke test verifies that Vite copies and resolves them. If
+another bundler does not copy non-code package assets, copy all three to your
+public directory and provide explicit URLs:
+
+```ts
+const client = createXlsxWasmClient({
+  workerUrl: '/injoffice/xlsxnative.worker.js',
+  wasmUrl: '/injoffice/xlsxnative.wasm',
+  goRuntimeUrl: '/injoffice/wasm_exec.js',
+})
+```
+
+The normal `new Worker(url)` path requires the worker script to be same-origin.
+Do not point `workerUrl` directly at a cross-origin CDN. Either copy it to the
+application origin or supply a CSP-reviewed `workerFactory` that creates an
+application-owned wrapper. CDN URLs for the WASM and Go runtime must permit
+CORS; the worker uses `fetch` for WASM and `importScripts` for `wasm_exec.js`.
+
+A restrictive Content Security Policy must allow the worker in `worker-src`,
+the Go runtime load in the applicable script directive, the WASM fetch in
+`connect-src`, and WebAssembly compilation (commonly `'wasm-unsafe-eval'`).
+Exact directives vary by browser and deployment, so test the production CSP.
+
+CI installs the packed tarball into a clean Vite consumer at a non-root base,
+then runs the compiled Go engine in Chrome through extract, apply, re-extract,
+and value readback without an InjOffice server request. Unit tests separately
+cover the worker protocol and refusal paths.
+
+The package contains `wasm_exec.js` from the same Go toolchain that compiled
+`xlsxnative.wasm`. The Go runtime is distributed under its BSD license, which
+is included in the package.
+# Read-only object inspection
+
+`client.inspectObjects(bytes, workbook.source.package_sha256)` returns a bounded,
+source-revision-bound supplemental projection. It does not change the native
+workbook or authorize mutations. The matching engine must provide the optional
+`inspect` binding; older engines refuse this operation without remote fallback.
+
+The first chart-data subset is one explicit 2D clustered column/bar plot with
+complete saved numeric caches. Values may be stale; inspection never evaluates
+formulas or fetches external links. Chart styling, categories, drawing placement,
+and Office fidelity are not implied. Table metadata is reported, but built-in
+table-style rendering remains unqualified.
+
+## Separate source-style recovery
+
+`createXlsxSourceStylePreviewClient()` exposes only `preview(bytes)` and
+`terminate()`. It uses the self-contained `xlsxsource.worker.js` asset, whose
+fixed profile refuses extraction and mutation messages. The native
+`previewSourceStyles` binding is separate from `extract` and `inspect`.
+
+The client snapshots bytes before hashing and inspection, checks the returned
+package identity, and decodes a closed, bounded, recursively frozen
+`XlsxSourceStylePreviewV1`. It preserves all source conflicts and cache warnings.
+This is an approximate read-only grid, with no workbook revision, editing or
+repaired-file export. A source hash is an identity join, not authentication for
+arbitrary JSON; use the trusted native worker. The usual abort, timeout and
+termination behavior applies. Hosts must clear previous edit state on a failed
+new-source open and discard stale/cancelled preview results.
+
+The playground offers this recovery only after browser-local extraction fails.
+It preserves the original refusal, source records, merges and saved formula
+results. Supported number/date display reuses the deterministic formatter; the
+exact source-declared `#,##0.00" €"` suffix has an additional browser text path.
+Unqualified formats visibly fall back to their saved lexical. No print settings
+or recalculation are applied. See [the profile](../../docs/XLSX-SOURCE-STYLE-PREVIEW.md).
+
+`createXlsxSourceStylePreviewV2Client()` uses its own self-contained
+`xlsxsource2.worker.js` and the Go conditional source preview binding. Its only
+operations are `preview` and `terminate`. The immutable V2 result nests the V1
+base grid and carries qualified text-rule, data-bar and optional frozen-viewport
+records. `decodeXlsxSourceStylePreviewV2` checks each effect against its source
+cell, range, cache state, style and bounds before returning it. Hashes identify
+trusted native-worker output; they are not signatures for arbitrary JSON.
+
+### Read-only rich source content
+
+`createXlsxRichSourcePreviewClient()` uses a separate `xlsxrichsource.wasm` and
+self-contained `xlsxrichsource.worker.js`. Its only methods are `preview(bytes)`
+and `terminate()`. The closed `decodeXlsxRichSourcePreviewV1(json, packageSHA256)`
+returns a frozen source-bound content rectangle with qualified inline rich runs,
+exact General numeric text and explicit outside geometry/count evidence. It
+accepts only the missing-parent-count profile described in
+[the rich-source contract](../../docs/XLSX-RICH-SOURCE-PREVIEW.md). This is an
+approximate read-only view, with no native editing or Excel print authority.

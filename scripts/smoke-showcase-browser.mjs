@@ -1,0 +1,520 @@
+import assert from 'node:assert/strict'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
+import { launchChromeForCDP, terminateProcess } from './chrome-cdp-startup.mjs'
+import { startShowcaseServer } from './showcase-smoke-server.mjs'
+import { startShowcaseDevServer } from './showcase-smoke-dev-server.mjs'
+import { startShowcaseProposalMock } from './showcase-smoke-proposal-mock.mjs'
+
+const output = process.env.SHOWCASE_OUTPUT ? resolve(process.env.SHOWCASE_OUTPUT) : mkdtempSync(resolve(tmpdir(), 'injoffice-showcase-review-'))
+mkdirSync(output, { recursive: true })
+let chrome, socket, staticServer
+let proposalMock, restoreProposalEnv
+let sequence = 0
+let scopeKey = 'sheets'
+let scopeFeature = 'agent'
+const workspaceFeatures = {
+  sheets: ['editor', 'native', 'tools', 'charts', 'pivots', 'shapes', 'connectors', 'formulas', 'agent', 'collab', 'history'],
+  docs: ['editor', 'agent', 'collab', 'history', 'font-metrics'],
+  slides: ['editor', 'pptx-native', 'pptx-authored', 'pptx-render', 'shapes', 'agent', 'collab', 'font-metrics'],
+  pdf: ['editor', 'agent', 'collab', 'font-metrics'],
+}
+function destination(path) {
+  const [surface, query = ''] = path.split('?')
+  const params = new URLSearchParams(query)
+  if (!surface || surface === 'overview') return { tool: 'sheets', feature: 'agent' }
+  if (surface === 'agent') return { tool: params.get('format') ?? 'sheets', feature: 'agent' }
+  if (surface in workspaceFeatures) return { tool: surface, feature: params.get('feature') ?? params.get('view') ?? 'agent' }
+  return { tool: surface.startsWith('pptx-') ? 'slides' : surface === 'font-metrics' ? 'docs' : 'sheets', feature: surface }
+}
+const pending = new Map()
+const errors = []
+const heldRequests = []
+const proposalRequests = []
+const liveRequests = []
+function onMessage({ data }) {
+  const message = JSON.parse(data)
+  if (message.id) {
+    const task = pending.get(message.id)
+    if (!task) return
+    pending.delete(message.id)
+    clearTimeout(task.timer)
+    if (message.error) task.reject(new Error(message.error.message))
+    else task.resolve(message.result)
+  } else if (message.method === 'Runtime.exceptionThrown') {
+    errors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text)
+  } else if (message.method === 'Page.javascriptDialogOpening') {
+    void send('Page.handleJavaScriptDialog', { accept: false })
+  } else if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') {
+    errors.push(message.params.args.map((arg) => arg.value ?? arg.description).join(' '))
+  } else if (message.method === 'Fetch.requestPaused') {
+    heldRequests.push(message.params.requestId)
+  } else if (message.method === 'Network.requestWillBeSent') {
+    const { request } = message.params
+    if (/\/api\/agent\/(?:proposal-status|propose)(?:\?|$)/.test(new URL(request.url).pathname)) liveRequests.push(request.url)
+    if (/\/api\/agent\/(?:mock-propose|propose)(?:\?|$)/.test(request.url)) proposalRequests.push(request)
+  }
+}
+function send(method, params = {}) {
+  return new Promise((resolve, reject) => {
+    const id = ++sequence
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timed out: ${method}`)) }, 30_000)
+    pending.set(id, { resolve, reject, timer })
+    socket.send(JSON.stringify({ id, method, params }))
+  })
+}
+async function evaluate(expression) {
+  // Multiple editors now remain mounted. Every editor assertion and action is
+  // scoped to the selected feature, never a retained hidden editor's DOM.
+  // Shell and the one shared source drawer remain document-wide.
+  const globalSelectors = ['.app-', '.scheme-toggle', '.overview-page', '.tool-example', '[data-workspace-entry]', '[role="dialog"]', '[role=progressbar]', '[data-scroll-section]']
+  const scopedExpression = expression.replaceAll('document.querySelectorAll(', 'testQueryAll(').replaceAll('document.querySelector(', 'testQuery(')
+  const result = await send('Runtime.evaluate', { expression: `{
+    const smokeSection = document.querySelector(${JSON.stringify(`[data-scroll-section="${scopeKey}"]`)});
+    const smokePanel = smokeSection?.querySelector(${JSON.stringify(`[data-workspace-panel="${scopeFeature}"]:not([hidden])`)});
+    const smokeRoot = selector => ${JSON.stringify(globalSelectors)}.some(prefix => selector.startsWith(prefix)) ? document : ['.demo-stage', '.demo-back', '[data-workspace-'].some(prefix => selector.startsWith(prefix)) ? smokeSection : ${scopeFeature === null} ? smokeSection : smokePanel;
+    const testQuery = selector => smokeRoot(selector)?.querySelector(selector) ?? null;
+    const testQueryAll = selector => smokeRoot(selector)?.querySelectorAll(selector) ?? [];
+    ${scopedExpression}
+  }`, returnByValue: true, awaitPromise: true })
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text)
+  return result.result.value
+}
+async function until(expression, label, timeout = 30_000) {
+  const start = Date.now()
+  do {
+    if (await evaluate(`Boolean(${expression})`)) return
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  } while (Date.now() - start < timeout)
+  throw new Error(`Timed out: ${label}`)
+}
+const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`)
+const reloadDemo = async () => {
+  await send('Page.reload')
+  await until(`smokeSection?.dataset.scrollState === 'ready' && !!smokePanel && !smokePanel.querySelector('[data-workspace-loading]')`, 'fresh page is ready', 90_000)
+}
+const clickButton = (label) => evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === ${JSON.stringify(label)}).click()`)
+const agentReady = `document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Preview change' && !button.disabled)`
+const agentWrites = () => evaluate(`Number(document.querySelector('[data-agent-native-writes]')?.textContent)`)
+const setGuidedField = (selector, value) => evaluate(`(() => {
+  const input = document.querySelector(${JSON.stringify(selector)});
+  const isSelect = input instanceof HTMLSelectElement;
+  Object.getOwnPropertyDescriptor(isSelect ? HTMLSelectElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
+  input.dispatchEvent(new Event(isSelect ? 'change' : 'input', { bubbles: true }));
+})()`)
+const openAgentDetails = (attribute) => evaluate(`(() => { let detail = document.querySelector('[${attribute}]'); while (detail) { detail.open = true; detail = detail.parentElement?.closest('details'); } })()`)
+const setAgentRequest = async (request) => {
+  await openAgentDetails('data-agent-technical')
+  await evaluate(`(() => { const toggle = document.querySelector('[data-agent-advanced-request]'); if (!toggle.checked) toggle.click(); })()`)
+  return evaluate(`(() => { const input = document.querySelector('[data-agent-request]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(request)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
+}
+async function prepareAgentRequest(request, target) {
+  await clickButton('Reload sample')
+  await until(agentReady, 'real XLSX sample reload', 90_000)
+  await setAgentRequest(request)
+  await clickButton('Preview change')
+  await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'awaiting-approval'`, 'editable request produces a reviewable plan', 90_000)
+  assert.ok((await evaluate(`document.querySelector('.agent-diff')?.textContent`)).includes(target), `request resolves real target ${target}`)
+  assert.match(await evaluate(`document.querySelector('[data-agent-trace]')?.textContent`), /office\.read/, 'trace includes a real bounded read')
+  assert.equal(await agentWrites(), 0, 'planning does not write native bytes')
+  assert.equal(await evaluate(`document.querySelector('.agent-approval input').checked`), false, 'each mock proposal requires fresh human approval')
+  assert.equal(await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Apply approved change').disabled`), true, 'mock endpoint cannot authorize its own proposed edit')
+}
+async function approveAgentCommit() {
+  await click('.agent-approval input[type=checkbox]')
+  await clickButton('Apply approved change')
+}
+// Public chart/workbook APIs: an installed float is not proof that it has data.
+const sheetChartState = `(() => {
+  const host = window.__injoffice
+  const spec = host?.charts?.list()[0]
+  const sheet = spec && host.univerAPI.getActiveWorkbook()?.getSheetBySheetId(spec.range.sheetId)
+  if (!sheet) return null
+  const ref = spec.range
+  const values = sheet.getRange(ref.startRow, ref.startColumn, ref.endRow - ref.startRow + 1, ref.endColumn - ref.startColumn + 1).getRawValues()
+  return { series: host.charts.getSeriesNames(spec.id), numericCells: values.flat().filter(value => typeof value === 'number' && Number.isFinite(value)), firstValue: sheet.getRange(5, 1).getRawValues()[0][0] }
+})()`
+async function screenshot(name) {
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  const { data } = await send('Page.captureScreenshot', { format: 'png' })
+  writeFileSync(resolve(output, `${name}.png`), Buffer.from(data, 'base64'))
+}
+async function route(path) {
+  const { tool, feature } = destination(path)
+  scopeKey = tool
+  scopeFeature = feature
+  await evaluate(`location.hash = '#/${path}'`)
+  await until(`document.querySelector('.app-shell')?.dataset.surface === ${JSON.stringify(tool)} && (${feature === null} || (smokeSection?.dataset.scrollState === 'ready' && !!smokePanel && !smokePanel.querySelector('.demo-loading, [data-workspace-loading], [data-workspace-error]')))`, path, 90_000)
+}
+try {
+  assert.ok(!(process.argv.includes('--built') && process.argv.includes('--dev')), 'choose either --built or --dev')
+  if (process.argv.includes('--built')) staticServer = await startShowcaseServer(resolve(import.meta.dirname, '../apps/playground/dist'))
+  if (process.argv.includes('--dev')) {
+    proposalMock = await startShowcaseProposalMock()
+    const saved = ['INJOFFICE_AGENT_PROPOSAL_URL', 'INJOFFICE_AGENT_PROPOSAL_TOKEN'].map((key) => [key, process.env[key]])
+    restoreProposalEnv = () => { for (const [key, value] of saved) { if (value === undefined) delete process.env[key]; else process.env[key] = value } }
+    // Override even a pre-existing provider configuration: this test must never
+    // contact a real model endpoint or forward the developer's credentials.
+    process.env.INJOFFICE_AGENT_PROPOSAL_URL = proposalMock.url
+    delete process.env.INJOFFICE_AGENT_PROPOSAL_TOKEN
+    staticServer = await startShowcaseDevServer(resolve(import.meta.dirname, '../apps/playground'))
+  }
+  const origin = new URL(staticServer?.url ?? process.env.SHOWCASE_URL ?? 'http://127.0.0.1:3100/')
+  origin.hash = ''
+  chrome = await launchChromeForCDP({
+    executable: process.env.CHROME_BIN ?? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync) ?? 'google-chrome',
+    createProfile: () => mkdtempSync(resolve(tmpdir(), 'injoffice-showcase-chrome-')),
+  })
+  socket = new WebSocket(chrome.target.webSocketDebuggerUrl)
+  await new Promise((resolve, reject) => { socket.addEventListener('open', resolve, { once: true }); socket.addEventListener('error', reject, { once: true }) })
+  socket.addEventListener('message', onMessage)
+  await send('Runtime.enable')
+  await send('Page.enable')
+  await send('Network.enable')
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: `
+    window.__entryHistory = { length: history.length, pushes: 0, replacements: 0 };
+    for (const [method, counter] of [['pushState', 'pushes'], ['replaceState', 'replacements']]) {
+      const original = history[method];
+      history[method] = function (...args) { window.__entryHistory[counter]++; return original.apply(this, args); };
+    }
+  ` })
+  for (const entry of ['', '#/overview', '#/unknown']) {
+    origin.hash = entry
+    origin.searchParams.set('showcase-entry', entry || 'empty')
+    await send('Page.navigate', { url: origin.href })
+    await until(`location.hash === '#/sheets' && document.querySelector('.app-shell')?.dataset.surface === 'sheets' && !!smokePanel && !smokePanel.querySelector('[data-workspace-loading]') && !!document.querySelector('[data-agent-prepare]:not(:disabled)')`, `${entry || 'empty URL'} opens the first workbook editor directly`, 90_000)
+    assert.equal(await evaluate(`history.length === window.__entryHistory.length && window.__entryHistory.pushes === 0 && window.__entryHistory.replacements >= 1`), true, `${entry || 'empty URL'} normalizes by replacing history, not adding an intro step`)
+    assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('[data-scroll-section]')).map(section => section.dataset.scrollSection)`), Object.keys(workspaceFeatures), 'only the four document workspaces exist')
+    assert.equal(await evaluate(`!!document.querySelector('.overview-page, .tool-example, [data-workspace-entry]') || document.querySelector('.app-main').textContent.includes('Explore the four document tools')`), false, 'the introductory section and cards are absent')
+  }
+  await evaluate(`document.querySelector('.scheme-toggle button:first-child').click()`)
+  await until(`document.documentElement.dataset.theme === 'light'`, 'light theme')
+  await screenshot('four-tools-desktop')
+  assert.equal(await evaluate(`document.querySelectorAll('.app-sidebar [data-workspace-feature]').length`), 28, 'sidebar lists all examples')
+  assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.app-sidebar .tool-nav-title')).map(link => link.getAttribute('href'))`), ['#/sheets', '#/docs', '#/slides', '#/pdf'], 'sidebar groups match tool workspaces')
+  assert.equal(await evaluate(`Array.from(document.querySelectorAll('.app-main a')).some(link => link.textContent.trim() === 'All demos')`), false, 'there is no link back to a removed introduction')
+  await click('.app-sidebar a[href="#/pdf"]')
+  scopeKey = 'pdf'
+  scopeFeature = 'agent'
+  await until(`document.querySelector('.app-shell')?.dataset.surface === 'pdf' && !!smokePanel && !document.querySelector('.demo-loading')`, 'sidebar opens the real PDF workspace')
+  await route('charts')
+  assert.equal(await evaluate(`document.querySelector('.app-brand').getAttribute('href')`), '#/sheets', 'brand targets the first tool directly')
+  await click('.app-brand')
+  scopeKey = 'sheets'
+  scopeFeature = 'agent'
+  await until(`location.hash === '#/sheets' && !!smokePanel && !smokePanel.querySelector('[data-workspace-loading]')`, 'brand opens the first editor instead of the remembered Charts view', 90_000)
+  for (const entry of ['#/overview', '#/unknown', '']) {
+    await route('charts')
+    await evaluate(`window.__warmHistory = { length: history.length, pushes: window.__entryHistory.pushes, replacements: window.__entryHistory.replacements }; location.hash = ${JSON.stringify(entry)}`)
+    scopeKey = 'sheets'
+    scopeFeature = 'agent'
+    await until(`location.hash === '#/sheets' && !!smokePanel && !smokePanel.querySelector('[data-workspace-loading]')`, `warm ${entry || 'empty hash'} restores the first editor`, 90_000)
+    assert.equal(await evaluate(`history.length === window.__warmHistory.length + 1 && window.__entryHistory.pushes === window.__warmHistory.pushes && window.__entryHistory.replacements > window.__warmHistory.replacements`), true, 'warm fallback replaces the requested hash without creating a second navigation entry')
+  }
+  await route('charts')
+  assert.equal(await evaluate(`document.querySelector('.app-shell').dataset.navigation`), 'scroll')
+  assert.equal(await evaluate(`document.querySelectorAll('.app-sidebar a[href^="#/agent"]').length`), 0, 'AI actions live inside tools, not as extra top-level examples')
+
+  // A cold section loads independently: already visited editors stay mounted,
+  // and every section heading remains usable while its script is held.
+  await send('Fetch.enable', { patterns: [{ urlPattern: '*', resourceType: 'Script', requestStage: 'Request' }] })
+  await evaluate(`window.__showcasePreviousStage = document.querySelector('.demo-stage'); location.hash = '#/pptx-render'`)
+  scopeKey = 'slides'
+  scopeFeature = 'pptx-render'
+  const coldStart = Date.now()
+  while (heldRequests.length === 0 && Date.now() - coldStart < 10_000) await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.ok(heldRequests.length > 0, 'cold navigation requests a lazy script')
+  await until(`smokeSection?.dataset.scrollState === 'loading' || !!smokePanel?.querySelector('.demo-loading, [data-workspace-loading]')`, 'cold tool or feature reports loading')
+  assert.equal(await evaluate(`window.__showcasePreviousStage.isConnected && document.querySelectorAll('[data-scroll-section]').length === 4 && Array.from(document.querySelectorAll('[data-scroll-section]')).every(section => section.querySelector('h1,h2'))`), true, 'loaded editor and all four tool headings remain during cold navigation')
+  await send('Fetch.disable')
+  await until(`smokeSection?.dataset.scrollState === 'ready' && !!smokePanel && !smokePanel.querySelector('.demo-loading, [data-workspace-loading], [data-workspace-error]')`, 'cold feature completes', 90_000)
+  await route('charts')
+  assert.equal(await evaluate(`!!document.querySelector('.app-shell').querySelector('.source-proof-trigger, .source-proof-layer, .demo-options, .demo-reset-trigger')`), false, 'demo management and guide UI are removed')
+  await screenshot('focused-chart')
+  for (const [tool, features] of Object.entries(workspaceFeatures)) {
+    for (const feature of features) {
+      await route(`${tool}?feature=${feature}`)
+      assert.equal(await evaluate(`smokePanel?.hidden === false && smokeSection.querySelectorAll('[data-workspace-panel]:not([hidden])').length === ${features.length}`), true, `${tool}/${feature} is part of the continuous examples page`)
+      assert.ok(await evaluate(`!smokeSection.querySelector('.tool-workspace__examples') && document.querySelectorAll('.app-sidebar [data-workspace-feature]').length === 28`), `${tool} exposes every example in the sidebar`)
+      assert.equal(await evaluate(`document.querySelector('.app-sidebar [data-workspace-feature][aria-current="true"]')?.dataset.workspaceFeature`), feature, `${tool}/${feature} is reflected in sidebar navigation`)
+    }
+  }
+  // Preserve old links as redirects into their appropriate comprehensive tool.
+  for (const surface of ['pivots', 'shapes', 'connectors', 'formulas', 'history', 'font-metrics', 'pptx-authored', 'pptx-native', 'pptx-render', 'sheets?feature=editor']) await route(surface)
+  await until(`document.querySelector('[data-demo-surface="sheets"] canvas') && window.__injoffice?.charts?.list().length > 0`, 'seeded sheet chart')
+  await until(`(${sheetChartState})?.series.length > 0 && (${sheetChartState})?.numericCells.length === 5`, 'seeded chart has a numeric series')
+  const originalChart = await evaluate(sheetChartState)
+  await evaluate(`(() => { const host = window.__injoffice; const spec = host.charts.list()[0]; host.univerAPI.getActiveWorkbook().getSheetBySheetId(spec.range.sheetId).getRange(5, 1).setValue(999); })()`)
+  await until(`(${sheetChartState})?.firstValue === 999`, 'overview chart source is editable')
+  await reloadDemo()
+  await until(`document.querySelector('[data-demo-surface="sheets"] canvas') && window.__injoffice?.charts?.list().length > 0`, 'reset restores workbook')
+  await until(`(${sheetChartState})?.firstValue === ${JSON.stringify(originalChart.firstValue)} && (${sheetChartState})?.series.length > 0`, 'reset restores seeded chart data')
+  assert.deepEqual(await evaluate(sheetChartState), originalChart, 'reset restores the complete numeric chart source')
+  for (let i = 0; i < 2; i++) { await route('charts'); await route('sheets?feature=editor'); await until(`document.querySelector('[data-demo-surface="sheets"] canvas')`, 'preserved sheet') }
+  await route('sheets?view=native')
+  await until(`!!document.querySelector('.native-toolbar')`, 'same-surface deep link switches mode')
+  await route('collab')
+  await until(`document.querySelectorAll('canvas').length > 0`, 'collaboration rendered')
+  for (const tool of ['sheets', 'docs', 'slides', 'pdf']) {
+    const fileFormat = { sheets: 'xlsx', docs: 'docx', slides: 'pptx', pdf: 'pdf' }[tool]
+    await route(`agent?format=${tool}`)
+    await until(`document.querySelector('[data-agent-tool=${tool}]') && document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Preview change' && !button.disabled)`, `${tool} AI deep link`, 90_000)
+    const boundary = await evaluate(`document.querySelector('[data-agent-boundary]')?.textContent`)
+    const defaultRequest = await evaluate(`document.querySelector('[data-agent-request]').value`)
+    assert.match(await evaluate(`document.querySelector('[data-agent-mock]')?.textContent`), /Simulated agent. Real file edits. No LLM./i, `${tool} distinguishes mocked proposal from real file proof`)
+    assert.match(boundary, /Simulated agent.*Real file edits.*No LLM/i, `${tool} discloses real operations and no LLM`)
+    assert.equal(await evaluate(`!!document.querySelector('[data-agent-guided-task]') && !document.querySelector('[data-agent-technical]').open && !document.querySelector('[data-agent-safety-details]').open`), true, `${tool} starts with a guided task and collapsed technical details`)
+    assert.equal(await evaluate(`document.querySelector('[data-agent-proposal-source]') === null`), true, `${tool} defaults to the bundled mock`)
+    const guidedSelector = tool === 'pdf' ? '[data-agent-task-degrees]' : '[data-agent-task-value]'
+    if (tool !== 'pdf') {
+      await setGuidedField(guidedSelector, tool === 'sheets' ? 'Review' : '')
+      await until(`document.querySelector('[data-agent-task-error]') && Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Preview change').disabled`, `${tool} rejects an unchanged status or empty replacement`)
+      assert.equal(await agentWrites(), 0, `${tool} invalid task cannot write`)
+    }
+    const guidedValue = { sheets: 'Blocked', docs: 'Northstar Guided Launch Brief', slides: 'Northstar guided launch review', pdf: '180' }[tool]
+    await setGuidedField(guidedSelector, guidedValue)
+    await until(agentReady, `${tool} customized guided task ready`)
+    assert.notEqual(await evaluate(`document.querySelector('[data-agent-request]').value`), defaultRequest, `${tool} guided fields create a changed request`)
+    const proposalsBeforeRun = proposalRequests.length
+    if (tool === 'sheets') {
+      assert.equal(await evaluate(`document.querySelector('[data-agent-proposal-source]') === null`), true, 'bundled mock is the zero-configuration default')
+      const mockNotice = await evaluate(`document.querySelector('[data-agent-mock]')?.textContent`)
+      assert.match(mockNotice, /simulated/i, 'mock proposer is explicitly labelled')
+      assert.match(mockNotice, /no (?:real )?(?:language model|model|LLM)|not (?:a |an )?(?:language model|LLM)/i, 'mock is not presented as real model reasoning')
+      assert.equal(await evaluate(`document.querySelector('[data-agent-live-consent]') === null`), true, 'default mock requires no external-provider consent')
+      assert.equal(proposalRequests.length, 0, 'loading the mock demo does not request a proposal')
+    }
+    await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Preview change').click()`)
+    await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'awaiting-approval'`, `${tool} preview and validation`, 90_000)
+    assert.ok((await evaluate(`document.querySelector('.agent-diff').textContent`)).includes(guidedValue), `${tool} preview reflects the edited guided value`)
+    assert.equal(await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Apply approved change').disabled`), true, 'commit requires explicit approval')
+    assert.equal(await evaluate(`document.querySelector('.agent-approval input').checked`), false, 'proposal does not preapprove itself')
+    assert.equal(await agentWrites(), 0, `${tool} preview does not write the source`)
+    assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, `${tool} proposal cannot release a download`)
+    assert.match(await evaluate(`document.querySelector('[data-agent-trace]').textContent`), /office.read/, `${tool} discovers targets through actual public reads`)
+    if (process.argv.includes('--dev')) assert.equal(proposalRequests.length, proposalsBeforeRun + 1, `${tool} mock uses one local HTTP proposal`)
+    if (process.argv.includes('--built')) assert.equal(proposalRequests.length, proposalsBeforeRun, `${tool} static mock needs no endpoint`)
+    if (proposalMock) assert.equal(proposalMock.requests.length, 0, `${tool} mock never contacts a live upstream`)
+    if (tool === 'sheets') {
+      assert.equal(await agentWrites(), 0, 'mock proposal and native preview leave the source untouched')
+      assert.match(await evaluate(`document.querySelector('[data-agent-proposal-trace]')?.textContent`), /request/i, 'mock proposal exposes its request trace separately from actual Office tools')
+      assert.match(await evaluate(`document.querySelector('[data-agent-proposal-trace]')?.textContent`), /response/i, 'mock proposal exposes its response for inspection')
+      assert.equal(proposalRequests.filter((request) => new URL(request.url).pathname.endsWith('/propose')).length, 0, 'default mock never invokes the live proposal relay')
+      if (process.argv.includes('--dev')) {
+        assert.equal(proposalRequests.length, 1, 'development mock executes through one same-origin endpoint request')
+        assert.equal(proposalRequests[0].method, 'POST')
+        assert.equal(new URL(proposalRequests[0].url).origin, origin.origin, 'mock context stays on the demo origin')
+      } else if (process.argv.includes('--built')) assert.equal(proposalRequests.length, 0, 'static mock transport works without an API server')
+      if (proposalMock) assert.equal(proposalMock.requests.length, 0, 'bundled mock never contacts the configured upstream')
+      await screenshot('agent-mock-proposal-review')
+    }
+    if (tool === 'docs') {
+      await click('.agent-approval input[type=checkbox]')
+      await setGuidedField('[data-agent-task-value]', '')
+      await until(`!document.querySelector('.agent-diff') && !document.querySelector('.agent-approval input').checked && Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Preview change').disabled`, 'editing a reviewed task revokes approval and removes the stale preview')
+      assert.equal(await agentWrites(), 0, 'editing a reviewed task does not write')
+      await setGuidedField('[data-agent-task-value]', guidedValue)
+      await until(agentReady, 'corrected guided task ready')
+      await clickButton('Preview change')
+      await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'awaiting-approval'`, 'corrected task gets a fresh review', 90_000)
+      assert.equal(await evaluate(`document.querySelector('.agent-approval input').checked`), false, 'correcting a task does not restore old approval')
+    }
+    await click('.agent-approval input[type=checkbox]')
+    await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Apply approved change').click()`)
+    await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'verified'`, `${tool} approved commit verifies`, 90_000)
+    await until(`!!document.querySelector('[data-agent-download]')`, `${tool} verified bytes released`)
+    const fileProof = await evaluate(`(async () => {
+      const link = document.querySelector('[data-agent-download]');
+      const bytes = new Uint8Array(await (await fetch(link.href)).arrayBuffer());
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))).map(value => value.toString(16).padStart(2, '0')).join('');
+      const field = Array.from(document.querySelectorAll('.agent-technical-evidence dl > div')).find(item => item.querySelector('dt').textContent === 'Output fingerprint');
+      return { name: link.download, length: bytes.length, signature: Array.from(bytes.slice(0, 4)), hash, receiptFingerprint: field.querySelector('dd').textContent };
+    })()`)
+    assert.ok(fileProof.name.endsWith(`.${fileFormat}`), `${tool} download has the real format extension`)
+    assert.ok(fileProof.length > 1000, `${tool} has a populated output file`)
+    assert.deepEqual(fileProof.signature, tool === 'pdf' ? [37, 80, 68, 70] : [80, 75, 3, 4], `${tool} output is real file bytes, not JSON`)
+    assert.ok(fileProof.receiptFingerprint.endsWith(fileProof.hash), `${tool} download bytes match the verified receipt fingerprint`)
+    assert.equal(await agentWrites(), 1, `${tool} approval writes exactly once`)
+    await screenshot(`agent-real-${fileFormat}-verified`)
+    await evaluate(`document.querySelector('.agent-artifact').scrollIntoView({ block: 'start' })`)
+    await screenshot(`agent-real-${fileFormat}-content`)
+    if (tool === 'sheets') {
+      const download = await evaluate(`(async () => {
+        const link = document.querySelector('[data-agent-download]')
+        if (!link) return null
+        const bytes = new Uint8Array(await (await fetch(link.href)).arrayBuffer())
+        return { name: link.download, length: bytes.length, signature: Array.from(bytes.slice(0, 4)) }
+      })()`)
+      assert.ok(download?.name.endsWith('.xlsx'), 'verified AI workflow offers an XLSX download')
+      assert.ok(download.length > 1000, 'download contains a real workbook archive')
+      assert.deepEqual(download.signature, [80, 75, 3, 4], 'download is ZIP bytes, not JSON-shaped simulation')
+      await screenshot('agent-real-xlsx-verified')
+      const originalWrites = await agentWrites()
+      assert.equal(originalWrites, 1, 'one approved plan causes exactly one native write')
+      await openAgentDetails('data-agent-safety-details')
+      await click('[data-agent-retry]')
+      await until(`!document.querySelector('[data-agent-retry]').disabled && document.querySelector('.agent-demo__status')?.dataset.state === 'verified'`, 'verified commit retry completes', 90_000)
+      assert.equal(await agentWrites(), originalWrites, 'idempotent retry does not duplicate the native write')
+
+      await prepareAgentRequest('Mark Mobile as On track', 'C3')
+      await approveAgentCommit()
+      await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'verified'`, 'different request writes and verifies the Mobile cell', 90_000)
+      assert.match(await evaluate(`document.querySelector('.agent-diff')?.textContent`), /On track/, 'the requested new value is visible in the diff')
+      assert.equal(await agentWrites(), 1, 'different request also applies exactly once')
+
+      await clickButton('Reload sample')
+      await until(agentReady, 'sample reload before unsupported mock request', 90_000)
+      await setAgentRequest('Write a poem about this workbook')
+      await clickButton('Preview change')
+      await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'error'`, 'unsupported mock prompt is rejected honestly', 90_000)
+      assert.match(await evaluate(`document.querySelector('.tool-error[role=alert]')?.textContent`), /mock|support|try|workstream/i, 'mock failure explains its bounded request support')
+      assert.equal(await agentWrites(), 0, 'unsupported mock prompt never writes native bytes')
+      assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null && !document.querySelector('.agent-diff')`), true, 'unsupported mock prompt leaves no previous preview or download')
+      assert.equal(await evaluate(`document.querySelector('.agent-approval input')?.checked ?? false`), false, 'unsupported mock prompt does not grant approval')
+
+      await prepareAgentRequest('Mark Security as Ready', 'C5')
+      await openAgentDetails('data-agent-safety-details')
+      await click('[data-agent-concurrent-edit]')
+      await until(`document.querySelector('.agent-demo__inspector')?.textContent.includes('The source has changed.')`, 'concurrent source edit completes', 90_000)
+      const writesBeforeStaleCommit = await agentWrites()
+      await approveAgentCommit()
+      await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'error'`, 'stale approval fails closed', 90_000)
+      assert.match(await evaluate(`document.querySelector('.agent-demo')?.textContent ?? document.querySelector('.app-main').textContent`), /stale|revision/i, 'stale failure explains the revision conflict')
+      assert.equal(await agentWrites(), writesBeforeStaleCommit, 'stale commit causes no additional native write')
+      assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, 'stale approval offers no verified output')
+
+      await prepareAgentRequest('Mark Security as Ready', 'C5')
+      await openAgentDetails('data-agent-safety-details')
+      await click('[data-agent-fail-verification]')
+      await approveAgentCommit()
+      await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'unverified'`, 'post-write verification failure has a distinct state', 90_000)
+      assert.match(await evaluate(`document.querySelector('.app-main').textContent`), /Write completed; verification failed/, 'UI distinguishes written bytes from verified output')
+      assert.equal(await agentWrites(), 1, 'verification failure happened after a completed native write')
+      assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, 'unverified bytes are not offered as a verified download')
+      await screenshot('agent-written-but-unverified')
+    }
+    else {
+      await openAgentDetails('data-agent-safety-details')
+      await click('[data-agent-retry]')
+      await until(`!document.querySelector('[data-agent-retry]').disabled && document.querySelector('.agent-safety').textContent.includes('No additional native write')`, `${tool} cached retry completes`, 90_000)
+      assert.equal(await agentWrites(), 1, `${tool} retry does not write again`)
+      const prepareAgain = async () => {
+        await clickButton('Reload sample')
+        await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Preview change' && !button.disabled)`, `${tool} sample reloaded`, 90_000)
+        assert.equal(await evaluate(`document.querySelector('[data-agent-request]').value`), defaultRequest, `${tool} reload restores its real-file request`)
+        await clickButton('Preview change')
+        await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'awaiting-approval'`, `${tool} fresh proposal reviewed`, 90_000)
+      }
+      await prepareAgain()
+      await openAgentDetails('data-agent-safety-details')
+      await click('[data-agent-concurrent-edit]')
+      await until(`document.querySelector('.agent-demo__inspector').textContent.includes('The source has changed.')`, `${tool} concurrent edit completes`, 90_000)
+      const writesBeforeStale = await agentWrites()
+      await approveAgentCommit()
+      await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'error'`, `${tool} stale approval rejected`, 90_000)
+      assert.equal(await agentWrites(), writesBeforeStale, `${tool} stale plan cannot add a source write`)
+      assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, `${tool} stale plan cannot release output`)
+      await prepareAgain()
+      await openAgentDetails('data-agent-safety-details')
+      await click('[data-agent-fail-verification]')
+      await approveAgentCommit()
+      await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'unverified'`, `${tool} failed readback distinguished from write`, 90_000)
+      assert.equal(await agentWrites(), 1, `${tool} readback fault follows a completed write`)
+      assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, `${tool} unverified bytes remain unavailable`)
+      await screenshot(`agent-${fileFormat}-unverified`)
+    }
+    await openAgentDetails('data-agent-safety-details')
+    await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Refusal proof').click()`)
+    await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Preview change' && !button.disabled)`, `${tool} refusal ready`, 90_000)
+    await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Preview change').click()`)
+    await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'refused'`, `${tool} unsupported operation refused`, 90_000)
+    assert.equal(await evaluate(`!document.querySelector('.agent-approval input')`), true, 'refusal does not allow approval')
+    assert.equal(await agentWrites(), 0, `${tool} unsupported proposal never reaches the writer`)
+    assert.equal(await evaluate(`document.querySelector('[data-agent-download]') === null`), true, 'refusal does not expose a previous output')
+    await reloadDemo()
+    await until(`document.querySelector('[data-agent-tool=${tool}]') && document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Preview change' && !button.disabled)`, `${tool} reset reloads the source`, 90_000)
+    assert.equal(await evaluate(`!document.querySelector('[data-agent-download]') && !document.querySelector('.agent-diff') && !Array.from(document.querySelectorAll('.agent-tool-log li[data-state=done]')).some(item => /office\\.(plan|commit)/.test(item.textContent)) && document.querySelector('.agent-approval input').checked === false`), true, 'reset clears outputs, plans, commits, and approval; initial capability discovery is allowed')
+  }
+  assert.deepEqual(liveRequests, [], 'guided demo never fetches live configuration or proposals')
+  if (proposalMock) assert.equal(proposalMock.requests.length, 0, 'all workflows leave even a configured provider untouched')
+  await route('sheets?feature=editor')
+  await evaluate(`window.scrollTo({ top: 0, behavior: 'instant' })`)
+  for (const width of [1200, 1024, 768]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: false })
+    await until(`document.querySelector('.app-main').scrollWidth <= document.querySelector('.app-main').clientWidth`, `four-tool layout fits width ${width}`, 1000)
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  await until(`document.documentElement.scrollWidth <= 390`, 'mobile first tool has no horizontal overflow')
+  assert.ok(await evaluate(`(() => {
+    const rail = document.querySelector('.app-sidebar'), nav = rail.querySelector('.tool-nav');
+    return getComputedStyle(nav).display === 'grid' && getComputedStyle(rail).position === 'relative'
+      && Math.abs(rail.getBoundingClientRect().height - nav.getBoundingClientRect().height) < 2;
+  })()`), 'mobile index wraps all examples with no reserved blank area')
+  await screenshot('four-tools-mobile')
+  await route('agent?format=sheets')
+  await until(agentReady, 'mobile AI sample ready', 90_000)
+  await clickButton('Preview change')
+  await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'awaiting-approval'`, 'mobile AI preview prepared', 90_000)
+  await openAgentDetails('data-agent-technical')
+  await evaluate(`document.querySelector('[data-agent-trace]').open = true`)
+  assert.equal(await evaluate(`(() => {
+    const workspace = document.querySelector('.agent-demo__workspace').getBoundingClientRect();
+    const inspector = document.querySelector('.agent-demo__inspector').getBoundingClientRect();
+    const trace = document.querySelector('[data-agent-trace]').getBoundingClientRect();
+    const section = document.querySelector('[data-agent-tool]');
+    return workspace.bottom <= trace.top + 1 && inspector.bottom <= workspace.bottom + 1 && section.scrollWidth <= section.clientWidth && document.documentElement.scrollWidth <= 390;
+  })()`), true, 'mobile AI workbook and inspector fit their section and never overlap the expanded trace')
+  assert.equal(await evaluate(`(() => {
+    const frame = document.querySelector('.agent-artifact__sheet-scroll');
+    const table = frame.querySelector('table');
+    frame.scrollLeft = 80;
+    return frame.scrollWidth > frame.clientWidth && frame.scrollLeft > 0 && table.getBoundingClientRect().width >= 720;
+  })()`), true, 'mobile workbook retains readable columns with keyboard-focusable internal horizontal scrolling')
+  assert.equal(await evaluate(`Array.from(document.querySelectorAll('.agent-flight-recorder li')).every(item => item.getBoundingClientRect().width >= 96)`), true, 'mobile workflow labels keep readable internal scroll columns')
+  await evaluate(`document.querySelector('.agent-artifact__sheet-scroll').scrollLeft = 0; document.querySelector('.agent-artifact__sheet-scroll').scrollIntoView({ block: 'start' })`)
+  await screenshot('agent-mobile-workbook')
+  await evaluate(`document.querySelector('[data-agent-trace]').scrollIntoView({ block: 'start' })`)
+  await screenshot('agent-mobile-expanded-trace')
+  for (const tool of ['docs', 'slides', 'pdf']) {
+    await route(`agent?format=${tool}`)
+    await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'ready' && Array.from(document.querySelectorAll('button')).some(button => button.textContent.trim() === 'Preview change' && !button.disabled)`, `${tool} mobile sample ready`, 90_000)
+    await clickButton('Preview change')
+    await until(`document.querySelector('.agent-demo__status')?.dataset.state === 'awaiting-approval'`, `${tool} mobile preview ready`, 90_000)
+    await openAgentDetails('data-agent-technical')
+  await evaluate(`document.querySelector('[data-agent-trace]').open = true`)
+    assert.equal(await evaluate(`(() => {
+      const workspace = document.querySelector('.agent-demo__workspace').getBoundingClientRect();
+      const inspector = document.querySelector('.agent-demo__inspector').getBoundingClientRect();
+      const trace = document.querySelector('[data-agent-trace]').getBoundingClientRect();
+      const section = document.querySelector('[data-agent-tool]');
+      return workspace.bottom <= trace.top + 1 && inspector.bottom <= workspace.bottom + 1 && section.scrollWidth <= section.clientWidth && document.documentElement.scrollWidth <= 390;
+    })()`), true, `${tool} mobile content has no horizontal overflow or trace overlap`)
+    await evaluate(`document.querySelector('.agent-artifact').scrollIntoView({ block: 'start' })`)
+    await screenshot(`agent-mobile-${tool}-content`)
+    await evaluate(`document.querySelector('[data-agent-trace]').scrollIntoView({ block: 'start' })`)
+    await screenshot(`agent-mobile-${tool}-trace`)
+  }
+  await route('charts')
+  await screenshot('focused-chart-mobile')
+  await evaluate(`document.querySelector('.scheme-toggle button:last-child').click()`)
+  await until(`document.documentElement.dataset.theme === 'dark'`, 'dark theme')
+  await screenshot('focused-chart-dark')
+  assert.deepEqual(errors, [], 'uncaught or console errors')
+  console.log(JSON.stringify({ status: 'passed', mode: process.argv.includes('--dev') ? 'development' : process.argv.includes('--built') ? 'built' : 'existing-server', screenshots: output, checks: ['four tool sections and 28 indexed examples without management menus', 'empty and legacy overview URLs replace history and open Sheets', 'brand opens the first editor', 'all retained feature panels accessible', 'legacy links open the correct tool feature', 'continuous workspace navigation', 'cold-feature isolation', 'four AI approvals and refusals', 'default zero-configuration mock with honest labels and no upstream calls', 'mock transport and unsupported-prompt recovery', 'editable agent requests and public tool trace', 'idempotent native commit retry', 'stale approval refusal', 'post-write verification failure', 'AI proof boundaries and reload isolation', 'numeric chart source and reload', 'same-workspace deep link', 'mobile layout', 'dark theme'], errors }, null, 2))
+} catch (error) {
+  if (socket?.readyState === WebSocket.OPEN) {
+    await screenshot('failure')
+    console.error(JSON.stringify({ screenshots: output, errors, state: await evaluate(`({ hash: location.hash, canvasCount: document.querySelectorAll('canvas').length, chartCount: window.__injoffice?.charts?.list().length, text: document.querySelector('.app-main')?.innerText.slice(0, 3500) })`) }, null, 2))
+  }
+  throw error
+} finally {
+  for (const task of pending.values()) clearTimeout(task.timer)
+  socket?.close()
+  try { if (chrome) await terminateProcess(chrome.child) }
+  finally {
+    try { await staticServer?.close() }
+    finally { try { await proposalMock?.close() } finally { restoreProposalEnv?.() } }
+  }
+}

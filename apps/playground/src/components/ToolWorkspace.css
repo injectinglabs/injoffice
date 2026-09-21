@@ -1,0 +1,43 @@
+.ds.tool-workspace { display: flex; flex-direction: column; min-width: 0; }
+.ds .tool-workspace__sample-note { margin: 0; padding: 16px 20px; max-width: 80ch; font-size: 14px; line-height: 1.6; color: var(--ds-mute); }
+.ds .tool-workspace__panel { display: flex; flex-direction: column; min-width: 0; scroll-margin-top: 72px; }
+.ds .tool-workspace__panel + .tool-workspace__panel { margin-top: 40px; border-top: 1px solid var(--ds-line); }
+.ds .tool-workspace__heading { padding: 20px; }
+.ds .tool-workspace__heading h3 { margin: 0; font-size: 20px; line-height: 1.3; font-weight: 600; }
+.ds .tool-workspace__heading p { margin: 8px 0 0; max-width: 76ch; color: var(--ds-mute); font-size: 14px; line-height: 1.6; }
+.ds .tool-workspace__content { display: flex; flex-direction: column; min-width: 0; height: clamp(640px, calc(100dvh - 180px), 900px); overflow: auto; }
+.ds .tool-workspace__content > * { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.ds .tool-workspace__loading, .ds .tool-workspace__error { padding: 32px 24px; min-height: 180px; }
+.ds .tool-workspace__error p { max-width: 75ch; overflow-wrap: anywhere; }
+
+/* All examples occupy normal document flow. Only editor viewports scroll locally. */
+.app-shell[data-navigation="scroll"] .demo-preview:has(.tool-workspace),
+.app-shell[data-navigation="scroll"] .demo-stage:has(.tool-workspace),
+.app-shell[data-navigation="scroll"] .tool-workspace { height: auto; max-height: none; overflow: visible; }
+.app-shell[data-navigation="scroll"] [data-workspace-panel="agent"] .tool-workspace__content,
+.app-shell[data-navigation="scroll"] [data-workspace-panel="agent"] .tool-workspace__content > .ds,
+.app-shell[data-navigation="scroll"] [data-workspace-panel="agent"] [data-demo-surface="agent"] { height: auto; min-height: 0; max-height: none; flex: 1 0 auto; overflow: visible; }
+.app-shell[data-navigation="scroll"] [data-workspace-panel="agent"] .agent-demo__workspace { height: auto; min-height: auto; flex: 0 0 auto; overflow: visible; }
+.app-shell[data-navigation="scroll"] [data-workspace-panel="agent"] .agent-demo__inspector,
+.app-shell[data-navigation="scroll"] [data-workspace-panel="agent"] .agent-artifact,
+.app-shell[data-navigation="scroll"] [data-workspace-panel="agent"] .agent-demo__document { height: auto; max-height: none; overflow: visible; scrollbar-gutter: auto; }
+
+.app-shell .tool-nav-examples + .tool-nav-examples { margin-top: 20px; }
+.app-shell .tool-nav-title { font-weight: 600; }
+.app-shell .tool-nav-examples ul { list-style: none; padding: 4px 0 0 12px; margin: 0; }
+.app-shell .tool-nav-examples li { margin: 0; }
+.app-shell .tool-nav-examples li a { padding: 8px 10px; font-size: 13px; line-height: 1.4; }
+.app-shell .tool-nav a[aria-current="true"] { color: var(--action); background: var(--action-soft); font-weight: 600; }
+.examples-index-link { display: none; }
+
+@media (max-width: 760px) {
+  .app-shell .examples-index-link { display: inline-flex; padding: 8px; color: var(--ink); font-size: 13px; }
+  .app-shell #demo-navigation { scroll-margin-top: 64px; }
+  /* Keep every example discoverable without a dropdown or an endless horizontal strip. */
+  .app-shell[data-navigation="scroll"] .app-sidebar { position: relative; top: auto; height: auto; max-height: none; overflow: visible; }
+  .app-shell[data-navigation="scroll"] .tool-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; width: 100%; padding: 12px; }
+  .app-shell .tool-nav-examples + .tool-nav-examples { margin-top: 0; }
+  .app-shell[data-navigation="scroll"] .tool-nav a { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  .ds .tool-workspace__heading { padding: 16px 12px; }
+  .ds .tool-workspace__sample-note { padding: 12px; }
+}

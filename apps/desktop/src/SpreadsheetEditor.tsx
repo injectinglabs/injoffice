@@ -1,0 +1,452 @@
+import { EditorStatus } from './EditorStatus';
+import { useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { createXlsxWasmClient, adaptWorkbookMutationBatchV1, type XlsxNativeChart } from '@injoffice/xlsx-wasm';
+import type { NativeWorkbookV2, StyleDelta } from '@injoffice/sheets/browser';
+import { SpreadsheetCharts } from './SpreadsheetCharts';
+import ContextMenu, { contextMenuCellKey, spreadsheetContextMenu, useContextMenu } from './ContextMenu';
+import SpreadsheetNumberFormat from './SpreadsheetNumberFormat';
+import { SheetToggle, SheetColorButton, SheetBordersMenu, SheetMenuButton, HORIZONTAL_ALIGNMENTS, VERTICAL_ALIGNMENTS } from './spreadsheet-home';
+import { visibleRowWindow, visibleRowStep, borderOperations, address, cellDisplay, editableCellText, clearOperations, commandBatch, contains, copySelection, MAX_COLUMNS, MAX_ROWS, parseAddress, parseSelection, pasteOperations, selectedRange, selectionLabel, valueOperation, recoveryDraft, validateRecoveryDraft, type SpreadsheetRecoveryDraft, type Position, type Selection, type SheetOperation } from './spreadsheetCommands';
+import { calculationInput, createSpreadsheetCalculator } from './spreadsheetCalculation';
+import type { LocalCalculationResult } from '../../../packages/formulas/src/localWorkbookCalculation';
+import { exportDelimitedSheet, type DelimitedExportMode } from './spreadsheetDelimited';
+import type { DelimitedFormat } from './delimitedText';
+import { sheetLifecycleReason } from './spreadsheetSheetPolicy';
+import { engineErrorMessage } from './engine-result';
+import Ribbon, { RibbonButton, RibbonRows, type RibbonTabSpec } from './Ribbon';
+import RibbonIcon from './RibbonIcons';
+import './ribbon.css';
+import './spreadsheet.css';
+
+function definedNameCaseKey(value: string): string { return value.toLowerCase(); }
+
+
+/** Excel's dark mode paints automatic (black) cell text in the theme's colour and keeps an
+    authored colour as it is; text over an authored fill stays dark so the fill keeps working. */
+function cellInk(color?: string, fill?: string): string | undefined {
+  if (color && !/^#?(ff)?0{6}$/i.test(color)) return color;
+  return fill ? 'var(--document-text)' : undefined;
+}
+
+export interface OfficeEditorProps { documentKey?: number; onInitialLoadError?: (reason: string) => void; registerHistory?: (commands: { undo(): void; redo(): void; canUndo?: boolean; canRedo?: boolean }) => void; registerCommit?: (commit: () => Promise<boolean>) => void; initialRecoveryDraft?: unknown; onRecoveryDraftChange?: (draft: unknown | null) => void; name: string; bytes: Uint8Array; onChange: (bytes: Uint8Array) => void; onBusyChange?: (busy: boolean) => void; onDraftChange?: (dirty: boolean) => void; viewOptions?: { zoom: number; navigation: boolean; focus: boolean } }
+
+type Snapshot = { bytes: Uint8Array; workbook: NativeWorkbookV2; calculation?: LocalCalculationResult; calculationRevision?: string; charts: XlsxNativeChart[]; chartError?: string };
+const initialSelection: Selection = { anchor: { row: 0, column: 0 }, end: { row: 0, column: 0 } };
+/** Excel scrolls the grid continuously; rows and columns are rendered in blocks that
+    grow as the scroller approaches their edge and slide once the rendered window is full. */
+type SheetView = { row: number; rows: number; column: number; columns: number };
+const ROW_BLOCK = 200, MAX_RENDERED_ROWS = 600, COLUMN_BLOCK = 20, MAX_RENDERED_COLUMNS = 60;
+const initialView: SheetView = { row: 0, rows: ROW_BLOCK, column: 0, columns: COLUMN_BLOCK + 10 };
+function viewAt(position: Position): SheetView { return { row: position.row, rows: ROW_BLOCK, column: position.column, columns: initialView.columns }; }
+const HISTORY_LIMIT = 20, HISTORY_BYTES = 128 * 1024 * 1024;
+function historyPush(list: Snapshot[], entry: Snapshot): Snapshot[] {
+  const result = [...list, entry].slice(-HISTORY_LIMIT); let bytes = result.reduce((sum, item) => sum + item.bytes.byteLength, 0);
+  while (bytes > HISTORY_BYTES && result.length) bytes -= result.shift()!.bytes.byteLength;
+  return result;
+}
+
+/** Local authoring over the native, revision-guarded XLSX transaction API. */
+export function SpreadsheetEditor(props: OfficeEditorProps & { initialRecoveryDraft?: unknown; onRecoveryDraftChange?(draft: unknown | null): void; registerCommit?(commit: () => Promise<boolean>): void; registerHistory?(commands: { undo(): void; redo(): void }): void }) {
+  const instanceId = useId();
+  const cellId = (cell: string) => `sheet-cell-${props.documentKey ?? instanceId}-${sheetId}-${cell}`;
+  const calculator = useRef<ReturnType<typeof createSpreadsheetCalculator> | null>(null);
+  const historyLatest = useRef<(direction: 'undo' | 'redo') => void>(() => {});
+  const callbacks = useRef(props); callbacks.current = props;
+  const client = useRef<ReturnType<typeof createXlsxWasmClient> | null>(null);
+  const current = useRef<Snapshot | null>(null), emitted = useRef<Uint8Array | null>(null), mounted = useRef(false), locked = useRef(false);
+  const undo = useRef<Snapshot[]>([]), redo = useRef<Snapshot[]>([]);
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null), [busy, setBusy] = useState(true), [error, setError] = useState('');
+  const [sheetId, setSheetId] = useState(''), [selection, setSelection] = useState<Selection>(initialSelection), [view, setView] = useState<SheetView>(initialView);
+  const scrollTarget = useRef<string | null>(null), scrollAnchor = useRef<{ row: string; top: number; scrollTop: number; address?: string; left: number; scrollLeft: number } | null>(null);
+  const draftTarget = useRef<SpreadsheetRecoveryDraft | null>(null), composing = useRef(false), commitLatest = useRef<() => Promise<boolean>>(async () => false);
+  const [draft, setDraft] = useState<string | null>(null), draftRef = useRef<string | null>(null), [inline, setInline] = useState(false), [entry, setEntry] = useState<'enter' | 'edit'>('enter');
+  const [borderLine, setBorderLine] = useState<NonNullable<StyleDelta['border_top']>['style']>('thin'), [borderColor, setBorderColor] = useState('#000000');
+  const [chartsOpen, setChartsOpen] = useState(false), [ribbonTab, setRibbonTab] = useState('Home');
+  const [namesOpen, setNamesOpen] = useState(false), [definedNameText, setDefinedNameText] = useState('');
+  const [exportFormat, setExportFormat] = useState<DelimitedFormat>('csv'), [exportMode, setExportMode] = useState<DelimitedExportMode>('values');
+  const [filterOpen, setFilterOpen] = useState(false), [filterColumn, setFilterColumn] = useState(0), [filterValues, setFilterValues] = useState(''), [filterBlank, setFilterBlank] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false), [sortColumn, setSortColumn] = useState(0), [sortHeader, setSortHeader] = useState(true), [sortDescending, setSortDescending] = useState(false);
+  const [sheetAction, setSheetAction] = useState<'add' | 'rename' | 'delete' | null>(null), [sheetName, setSheetName] = useState('');
+  const [location, setLocation] = useState('A1'), [rowHeight, setRowHeight] = useState('20'), [columnWidth, setColumnWidth] = useState('12');
+  const [frozenHeights, setFrozenHeights] = useState<Record<number, number>>({});
+  const [notice, setNotice] = useState(''), [, historyVersion] = useState(0);
+  const grid = useRef<HTMLDivElement>(null), inlineInput = useRef<HTMLInputElement>(null), dragging = useRef(false);
+  const menu = useContextMenu();
+  // Host busy state describes operations only; pending cell text uses onDraftChange.
+  function setWorking(value: boolean) { locked.current = value; setBusy(value); callbacks.current.onBusyChange?.(value); }
+  function updateDraft(value: string | null) {
+    draftRef.current = value; setDraft(value); callbacks.current.onDraftChange?.(value !== null);
+    if (value === null) { draftTarget.current = null; callbacks.current.onRecoveryDraftChange?.(null); }
+    else if (current.current) {
+      try { draftTarget.current = recoveryDraft(current.current.workbook, draftTarget.current?.sheetId ?? sheetId, draftTarget.current ?? selection.anchor, value); callbacks.current.onRecoveryDraftChange?.(draftTarget.current); }
+      catch (reason) { setError(`Draft cannot be checkpointed: ${reason instanceof Error ? reason.message : String(reason)}`); }
+    }
+  }
+  useEffect(() => {
+    mounted.current = true; calculator.current = createSpreadsheetCalculator(); const worker = createXlsxWasmClient(); client.current = worker;
+    return () => { mounted.current = false; calculator.current?.terminate(); calculator.current = null; worker.terminate(); client.current = null; callbacks.current.onBusyChange?.(false); callbacks.current.onDraftChange?.(false); };
+  }, []);
+  const initiallyLoaded = useRef(false);
+  useEffect(() => {
+    if (props.bytes === emitted.current) return;
+    let cancelled = false; const worker = client.current!, pendingRecovery = props.initialRecoveryDraft; setWorking(true); setError(''); draftRef.current = null; draftTarget.current = null; setDraft(null); setInline(false); callbacks.current.onDraftChange?.(false); current.current = null; setSnapshot(null);
+    worker.extract(props.bytes).then(async workbook => {
+      const chartState = await readChartState(props.bytes, workbook);
+      if (cancelled) return;
+      initiallyLoaded.current = true;
+      const next = { bytes: props.bytes.slice(), workbook, ...chartState }; current.current = next; setSnapshot(next); undo.current = []; redo.current = [];
+      setSheetId(workbook.sheets.find(sheet => sheet.state === 'visible')?.id ?? workbook.sheets[0]?.id ?? ''); setSelection(initialSelection); resetView(); setLocation('A1'); setNotice('');
+      if (pendingRecovery != null) {
+        try {
+          const recovered = validateRecoveryDraft(workbook, pendingRecovery), position = { row: recovered.row, column: recovered.column };
+          draftTarget.current = recovered; draftRef.current = recovered.value; setEntry('edit'); setDraft(recovered.value); setInline(true); setSheetId(recovered.sheetId); setSelection({ anchor: position, end: position }); setLocation(address(position)); setView(viewAt(position)); scrollTarget.current = address(position);
+          callbacks.current.onDraftChange?.(true); callbacks.current.onRecoveryDraftChange?.(recovered); setNotice('Recovered pending cell input. Apply or cancel to continue.');
+        } catch (reason) { setError(engineErrorMessage(reason)); callbacks.current.onRecoveryDraftChange?.(null); }
+      }
+    }).catch(reason => { if (!cancelled) { setError(engineErrorMessage(reason)); if (!initiallyLoaded.current) callbacks.current.onInitialLoadError?.(engineErrorMessage(reason)); } }).finally(() => { if (!cancelled) setWorking(false); });
+    return () => { cancelled = true; };
+  }, [props.bytes]);
+  useEffect(() => { if (inline && draft !== null) inlineInput.current?.focus(); }, [inline, draft !== null]);
+  const workbook = snapshot?.workbook, sheet = workbook?.sheets.find(value => value.id === sheetId);
+  const calculatedCells = useMemo(() => new Map(snapshot?.calculation?.cells.map(cell => [`${cell.sheetId}:${cell.row}:${cell.column}`, cell]) ?? []), [snapshot?.calculation]);
+  const cells = useMemo(() => new Map(sheet?.cells.map(cell => [address(cell), cell]) ?? []), [sheet]);
+  const range = selectedRange(selection), active = cells.get(address(selection.anchor));
+  const style = workbook?.styles.find(value => value.id === active?.style_id)?.effective;
+  const merge = sheet?.merged_ranges.find(value => contains(value, selection.anchor));
+  const canEdit = Boolean(sheet?.editable && !merge && active?.editable !== false);
+  const mergeReason = workbook?.unsupported.some(item => item.scope_id === `sheet:${sheetId}` && ['TABLE_REFERENCE','UNMODELED_WORKSHEET_FEATURE','WORKSHEET_EXTENSIONS'].includes(item.code))
+    ? 'Merge changes are unavailable for this worksheet’s tables or unmodeled regions.'
+    : merge ? undefined
+    : range.row === range.end_row && range.column === range.end_column ? 'Select at least two cells to merge.'
+    : sheet?.merged_ranges.some(item => item.row <= range.end_row && item.end_row >= range.row && item.column <= range.end_column && item.end_column >= range.column) ? 'Unmerge overlapping cells first.'
+    : sheet?.cells.some(cell => contains(range, cell) && (cell.row !== range.row || cell.column !== range.column) && (cell.formula || (cell.value && !(cell.value.kind === 'string' && cell.value.text === '')))) ? 'Only the top-left cell may contain a value. Move other values before merging.'
+    : undefined;
+
+  const selectedDefinedName = workbook?.defined_names?.find(name=>name.scope_sheet_id===undefined&&definedNameCaseKey(name.name)===definedNameCaseKey(definedNameText));
+  function chooseDefinedName(name: NonNullable<NativeWorkbookV2['defined_names']>[number]) {
+    if(locked.current||draftRef.current!==null)return;
+    if(name.editable)setDefinedNameText(name.name);
+    if(!name.target_sheet_id||!name.ref||!workbook?.sheets.some(sheet=>sheet.id===name.target_sheet_id&&sheet.state==='visible'))return;
+    try{const next=parseSelection(name.ref);setSheetId(name.target_sheet_id);setSelection(next);setLocation(name.ref);setView(viewAt(next.anchor));scrollTarget.current=address(next.anchor);}catch(reason){setError(String(reason));}
+  }
+  const disabled = busy || draft !== null || !sheet?.editable;
+  const disabledReason = busy ? 'Wait for the workbook operation to finish.' : draft !== null ? 'Apply or cancel the cell edit first.' : !sheet?.editable ? 'This worksheet is read-only.' : undefined;
+  const structureUnsupported = workbook?.unsupported.find(item => item.capability !== 'styles' && item.code !== 'RICH_SHARED_STRING' && !['WORKSHEET_DIMENSION_METADATA','WORKBOOK_VIEW_METADATA','MERGED_CELLS','UNMODELED_WORKBOOK_FEATURE'].includes(item.code));
+  const structureReason = structureUnsupported ? `Row and column changes cannot preserve ${structureUnsupported.code.toLowerCase().replaceAll('_', ' ')} references.`
+    : workbook?.sheets.some(value => !value.editable || value.cells.some(cell => cell.formula && (!cell.editable || cell.formula.type !== 'normal'))) ? 'Row and column changes require editable sheets and ordinary formulas.'
+    : undefined;
+
+  const addSheetReason=sheetLifecycleReason(workbook,sheetId,'add'), deleteSheetReason=sheetLifecycleReason(workbook,sheetId,'delete');
+  /** Keep the rendered window over the position and scroll it into view after the next paint. */
+  function reveal(position: Position) {
+    setView(previous => {
+      let next = previous;
+      if (position.row < previous.row) next = { ...next, row: Math.max(0, position.row) };
+      else if (position.row >= previous.row + previous.rows) {
+        const wanted = position.row - previous.row + 1;
+        next = wanted <= MAX_RENDERED_ROWS ? { ...next, rows: Math.min(MAX_RENDERED_ROWS, Math.max(wanted, previous.rows + ROW_BLOCK)) } : { ...next, row: position.row, rows: ROW_BLOCK };
+      }
+      if (position.column < next.column) next = { ...next, column: Math.max(0, position.column) };
+      else if (position.column >= next.column + next.columns) {
+        const wanted = position.column - next.column + 1;
+        next = wanted <= MAX_RENDERED_COLUMNS ? { ...next, columns: Math.min(MAX_RENDERED_COLUMNS, Math.max(wanted, next.columns + COLUMN_BLOCK)) } : { ...next, column: position.column, columns: initialView.columns };
+      }
+      return next === previous ? previous : next;
+    });
+    scrollTarget.current = address(position);
+  }
+  function resetView() { setView(initialView); scrollTarget.current = address({ row: 0, column: 0 }); }
+  /** Grow (then slide) the rendered window as the scroller nears its edges — Excel has no row pager.
+      A wheel at a pinned edge moves nothing, so it has to ask for the next block itself. */
+  function growView(element: HTMLDivElement, wheel?: { x: number; y: number }) {
+    const down = element.scrollTop + element.clientHeight >= element.scrollHeight - 240 && (wheel ? wheel.y > 0 : true);
+    const across = element.scrollLeft + element.clientWidth >= element.scrollWidth - 160 && (wheel ? wheel.x > 0 : true);
+    const up = element.scrollTop <= 120 && view.row > 0 && (wheel ? wheel.y < 0 : true);
+    const back = element.scrollLeft <= 80 && view.column > 0 && (wheel ? wheel.x < 0 : true);
+    let next = view;
+    if (down) {
+      if (next.rows < MAX_RENDERED_ROWS) next = { ...next, rows: Math.min(MAX_RENDERED_ROWS, next.rows + ROW_BLOCK) };
+      else if (next.row + next.rows < MAX_ROWS) next = { ...next, row: Math.min(MAX_ROWS - next.rows, next.row + ROW_BLOCK) };
+    } else if (up) next = { ...next, row: Math.max(0, next.row - ROW_BLOCK) };
+    if (across) {
+      if (next.columns < MAX_RENDERED_COLUMNS) next = { ...next, columns: Math.min(MAX_RENDERED_COLUMNS, next.columns + COLUMN_BLOCK) };
+      else if (next.column + next.columns < MAX_COLUMNS) next = { ...next, column: Math.min(MAX_COLUMNS - next.columns, next.column + COLUMN_BLOCK) };
+    } else if (back) next = { ...next, column: Math.max(0, next.column - COLUMN_BLOCK) };
+    if (next === view) return;
+    // Sliding the window keeps the cells under the pointer where they are: remember one
+    // rendered row (and cell) and put the scroll offset back on it after the next paint.
+    if (next.row !== view.row || next.column !== view.column) {
+      const anchorRow = [...element.querySelectorAll<HTMLTableRowElement>('tr[data-sheet-row]')].find(row => row.offsetTop + row.offsetHeight > element.scrollTop);
+      const anchorCell = [...(anchorRow?.querySelectorAll<HTMLTableCellElement>('td[data-address]') ?? [])].find(cell => cell.offsetLeft + cell.offsetWidth > element.scrollLeft);
+      scrollAnchor.current = anchorRow ? { row: anchorRow.dataset.sheetRow!, top: anchorRow.offsetTop, scrollTop: element.scrollTop, address: anchorCell?.dataset.address, left: anchorCell?.offsetLeft ?? 0, scrollLeft: element.scrollLeft } : null;
+    }
+    setView(next);
+  }
+  useLayoutEffect(() => {
+    const scroller = grid.current; if (!scroller) return;
+    const anchor = scrollAnchor.current; scrollAnchor.current = null;
+    if (anchor) {
+      const row = scroller.querySelector<HTMLTableRowElement>(`tr[data-sheet-row="${anchor.row}"]`);
+      if (row) scroller.scrollTop = Math.max(0, anchor.scrollTop + (row.offsetTop - anchor.top));
+      const cell = anchor.address ? scroller.querySelector<HTMLTableCellElement>(`td[data-address="${anchor.address}"]`) : null;
+      if (cell) scroller.scrollLeft = Math.max(0, anchor.scrollLeft + (cell.offsetLeft - anchor.left));
+    }
+    const target = scrollTarget.current; if (!target) return; scrollTarget.current = null;
+    const cell = scroller.querySelector<HTMLElement>(`[data-address="${target}"]`); if (!cell) return;
+    const box = scroller.getBoundingClientRect(), rect = cell.getBoundingClientRect();
+    const head = scroller.querySelector('thead')?.getBoundingClientRect().height ?? 0, gutter = (cell.parentElement?.firstElementChild as HTMLElement | null)?.getBoundingClientRect().width ?? 0;
+    if (rect.top < box.top + head) scroller.scrollTop -= box.top + head - rect.top;
+    else if (rect.bottom > box.bottom) scroller.scrollTop += rect.bottom - box.bottom;
+    if (rect.left < box.left + gutter) scroller.scrollLeft -= box.left + gutter - rect.left;
+    else if (rect.right > box.right) scroller.scrollLeft += rect.right - box.right;
+  });
+  function select(position: Position, extend = false) {
+    if (locked.current || draftRef.current !== null) return;
+    const merged = sheet?.merged_ranges.find(value => contains(value, position));
+    if (merged && !extend) position = { row: merged.row, column: merged.column };
+    const next = { anchor: extend ? selection.anchor : position, end: position }; setSelection(next); setLocation(selectionLabel(next)); reveal(position);
+  }
+  /** Excel shows "Enter" while a keystroke replaces the cell and "Edit" while F2 or a double-click works inside it. */
+  function startEdit(text = editableCellText(active), inCell = true, mode: 'enter' | 'edit' = 'edit') {
+    if (locked.current || !canEdit) return;
+    setEntry(mode); updateDraft(text); setInline(inCell); setError('');
+  }
+  async function readChartState(bytes: Uint8Array, workbook: NativeWorkbookV2): Promise<{charts: XlsxNativeChart[]; chartError?: string}> {
+    const inspect = client.current?.inspectObjects;
+    if (typeof inspect !== 'function') return { charts: [] };
+    try {
+      const objects = await inspect.call(client.current, bytes, workbook.source.package_sha256);
+      return { charts: Array.isArray(objects?.editable_charts) ? [...objects.editable_charts] : [] };
+    } catch (reason) { return { charts: [], chartError: reason instanceof Error ? reason.message : String(reason) }; }
+  }
+  async function calculateSnapshot(source: Snapshot): Promise<Snapshot> {
+    const result = await calculator.current!.calculate(calculationInput(source.workbook));
+    if (!result.cells.length) return source;
+    return { ...source, calculation: result, calculationRevision: source.workbook.revision };
+  }
+  async function exportSheet() {
+    const before = current.current;
+    const bridge = window.injDesktop as typeof window.injDesktop & { exportBytes?(input: {name:string;bytes:Uint8Array}):Promise<{name:string}|null> };
+    if (!before || locked.current || draftRef.current !== null || !bridge?.exportBytes) return;
+    setWorking(true); setError('');
+    try {
+      const bytes = exportDelimitedSheet(before.workbook, sheetId, exportFormat, exportMode, before.calculation && before.calculationRevision ? {revision:before.calculationRevision,result:before.calculation} : undefined);
+      const sheetName=before.workbook.sheets.find(value=>value.id===sheetId)?.name ?? 'Sheet';
+      const result=await bridge.exportBytes({name:`${props.name.replace(/\.xlsx$/i,'')}-${sheetName}.${exportFormat}`,bytes});
+      if (mounted.current && current.current===before && result) setNotice(`Exported ${result.name}; workbook unchanged`);
+    } catch(reason) {if(mounted.current)setError(engineErrorMessage(reason));}
+    finally {if(mounted.current&&current.current===before)setWorking(false);}
+  }
+  async function recalculate() {
+    const before = current.current;
+    if (!before || locked.current || draftRef.current !== null) return;
+    if (!before.workbook.sheets.some(value => value.cells.some(cell => cell.formula))) { setNotice('This workbook has no formulas.'); return; }
+    setWorking(true); setError('');
+    try {
+      const next = await calculateSnapshot(before);
+      if (!mounted.current || current.current !== before) return;
+      current.current = next; setSnapshot(next);
+      const unresolved = next.calculation?.cells.filter(cell => cell.status === 'unsupported' || cell.status === 'circular').length ?? 0;
+      setNotice(unresolved ? `Calculated locally; ${unresolved} formulas remain unresolved (see cell details).` : 'Formulas calculated locally');
+    } catch (reason) { if (mounted.current) setError(engineErrorMessage(reason)); }
+    finally { if (mounted.current && (current.current === before || emitted.current === current.current?.bytes)) setWorking(false); }
+  }
+  async function execute(operations: SheetOperation[], message = 'Change applied', allowDraft = false): Promise<boolean> {
+    const before = current.current, worker = client.current;
+    if (!before || !worker || locked.current || (!allowDraft && draftRef.current !== null)) return false;
+    setWorking(true); setError('');
+    try {
+      const batch = commandBatch(before.workbook, sheetId, operations, crypto.randomUUID());
+      const bytes = await worker.apply(before.bytes, before.workbook, adaptWorkbookMutationBatchV1(before.workbook, batch));
+      const nextWorkbook = await worker.extract(bytes);
+      let next: Snapshot = { bytes, workbook: nextWorkbook, ...await readChartState(bytes, nextWorkbook) };
+      if (next.workbook.sheets.some(value => value.cells.some(cell => cell.formula))) {
+        try { next = await calculateSnapshot(next); } catch (reason) { setError(`Change saved; calculation is unavailable: ${reason instanceof Error ? reason.message : String(reason)}`); }
+      }
+      if (!mounted.current || current.current !== before) return false;
+      undo.current = historyPush(undo.current, before); redo.current = []; current.current = next; setSnapshot(next); emitted.current = next.bytes;
+      if (allowDraft) { updateDraft(null); setInline(false); }
+      if (operations.some(operation => ['sheet.add','sheet.rename','sheet.delete'].includes(operation.kind))) {
+        const nextSheet = operations[0]?.kind === 'sheet.add' ? next.workbook.sheets.at(-1) : next.workbook.sheets.find(value => value.id === sheetId) ?? next.workbook.sheets.find(value => value.state === 'visible');
+        if (nextSheet) setSheetId(nextSheet.id); setSelection(initialSelection); setLocation('A1'); resetView(); setSheetAction(null);
+      }
+      if (operations.some(operation=>operation.kind==='sheet.filter')) {
+        const filteredSheet=next.workbook.sheets.find(value=>value.id===sheetId);
+        if (filteredSheet?.rows.some(row=>row.hidden&&row.row===selection.anchor.row)) {const start={row:range.row,column:range.column};setSelection({anchor:start,end:start});setView(viewAt(start));scrollTarget.current=address(start);}
+      }
+      callbacks.current.onChange(next.bytes); setSortOpen(false); setFilterOpen(false); setNotice(message); return true;
+    } catch (reason) { if (mounted.current) setError(engineErrorMessage(reason)); return false; }
+    finally { if (mounted.current && (current.current === before || emitted.current === current.current?.bytes)) setWorking(false); }
+  }
+  async function applyDraft(move?: Position): Promise<boolean> {
+    if (draftRef.current === null || composing.current) return false;
+    const formula = draftRef.current.startsWith('=');
+    const applied = await execute([valueOperation(selection.anchor, draftRef.current)], formula ? 'Formula saved' : 'Cell updated', true);
+    if (applied) {
+      if (move) { const next = { anchor: move, end: move }; setSelection(next); setLocation(address(move)); reveal(move); }
+      grid.current?.focus();
+    }
+    return applied;
+  }
+  commitLatest.current = async () => {
+    if (!current.current || locked.current || composing.current) return false;
+    return draftRef.current === null ? true : applyDraft();
+  };
+  useEffect(() => { let live = true; props.registerCommit?.(() => live ? commitLatest.current() : Promise.resolve(false)); return () => { live = false; }; }, [props.registerCommit]);
+  function cancelDraft() { if (locked.current) return; updateDraft(null); setInline(false); grid.current?.focus(); }
+  function restore(direction: 'undo' | 'redo') {
+    if (locked.current || draftRef.current !== null || !current.current) return;
+    const source = direction === 'undo' ? undo : redo, destination = direction === 'undo' ? redo : undo, next = source.current.pop();
+    if (!next) return;
+    destination.current = historyPush(destination.current, current.current); current.current = next; setSnapshot(next); emitted.current = next.bytes; if (!next.workbook.sheets.some(value => value.id === sheetId)) { setSheetId(next.workbook.sheets.find(value => value.state === 'visible')?.id ?? ''); setSelection(initialSelection); setLocation('A1'); resetView(); } callbacks.current.onChange(next.bytes); historyVersion(value => value + 1); setNotice(direction === 'undo' ? 'Change undone' : 'Change restored'); setError('');
+  }
+  historyLatest.current = restore;
+  const canUndo = !disabled && undo.current.length > 0, canRedo = !disabled && redo.current.length > 0;
+  useEffect(() => { let live = true; props.registerHistory?.({ undo: () => { if (live) historyLatest.current('undo'); }, redo: () => { if (live) historyLatest.current('redo'); }, canUndo, canRedo }); return () => { live = false; }; }, [props.registerHistory, canUndo, canRedo]);
+  function historyKeys(event: KeyboardEvent<HTMLElement>) {
+    if (event.defaultPrevented || event.nativeEvent.isComposing || locked.current || draftRef.current !== null || event.altKey || !(event.metaKey || event.ctrlKey)) return;
+    const target = event.target as HTMLElement; if (target.closest('input, textarea, [contenteditable]')) return;
+    const key = event.key.toLowerCase(); if (key === 'z' || key === 'y') { event.preventDefault(); restore(event.shiftKey || key === 'y' ? 'redo' : 'undo'); }
+  }
+  function move(row: number, column: number, extend = false) { let base = extend ? selection.end : selection.anchor; if (!extend && merge) base = { row: row > 0 ? merge.end_row : merge.row, column: column > 0 ? merge.end_column : merge.column }; select({ row: visibleRowStep(base.row, row, hiddenRows), column: Math.min(MAX_COLUMNS - 1, Math.max(0, base.column + column)) }, extend); }
+  function editKeys(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === 'Escape') { event.preventDefault(); cancelDraft(); }
+    else if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); void applyDraft({ row: visibleRowStep(selection.anchor.row, event.key === 'Enter' ? event.shiftKey ? -1 : 1 : 0, hiddenRows), column: Math.min(MAX_COLUMNS - 1, Math.max(0, selection.anchor.column + (event.key === 'Tab' ? event.shiftKey ? -1 : 1 : 0))) }); }
+  }
+  function gridKeys(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget || locked.current || draftRef.current !== null || event.nativeEvent.isComposing) return;
+    const command = event.metaKey || event.ctrlKey;
+    if (command && (event.key.toLowerCase() === 'z' || event.key.toLowerCase() === 'y')) { event.preventDefault(); restore(event.shiftKey || event.key.toLowerCase() === 'y' ? 'redo' : 'undo'); return; }
+    if (command || event.altKey) return;
+    if (event.key === 'Home') { event.preventDefault(); select({ row: selection.anchor.row, column: 0 }, event.shiftKey); return; }
+    const directions: Record<string, [number, number]> = { PageUp: [-60, 0], PageDown: [60, 0], ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Tab: [0, event.shiftKey ? -1 : 1] };
+    if (directions[event.key]) { event.preventDefault(); move(...directions[event.key]!, event.key === 'Tab' ? false : event.shiftKey); }
+    else if (event.key === 'Enter') { event.preventDefault(); move(event.shiftKey ? -1 : 1, 0); }
+    else if (event.key === 'F2') { event.preventDefault(); startEdit(undefined, true, 'edit'); }
+    else if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); try { void execute(clearOperations(selection), 'Selection cleared'); } catch (reason) { setError(String(reason)); } }
+    else if (event.key.length === 1) { event.preventDefault(); startEdit(event.key, true, 'enter'); }
+  }
+  function format(patch: StyleDelta) { if (patch.font_color) patch={...patch,font_color:patch.font_color.toUpperCase()}; if (patch.fill_color) patch={...patch,fill_color:patch.fill_color.toUpperCase()}; void execute([{ kind: 'style.patch', range, style: patch }], 'Formatting applied'); }
+  function applyStructure(structureAction: 'row.insert' | 'row.delete' | 'column.insert' | 'column.delete') {
+    if (disabled || structureReason) return;
+    const rows = structureAction.startsWith('row.');
+    const index = rows ? range.row : range.column, count = rows ? range.end_row - range.row + 1 : range.end_column - range.column + 1;
+    void execute([{ kind: structureAction, index, count }], `${count} ${rows ? 'row(s)' : 'column(s)'} ${structureAction.endsWith('.insert') ? 'inserted' : 'deleted'}`);
+  }
+  function resize(kind: 'row' | 'column') {
+    const value = Number(kind === 'row' ? rowHeight : columnWidth);
+    if (!Number.isFinite(value) || value < 1 || value > (kind === 'row' ? 409.5 : 255)) { setError(kind === 'row' ? 'Row height must be 1–409.5 points.' : 'Column width must be 1–255 characters.'); return; }
+    if ((kind === 'row' ? range.end_row - range.row + 1 : range.end_column - range.column + 1) > 10000) { setError('Resize at most 10,000 rows or columns.'); return; }
+    const operations: SheetOperation[] = kind === 'row' ? Array.from({ length: range.end_row - range.row + 1 }, (_, offset) => ({ kind: 'row.set_height', row: range.row + offset, height_points: value })) : Array.from({ length: range.end_column - range.column + 1 }, (_, offset) => ({ kind: 'column.set_width', column: range.column + offset, width: value }));
+    if (operations.length > 10000) { setError('Resize at most 10,000 rows or columns.'); return; } void execute(operations, `${kind === 'row' ? 'Row height' : 'Column width'} applied`);
+  }
+  const freezeSupported = (sheet?.frozen_rows ?? 0) <= 50 && (sheet?.frozen_columns ?? 0) <= 10;
+  const frozenRows = freezeSupported ? sheet?.frozen_rows ?? 0 : 0, frozenColumns = freezeSupported ? sheet?.frozen_columns ?? 0 : 0;
+  const hiddenRows = useMemo(() => new Set(sheet?.rows.filter(row=>row.hidden).map(row=>row.row) ?? []), [sheet]);
+  const rows = [...new Set([...Array.from({ length: frozenRows }, (_, index) => index), ...visibleRowWindow(view.row, view.rows, hiddenRows)])].filter(row => !hiddenRows.has(row));
+  const columns = [...new Set([...Array.from({ length: frozenColumns }, (_, index) => index), ...Array.from({ length: Math.min(view.columns, MAX_COLUMNS - view.column) }, (_, index) => index + view.column)])].filter(column => !sheet?.columns.find(value => column >= value.column && column <= value.end_column)?.hidden);
+  function columnPixels(column: number) { const width = sheet?.columns.find(value => column >= value.column && column <= value.end_column)?.width ?? 12; return Math.max(24, Math.round(width * 7 + 5)); }
+  useEffect(() => {
+    if (!grid.current || !frozenRows || typeof ResizeObserver === 'undefined') return;
+    const elements = [...grid.current.querySelectorAll<HTMLTableRowElement>('tr[data-sheet-row]')].filter(element => Number(element.dataset.sheetRow) < frozenRows);
+    const measure = () => { const next = Object.fromEntries(elements.map(element => [Number(element.dataset.sheetRow), element.offsetHeight])); setFrozenHeights(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next); };
+    const observer = new ResizeObserver(measure); elements.forEach(element => observer.observe(element)); measure(); return () => observer.disconnect();
+  }, [snapshot, sheetId, view.row, view.rows, view.column, view.columns, frozenRows]);
+  function pinnedCellStyle(row: number, column: number): CSSProperties {
+    const pinRow = row >= 0 && row < frozenRows, pinColumn = column >= 0 && column < frozenColumns;
+    if (!pinRow && !pinColumn) return {};
+    return { position: 'sticky', zIndex: pinRow && pinColumn ? 5 : 3,
+      ...(pinRow ? { top: 27 + rows.filter(value => value < row).reduce((sum, value) => sum + (frozenHeights[value] ?? Math.max(27, (sheet?.rows.find(item => item.row === value)?.height_points ?? 20) * 96 / 72)), 0) } : {}),
+      ...(pinColumn ? { left: 48 + columns.filter(value => value < column).reduce((sum,value) => sum + columnPixels(value), 0) } : {}), backgroundColor: 'var(--sheet-cell-surface)', boxShadow: '1px 1px 0 var(--sheet-gridline)' };
+  }
+  const activeStatus = draft !== null ? (entry === 'enter' ? 'Enter' : 'Edit') : merge ? 'Merged cell — unmerge to edit' : !canEdit ? 'Read-only cell' : 'Ready';
+  // Excel keeps sheet-state notes in the status bar, never as captions over the cells.
+  const sheetNotes: { label: string; note: string }[] = [
+    ...(sheet?.auto_filter ? [{ label: 'Filter Mode', note: `Text filter on ${sheet.auto_filter.ref}. Hidden records are preserved. Clear the filter before editing its text column or resizing its rows.` }] : []),
+    ...(!freezeSupported ? [{ label: 'Panes not pinned', note: 'This saved frozen pane exceeds the display limit of 50 rows and 10 columns. Unfreeze or choose a smaller pane to pin it in this editor.' }] : []),
+  ];
+  const calculationStatus = snapshot?.calculation ? `Local calculation for this revision · ${snapshot.calculation.cells.filter(cell => cell.status === 'unsupported' || cell.status === 'circular').length} formulas unresolved` : 'Formula caches are stored but unverified; recalculate to check them.';
+  // Excel's ribbon, applied to the controls this editor already has. Greyed
+  // controls keep their explanatory titles; only their grouping changes.
+  const ribbonTabs: RibbonTabSpec[] = [
+    { id: 'File', label: 'File', groups: [{ id: 'export', label: 'Export', children: <details className="sheet-dimensions sheet-export"><summary title="Export sheet"><RibbonIcon name="export" />Export sheet</summary><div><label>Format<select aria-label="Delimited export format" value={exportFormat} onChange={event=>setExportFormat(event.target.value as DelimitedFormat)}><option value="csv">CSV</option><option value="tsv">TSV</option></select></label><label>Content<select aria-label="Delimited export content" value={exportMode} onChange={event=>setExportMode(event.target.value as DelimitedExportMode)}><option value="values">Raw values · current calculation required</option><option value="formulas">Formula source · =expressions</option></select></label><small>UTF-8 with CRLF rows. Includes hidden rows and stored blank cells. Cell types, formatting and other sheets are not saved.</small><RibbonButton icon="export" label="Export selected sheet" disabled={busy || draft !== null || !sheet} onClick={()=>void exportSheet()} /></div></details> }] },
+    { id: 'Home', label: 'Home', groups: [
+      { id: 'font', label: 'Font', children: <RibbonRows><div><select className="sheet-font-name" title="Cell font" aria-label="Cell font" disabled={disabled} value={style?.font_name ?? 'Arial'} onChange={event => format({ font_name: event.target.value })}>{[...new Set(['Arial', 'Calibri', 'Times New Roman', 'Courier New', style?.font_name].filter(Boolean) as string[])].map(value => <option key={value}>{value}</option>)}</select><select className="sheet-font-size" title="Cell font size" aria-label="Cell font size" disabled={disabled} value={style?.font_size_points ?? 11} onChange={event => format({ font_size_points: Number(event.target.value) })}>{[...new Set([8, 9, 10, 11, 12, 14, 16, 18, 24, 36, style?.font_size_points ?? 11])].sort((a,b) => a-b).map(value => <option key={value}>{value}</option>)}</select></div><div><RibbonButton icon="bold" label="Bold cells" labelHidden className="sheet-bold" aria-pressed={Boolean(style?.bold)} disabled={disabled} onClick={() => format({ bold: !style?.bold })} /><RibbonButton icon="italic" label="Italic cells" labelHidden className="sheet-italic" aria-pressed={Boolean(style?.italic)} disabled={disabled} onClick={() => format({ italic: !style?.italic })} /><SheetColorButton icon="textColor" label="Text color" disabled={disabled} value={style?.font_color ?? '#20242b'} onChange={value => format({ font_color: value })} /><SheetColorButton icon="fillColor" label="Fill color" disabled={disabled} value={style?.fill_color ?? '#ffffff'} onChange={value => format({ fill_color: value })} /><SheetBordersMenu line={borderLine} color={borderColor} onLine={setBorderLine} onColor={setBorderColor} disabled={disabled} onApply={preset => void execute(borderOperations(selection, preset, { style: borderLine, color: borderColor }), "Borders applied")} /></div></RibbonRows> },
+      { id: 'alignment', label: 'Alignment', children: <RibbonRows>
+        <div className="sheet-alignment-row">{VERTICAL_ALIGNMENTS.map(item => <SheetToggle key={item.value} icon={item.icon} label={item.label} pressed={(style?.vertical_alignment ?? 'bottom') === item.value} disabled={disabled} onClick={() => format({ vertical_alignment: item.value })} />)}<span className="sheet-group-divider" aria-hidden="true" /><RibbonButton icon="wrap" label="Wrap text" labelHidden aria-pressed={Boolean(style?.wrap_text)} disabled={disabled} onClick={() => format({ wrap_text: !style?.wrap_text })} /></div>
+        <div className="sheet-alignment-row">{HORIZONTAL_ALIGNMENTS.map(item => <SheetToggle key={item.value} icon={item.icon} label={item.label} pressed={style?.horizontal_alignment === item.value} disabled={disabled} onClick={() => format({ horizontal_alignment: style?.horizontal_alignment === item.value ? 'general' : item.value })} />)}<span className="sheet-group-divider" aria-hidden="true" /><RibbonButton icon="merge" label={merge ? "Unmerge cells" : "Merge cells"} labelHidden title={mergeReason ?? (merge ? "Unmerge cells" : "Merge selected cells") } aria-pressed={Boolean(merge)} disabled={disabled || Boolean(mergeReason)} onClick={() => void execute([{ kind: merge ? "range.unmerge" : "range.merge", range: merge ? { row: merge.row, column: merge.column, end_row: merge.end_row, end_column: merge.end_column } : range }], merge ? "Cells unmerged" : "Cells merged")} /></div>
+      </RibbonRows> },
+      { id: 'number', label: 'Number', children: <SpreadsheetNumberFormat numberFormat={style?.number_format} disabled={disabled} onChange={value => format({ number_format: value })} /> },
+      { id: 'cells', label: 'Cells', children: <>
+        <SheetMenuButton icon="cellsInsert" label="Insert cells" disabled={disabled} reason={structureReason}>{(['row.insert','column.insert'] as const).map(action => <RibbonButton key={action} icon={action.startsWith('row.') ? 'rowInsert' : 'columnInsert'} label={action === 'row.insert' ? 'Insert sheet rows' : 'Insert sheet columns'} disabled={disabled} onClick={() => applyStructure(action)} />)}</SheetMenuButton>
+        <SheetMenuButton icon="cellsDelete" label="Delete cells" disabled={disabled} reason={structureReason}>{(['row.delete','column.delete'] as const).map(action => <RibbonButton key={action} icon={action.startsWith('row.') ? 'rowDelete' : 'columnDelete'} label={action === 'row.delete' ? 'Delete sheet rows' : 'Delete sheet columns'} disabled={disabled} onClick={() => applyStructure(action)} />)}</SheetMenuButton>
+        <SheetMenuButton icon="cellsFormat" label="Format cells" disabled={disabled}><label>Row height (pt)<input aria-label="Row height in points" type="number" min="1" max="409.5" step="0.5" value={rowHeight} onChange={event => setRowHeight(event.target.value)}/></label><RibbonButton icon="rows" label="Set height" disabled={disabled} onClick={() => resize('row')} /><label>Column width (characters)<input aria-label="Column width in characters" type="number" min="1" max="255" step="0.5" value={columnWidth} onChange={event => setColumnWidth(event.target.value)}/></label><RibbonButton icon="columns" label="Set width" disabled={disabled} onClick={() => resize('column')} /></SheetMenuButton>
+      </> },
+    ] },
+    { id: 'Insert', label: 'Insert', groups: [{ id: 'charts', label: 'Charts', children: <RibbonButton icon="chart" label="Charts" disabled={disabled} title="Insert or edit a chart from the selected numeric range" aria-pressed={chartsOpen} onClick={() => setChartsOpen(value => !value)} /> }] },
+    { id: 'Formulas', label: 'Formulas', groups: [
+      { id: 'names', label: 'Defined Names', children: <RibbonButton icon="names" label="Names" disabled={true} title="Defined names are not supported by the native XLSX transaction" aria-pressed={namesOpen} onClick={()=>setNamesOpen(value=>!value)} /> },
+      { id: 'calculation', label: 'Calculation', children: <RibbonButton icon="recalculate" label="Recalculate" disabled={disabled} onClick={() => void recalculate()} /> },
+    ] },
+    { id: 'Data', label: 'Data', groups: [{ id: 'sort-filter', label: 'Sort & Filter', children: <>
+      <RibbonButton icon="filter" label="Filter text" disabled={disabled} title={disabledReason} onClick={() => { setFilterColumn(range.column); setFilterValues(''); setFilterBlank(false); setFilterOpen(true); }} />
+      <RibbonButton icon="filterClear" label="Clear filter" disabled={disabled || (!sheet?.auto_filter)} title={disabledReason ?? ((!sheet?.auto_filter) ? "There is no filter to clear." : undefined)} onClick={() => void execute([{kind:'sheet.filter',filter:null}], 'Filter cleared; all filtered records shown')} />
+      <RibbonButton icon="sort" label="Sort range" disabled={disabled} title={disabledReason ?? "Select complete records, including stored blank cells, before sorting."} onClick={() => { setSortColumn(range.column); setSortOpen(true); }} />
+    </> }] },
+    { id: 'View', label: 'View', groups: [{ id: 'window', label: 'Window', children: <details className="sheet-dimensions"><summary title="Freeze panes"><RibbonIcon name="freeze" />Freeze panes</summary><div><RibbonButton icon="freeze" label="Freeze top row" disabled={disabled || (sheet?.frozen_rows === 1 && !sheet?.frozen_columns)} title={disabledReason ?? ((sheet?.frozen_rows === 1 && !sheet?.frozen_columns) ? "The top row is already frozen." : undefined)} onClick={() => void execute([{kind:'sheet.freeze',rows:1,columns:0}], 'Top row frozen')} /><RibbonButton icon="freeze" label="Freeze first column" disabled={disabled || (sheet?.frozen_columns === 1 && !sheet?.frozen_rows)} title={disabledReason ?? ((sheet?.frozen_columns === 1 && !sheet?.frozen_rows) ? "The first column is already frozen." : undefined)} onClick={() => void execute([{kind:'sheet.freeze',rows:0,columns:1}], 'First column frozen')} /><RibbonButton icon="freeze" label="Freeze at selection" disabled={disabled || (selection.anchor.row === 0 && selection.anchor.column === 0)} title={disabledReason ?? ((selection.anchor.row === 0 && selection.anchor.column === 0) ? "Select a cell below or to the right of A1." : undefined)} onClick={() => void execute([{kind:'sheet.freeze',rows:selection.anchor.row,columns:selection.anchor.column}], 'Panes frozen at active cell')} /><RibbonButton icon="freeze" label="Unfreeze panes" disabled={disabled || (!sheet?.frozen_rows && !sheet?.frozen_columns)} title={disabledReason ?? ((!sheet?.frozen_rows && !sheet?.frozen_columns) ? "There are no frozen panes." : undefined)} onClick={() => void execute([{kind:'sheet.freeze',rows:0,columns:0}], 'Panes unfrozen')} /></div></details> }] },
+  ];
+  return <section onKeyDown={historyKeys} className="sheet-editor" aria-label={`${props.name} spreadsheet`} aria-busy={busy}>
+    <Ribbon label="Spreadsheet tools" tabs={ribbonTabs} active={ribbonTab} onChange={setRibbonTab} />
+    <div className="sheet-formula-bar">
+      <form onSubmit={event => { event.preventDefault(); try { const next = parseSelection(location); if (draftRef.current !== null || locked.current) return; setSelection(next); setLocation(selectionLabel(next)); reveal(next.anchor); grid.current?.focus(); } catch (reason) { setError(String(reason)); } }}><input aria-label="Cell or range address" title={disabledReason} disabled={busy || draft !== null} value={location} onChange={event => setLocation(event.target.value)}/></form>
+      <span aria-hidden="true" className="sheet-fx">ƒx</span><input aria-label="Cell value or formula" maxLength={32767} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} readOnly={busy || !canEdit} value={draft ?? editableCellText(active)} onChange={event => { if (draftRef.current === null) setEntry('edit'); updateDraft(event.target.value); setInline(false); }} onKeyDown={editKeys}/>
+      {draft !== null && <><RibbonButton icon="check" label="Apply" shortcut="confirm" disabled={busy} onClick={() => void applyDraft()} /><RibbonButton icon="close" label="Cancel" shortcut="cancel" disabled={busy} onClick={cancelDraft} /></>}
+    </div>
+    {namesOpen && <section className="sheet-names" aria-label="Workbook names"><div className="sheet-names-heading"><strong>Workbook names</strong><button type="button" onClick={()=>setNamesOpen(false)}>Close</button></div>
+      <p>Static named ranges persist in the workbook. Local formula calculation does not yet evaluate named references; their results remain unresolved.</p>
+      <form onSubmit={event=>{event.preventDefault();if(sheetId)void execute([{kind:'name.set',name:definedNameText,target_sheet_id:sheetId,range}], 'Workbook name defined; formula caches invalidated');}}><label>Name<input aria-label="Defined name" maxLength={255} value={definedNameText} onChange={event=>setDefinedNameText(event.target.value)} placeholder="Quarterly_Total"/></label><span>Refers to {sheet?.name}!{selectionLabel(selection)}</span><button type="submit" disabled={disabled || !definedNameText || Boolean(selectedDefinedName&&!selectedDefinedName.editable)}>{selectedDefinedName?'Update range':'Define selection'}</button><button type="button" disabled={disabled || !selectedDefinedName?.editable} onClick={()=>void execute([{kind:'name.delete',name:selectedDefinedName!.name}], 'Unused workbook name deleted')}>Delete name</button></form>
+      <div className="sheet-names-list">{workbook?.defined_names?.length?workbook.defined_names.map((name,index)=><div key={`${name.scope_sheet_id??'workbook'}:${name.name}:${index}`} className="sheet-name-entry"><button title={name.formula} disabled={busy || draft!==null || !name.target_sheet_id} onClick={()=>chooseDefinedName(name)}>{name.name}</button><code title={name.formula}>{name.formula}</code><span>{name.scope_sheet_id?`Sheet ${workbook.sheets.find(sheet=>sheet.id===name.scope_sheet_id)?.name??name.scope_sheet_id}`:'Workbook'}{name.editable?'':' · read-only'}</span></div>):<span>No defined names yet.</span>}</div>
+    </section>}
+    {filterOpen && <form className="sheet-lifecycle" aria-label="Filter selected range" onSubmit={event => { event.preventDefault(); const values = filterValues.split('\n').filter(value => value.length > 0); void execute([{kind:'sheet.filter',filter:{ref:`${address({row:range.row,column:range.column})}:${address({row:range.end_row,column:range.end_column})}`,column:filterColumn,values,blank:filterBlank}}], 'Exact text filter applied'); }}>
+      <span>Filter {selectionLabel(selection)} · first row is a header</span><label>Text column<select aria-label="Filter text column" value={filterColumn} onChange={event=>setFilterColumn(Number(event.target.value))}>{Array.from({length:Math.min(100,range.end_column-range.column+1)},(_,index)=>range.column+index).map(column=><option key={column} value={column}>{address({row:0,column}).replace(/\d+$/,'')}</option>)}</select></label>
+      <label>Keep these exact values<textarea aria-label="Filter values, one per line" value={filterValues} onChange={event=>setFilterValues(event.target.value)} rows={3} placeholder="Green
+Blue"/></label><label><input type="checkbox" checked={filterBlank} onChange={event=>setFilterBlank(event.target.checked)}/>Include blank cells</label>
+      <small>Case-insensitive text matching. Numbers, dates, formula criteria, grouped rows and manual hidden rows are preserved and cannot be filtered here.</small>
+      <button type="submit" title={disabledReason ?? "Enter a text value or include blank cells, and select a column within the range."} disabled={disabled || (!filterValues.split('\n').some(value=>value.length) && !filterBlank) || filterColumn < range.column || filterColumn > range.end_column}>Apply filter</button><button type="button" disabled={busy} onClick={()=>setFilterOpen(false)}>Cancel</button>
+    </form>}
+    {sortOpen && <form className="sheet-lifecycle" aria-label="Sort selected range" onSubmit={event => { event.preventDefault(); void execute([{kind:'range.sort',range,key_column:sortColumn,descending:sortDescending,header:sortHeader}], 'Selected records sorted'); }}><span>Sort {selectionLabel(selection)}</span><label>Key column<select aria-label="Sort key column" value={sortColumn} onChange={event => setSortColumn(Number(event.target.value))}>{Array.from({length:Math.min(100,range.end_column-range.column+1)},(_,index)=>range.column+index).map(column=><option key={column} value={column}>{address({row:0,column}).replace(/\d+$/, '')}</option>)}</select></label><label><input type="checkbox" checked={sortHeader} onChange={event=>setSortHeader(event.target.checked)}/>First row is a header</label><label>Order<select aria-label="Sort order" value={sortDescending ? 'descending' : 'ascending'} onChange={event=>setSortDescending(event.target.value==='descending')}><option value="ascending">Ascending</option><option value="descending">Descending</option></select></label><button disabled={disabled || sortColumn < range.column || sortColumn > range.end_column} type="submit">Sort records</button><button disabled={busy} type="button" onClick={()=>setSortOpen(false)}>Cancel</button></form>}
+    {sheetAction && <form className="sheet-lifecycle" aria-label="Worksheet management" onSubmit={event => { event.preventDefault(); void execute([sheetAction === 'delete' ? { kind: 'sheet.delete' } : { kind: sheetAction === 'add' ? 'sheet.add' : 'sheet.rename', name: sheetName }], sheetAction === 'delete' ? 'Worksheet deleted' : sheetAction === 'add' ? 'Worksheet created' : 'Worksheet renamed'); }}>
+      {sheetAction === 'delete' ? <span>Delete “{sheet?.name}” and all its contents? Unused ordinary names scoped to or targeting it will also be removed. You can undo this in the current session.</span> : <label>{sheetAction === 'add' ? 'New worksheet name' : 'Rename worksheet'}<input aria-label="Worksheet name" maxLength={31} autoFocus value={sheetName} onChange={event => setSheetName(event.target.value)}/></label>}
+      <button disabled={disabled || (sheetAction === 'delete' ? Boolean(deleteSheetReason) : sheetAction==='add' ? Boolean(addSheetReason)||!sheetName.trim() : !sheetName.trim())} type="submit">{sheetAction === 'delete' ? 'Delete worksheet' : sheetAction === 'add' ? 'Create worksheet' : 'Rename worksheet'}</button><button type="button" disabled={busy} onClick={() => setSheetAction(null)}>Cancel</button>
+    </form>}
+    {error && <div className="sheet-error" role="alert">{error}</div>}
+    <div className="sheet-content"><div className="sheet-grid-scroll" ref={grid} tabIndex={0} role="grid" aria-label="Worksheet cells" aria-rowcount={MAX_ROWS} aria-colcount={MAX_COLUMNS} aria-activedescendant={cellId(address(selection.anchor))} onKeyDown={gridKeys} onScroll={event => growView(event.currentTarget)} onWheel={event => growView(event.currentTarget, { x: event.deltaX, y: event.deltaY })}
+      onPointerUp={() => { dragging.current = false; }} onPointerLeave={() => { dragging.current = false; }}
+      onContextMenu={event => { const key = contextMenuCellKey(event.target); if (key) { const cell = parseAddress(key); if (!contains(range, cell)) select(cell); } menu.open(event); }}
+      onPaste={event => { if (event.target !== event.currentTarget || draftRef.current !== null || locked.current) return; event.preventDefault(); try { const pasted = pasteOperations(selection.anchor, event.clipboardData.getData('text/plain')); void execute(pasted.operations, 'Pasted cells applied').then(applied => { if (applied) { setSelection(pasted.selection); setLocation(selectionLabel(pasted.selection)); } }); } catch (reason) { setError(String(reason)); } }}
+      onCopy={event => { if (event.target !== event.currentTarget || !sheet) return; try { event.clipboardData.setData('text/plain', copySelection(sheet, selection)); event.preventDefault(); setNotice('Selection copied'); } catch (reason) { setError(String(reason)); } }}>
+      {!snapshot ? <div className="sheet-loading">{busy ? 'Opening workbook…' : 'The workbook could not be opened.'}</div> : <table className="sheet-grid" style={{ zoom: Math.max(50, Math.min(200, props.viewOptions?.zoom ?? 100)) / 100, width: 48 + columns.reduce((sum, column) => sum + columnPixels(column), 0) }} role="presentation"><colgroup><col style={{ width: 48 }}/>{columns.map(column => <col key={column} style={{ width: columnPixels(column) }}/>)}</colgroup><thead><tr role="row"><th className="sheet-corner" aria-hidden="true"/>{columns.map(column => <th key={column} scope="col" role="columnheader" className={column === selection.anchor.column ? 'is-active' : undefined} style={column < frozenColumns ? {...pinnedCellStyle(-1,column),top:0,zIndex:6,backgroundColor:'var(--surface-muted)'} : undefined}>{address({ row: 0, column }).replace(/\d+$/, '')}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row} data-sheet-row={row} role="row" aria-rowindex={row + 1} style={{ height: Math.max(24, (sheet?.rows.find(value => value.row === row)?.height_points ?? 20) * 96 / 72) }}><th scope="row" role="rowheader" className={row === selection.anchor.row ? 'is-active' : undefined} style={row < frozenRows ? {...pinnedCellStyle(row,-1),left:0,zIndex:6,backgroundColor:'var(--surface-muted)'} : undefined}>{row + 1}</th>{columns.map(column => {
+        const position = { row, column }, merged = sheet?.merged_ranges.find(value => contains(value, position));
+        if (merged && (row !== rows.find(value => value >= merged.row) || column !== columns.find(value => value >= merged.column))) return null;
+        const source = merged ? { row: merged.row, column: merged.column } : position, key = address(source), cell = cells.get(key), display = cellDisplay(workbook!, cell), calculation = calculatedCells.get(`${sheetId}:${source.row}:${source.column}`), effective = workbook?.styles.find(value => value.id === cell?.style_id)?.effective;
+        if (calculation) { display.note = calculation.message ?? 'Calculated locally for this workbook revision.'; if (calculation.status === 'unsupported' || calculation.status === 'circular') display.text = calculation.status === 'circular' ? '#CIRCULAR!' : '#UNSUPPORTED'; }
+        const selected = contains(range, position), isActive = address(selection.anchor) === key || Boolean(merged && contains(merged, selection.anchor));
+        const css: CSSProperties = { ...pinnedCellStyle(row,column), fontFamily: effective?.font_name ? `"${effective.font_name}", var(--sheet-cell-font)` : undefined, fontSize: effective?.font_size_points ? `${effective.font_size_points}pt` : undefined, fontWeight: effective?.bold ? 700 : undefined, fontStyle: effective?.italic ? 'italic' : undefined, color: cellInk(effective?.font_color, effective?.fill_color), backgroundColor: effective?.fill_color ?? (row < frozenRows || column < frozenColumns ? 'var(--sheet-cell-surface)' : undefined), textAlign: effective?.horizontal_alignment === 'general' || !effective?.horizontal_alignment ? cell?.value?.kind === 'number' ? 'right' : 'left' : effective.horizontal_alignment as CSSProperties['textAlign'], verticalAlign: effective?.vertical_alignment === 'middle' ? 'middle' : effective?.vertical_alignment, whiteSpace: effective?.wrap_text ? 'pre-wrap' : 'pre' };
+        for (const [edge, side] of Object.entries(effective?.border ?? {})) {
+          if (!['top','bottom','left','right'].includes(edge) || !side || typeof side !== 'object' || !('style' in side)) continue;
+          const stroke=side as {style:string;color:string}, width=stroke.style==='thick'||stroke.style==='double'?3:stroke.style.startsWith('medium')?2:1;
+          (css as Record<string,unknown>)[`border${edge[0]!.toUpperCase()}${edge.slice(1)}`]=`${width}px ${stroke.style==='double'?'double':stroke.style.includes('dott')?'dotted':stroke.style.toLowerCase().includes('dash')?'dashed':'solid'} ${stroke.color}`;
+        }
+        return <td key={column} id={cellId(key)} data-address={key} role="gridcell" aria-colindex={column + 1} aria-selected={selected} aria-readonly={!sheet?.editable || Boolean(merged) || cell?.editable === false} className={`${selected ? 'is-selected' : ''} ${isActive ? 'is-active' : ''} ${cell?.formula ? 'has-formula' : ''}`} style={css} rowSpan={merged ? rows.filter(value => value >= merged.row && value <= merged.end_row).length : undefined} colSpan={merged ? columns.filter(value => value >= merged.column && value <= merged.end_column).length : undefined} title={`${key}${merged ? ` · merged ${merged.ref}` : ''}${display.note ? ` · ${display.note}` : ''}`} onPointerDown={event => { if (event.button !== 0) return; event.preventDefault(); dragging.current = true; select(source, event.shiftKey); grid.current?.focus(); }} onPointerEnter={event => { if (dragging.current && event.buttons === 1) select(position, true); }} onDoubleClick={() => { if (address(selection.anchor) === key) startEdit(undefined, true, 'edit'); }}>
+          {isActive && inline && draft !== null ? <input ref={inlineInput} aria-label={`Edit ${key}`} className="sheet-inline-input" maxLength={32767} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} value={draft} disabled={busy} onPointerDown={event => event.stopPropagation()} onChange={event => updateDraft(event.target.value)} onKeyDown={editKeys}/> : <span className="sheet-cell-content">{display.text}</span>}
+        </td>;
+      })}</tr>)}</tbody></table>}
+    </div>
+    {menu.anchor && <ContextMenu anchor={menu.anchor} label="Worksheet" onClose={menu.close} items={[...spreadsheetContextMenu({ anchor: menu.anchor, disabled, onClear: () => { try { void execute(clearOperations(selection), 'Selection cleared'); } catch (reason) { setError(String(reason)); } } }), { separator: true }, ...(['row.insert','row.delete','column.insert','column.delete'] as const).map(action => ({ id: action, label: `${action.endsWith('.insert') ? 'Insert' : 'Delete'} ${action.startsWith('row.') ? 'rows' : 'columns'}`, disabled: disabled || Boolean(structureReason), title: structureReason, run: () => applyStructure(action) }))]} />}
+    {chartsOpen && snapshot && <SpreadsheetCharts charts={snapshot.charts} sheetId={sheetId} range={range} disabled={disabled} error={snapshot.chartError} onExecute={execute} onClose={() => setChartsOpen(false)} />}
+    </div>
+    <div className="sheet-bottom"><div className="sheet-tab-tools"><button aria-label="Add worksheet" title={disabledReason ?? addSheetReason} disabled={disabled || Boolean(addSheetReason)} onClick={() => { let number = 1; while (workbook?.sheets.some(value => value.name.toLowerCase() === `sheet${number}`)) number++; setSheetName(`Sheet${number}`); setSheetAction('add'); }}>+</button><button title={disabledReason} disabled={disabled} onClick={() => { setSheetName(sheet?.name ?? ''); setSheetAction('rename'); }}>Rename</button><button title={disabledReason ?? deleteSheetReason} disabled={disabled || Boolean(deleteSheetReason)} onClick={() => setSheetAction('delete')}>Delete</button></div><nav aria-label="Worksheets">{workbook?.sheets.filter(value => value.state === 'visible').map(value => <button key={value.id} aria-current={value.id === sheetId ? 'page' : undefined} title={disabledReason} disabled={busy || draft !== null} onClick={() => { setSheetId(value.id); setSelection(initialSelection); setLocation('A1'); resetView(); }}>{value.name}{!value.editable ? ' · read-only' : ''}</button>)}</nav></div>
+    <EditorStatus label="Spreadsheet status"><span className="sheet-mode">{busy ? 'Applying native change…' : activeStatus}</span><span role="status">{notice}</span>{sheetNotes.map(item => <span key={item.label} className="sheet-note" title={item.note}>{item.label}</span>)}<span className={`sheet-calculation${snapshot?.calculation ? ' is-calculated' : ''}`} role="img" aria-label={calculationStatus} title={calculationStatus}>ƒx</span></EditorStatus>
+  </section>;
+}

@@ -1,0 +1,1136 @@
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import type { NativeFontManifest } from '@injoffice/font-metrics/layout'
+import { BIDI_UNICODE_VERSION, NATIVE_BIDI_PROVIDER_ID, NATIVE_BIDI_PROVIDER_REVISION } from '@injoffice/font-metrics/bidi'
+import { UNICODE_13_CLASSIFIER_REVISION } from '@injoffice/font-metrics/unicode13'
+import {
+  DOCX_NATIVE_LIMITS,
+  DOCX_NATIVE_PROTOCOL,
+  DOCX_NATIVE_VERSION,
+  type NativeDocxDocumentV1,
+} from './nativeContract.js'
+import {
+  DOCX_RESOLVED_LAYOUT_PROTOCOL,
+  DOCX_RESOLVED_LAYOUT_VERSION,
+  nativeDocxResolvedNumberingDefinitionSha256V1,
+  nativeDocxResolvedNumberingModelSha256V1,
+  type NativeDocxResolvedLayoutInputV1,
+} from './nativeResolvedLayout.js'
+import {
+  DOCX_SHAPED_LINES_PROTOCOL,
+  DOCX_SHAPED_LINES_VERSION,
+  type NativeDocxShapedLinesV1,
+} from './nativeShapingLines.js'
+import { nativeDocxTableProjectionSha256V1 } from './nativeTablePagePaintV1.js'
+import {
+  DOCX_DEFAULT_TAB_STOP_TWIPS,
+  DOCX_PAGINATION_SETTINGS_PROTOCOL,
+  DOCX_PAGINATION_SETTINGS_VERSION,
+  type NativeDocxPaginationSettingsV1,
+} from './nativePaginationSettings.js'
+import {
+  DOCX_PAGINATION_REQUEST_PROTOCOL,
+  DOCX_PAGINATION_REQUEST_VERSION,
+  paginateNativeDocxV1,
+  paginateNativeDocxApproximateLegacyV1,
+  type NativeDocxPaginationRequestV1,
+} from './nativePaginationV1.js'
+import {
+  DOCX_PAGE_PAINT_PROTOCOL,
+  DOCX_PAGE_PAINT_REQUEST_PROTOCOL,
+  DOCX_PAGE_PAINT_REQUEST_V1_BINDING_FIELDS,
+  DOCX_PAGE_PAINT_REQUEST_VERSION,
+  DOCX_PAGE_PAINT_V1_BINDING_FIELDS,
+  nativeDocxPlacedGlyphOutlineV1,
+  compileNativeDocxPagePaintV1,
+  compileNativeDocxApproximatePagePreviewV1,
+  decodeNativeDocxPagePaintForRequestV1,
+  decodeNativeDocxPagePaintRequestV1,
+  decodeNativeDocxPagePaintV1,
+  nativeDocxPagePaintFontManifestSha256V1,
+  nativeDocxPagePaintMediaAssetsSha256V1,
+  nativeDocxPagePaintPaginatedLayoutSha256V1,
+  nativeDocxPagePaintShapedLinesSha256V1,
+  validateNativeDocxPagePaintForRequestV1,
+  type NativeDocxGlyphOutlineProviderV1,
+  type NativeDocxGlyphOutlineRequestV1,
+  type NativeDocxGlyphOutlineResultV1,
+  type NativeDocxPagePaintRequestV1,
+} from './nativePagePaintV1.js'
+import { decodeNativeDocxApproximatePagePreviewV1, decodeNativeDocxApproximationEligibilityV1, DOCX_APPROXIMATE_PAINT_REFUSED_WARNING, nativeDocxApproximatePaintRefusalReason } from './nativeApproximationV1.js'
+import { DOCX_APPROXIMATE_OMITTED_CONTENT_WARNING } from './nativeApproximateOmittedContentV1.js'
+import { prepareNativeDocxPagePaintMediaAssetsV1 } from './nativeImagePagePaintV1.js'
+
+const HASH = `sha256:${'a'.repeat(64)}` as `sha256:${string}`
+const PNG_BYTES = new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'))
+const PNG_DIGEST = `sha256:${createHash('sha256').update(PNG_BYTES).digest('hex')}` as `sha256:${string}`
+const RELATIONSHIPS_HASH = `sha256:${'b'.repeat(64)}`
+const SETTINGS_PART = 'word/settings.xml'
+const RELATIONSHIPS_PART = 'word/_rels/document.xml.rels'
+const NUMBERING_PART = 'word/numbering.xml'
+const NUMBERING_HASH = `sha256:${'c'.repeat(64)}`
+
+function anchor(path: string, start: number, end: number) {
+  return { part_name: 'word/document.xml', path, start_byte: start, end_byte: end, xml_sha256: HASH }
+}
+
+function paginationRequest(): NativeDocxPaginationRequestV1 {
+  const paragraph = {
+    id: 'paragraph:1',
+    anchor: anchor('/w:document[1]/w:body[1]/w:p[1]', 100, 190),
+    edit_policy: { mode: 'read-only' as const, allowed_operations: [], refusal: { code: 'NATIVE_READ_ONLY', message: 'Fixture is immutable.', preservation: 'refuse-mutation' as const } },
+    properties: {},
+    runs: [{ kind: 'text' as const, id: 'run:1', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[1]', 110, 180), text: 'AA' }],
+  }
+  const document: NativeDocxDocumentV1 = {
+    protocol: DOCX_NATIVE_PROTOCOL,
+    version: DOCX_NATIVE_VERSION,
+    document_id: 'document:test',
+    revision: 'revision:1',
+    source: { package_sha256: HASH, main_part: 'word/document.xml' },
+    body: { id: 'story:body', kind: 'body', part_name: 'word/document.xml', anchor: anchor('/w:document[1]/w:body[1]', 1, 3_000), blocks: [{ kind: 'paragraph', id: paragraph.id, paragraph }] },
+    sections: [{
+      id: 'section:1',
+      anchor: anchor('/w:document[1]/w:body[1]/w:sectPr[1]', 2_100, 2_190),
+      starts_at_block_id: paragraph.id,
+      break_type: 'next-page',
+      title_page: false,
+      page: {
+        width_twips: 1_000,
+        height_twips: 1_000,
+        orientation: 'portrait',
+        margins: { top_twips: 100, right_twips: 100, bottom_twips: 100, left_twips: 100, header_twips: 50, footer_twips: 50, gutter_twips: 0 },
+        columns: 1,
+        column_spacing_twips: 100,
+        column_layout: 'equal-width',
+        column_definitions: [{ id: 'column:section:1:0', ordinal: 0 }],
+      },
+      header_refs: [],
+      footer_refs: [],
+    }],
+    headers: [], footers: [], notes: [], comment_stories: [], comments: [], capabilities: [],
+    passthrough_parts: [
+      { part_name: SETTINGS_PART, content_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml', byte_length: 1, sha256: HASH, policy: 'preserve-verbatim' },
+      { part_name: RELATIONSHIPS_PART, content_type: 'application/vnd.openxmlformats-package.relationships+xml', byte_length: 1, sha256: RELATIONSHIPS_HASH, policy: 'preserve-verbatim' },
+    ],
+    unsupported: [],
+  }
+  const resolved: NativeDocxResolvedLayoutInputV1 = {
+    protocol: DOCX_RESOLVED_LAYOUT_PROTOCOL,
+    version: DOCX_RESOLVED_LAYOUT_VERSION,
+    document_id: document.document_id,
+    revision: document.revision,
+    source_parts: { main_part: 'WORD/document.xml' },
+    paragraphs: [{ paragraph_id: paragraph.id, applied_styles: [], properties: {}, paragraph_mark_properties: { font_family: 'Test', font_size_half_points: 20 } }],
+    runs: [{ run_id: 'run:1', paragraph_id: paragraph.id, applied_paragraph_styles: [], applied_character_styles: [], properties: { font_family: 'Test', font_size_half_points: 20, color: '123456' } }],
+    tables: [], fonts: [{ name: 'Test' }], diagnostics: [],
+  }
+  const shaped: NativeDocxShapedLinesV1 = {
+    protocol: DOCX_SHAPED_LINES_PROTOCOL,
+    version: DOCX_SHAPED_LINES_VERSION,
+    document_id: document.document_id,
+    revision: document.revision,
+    available_width_millipoints: 40_000,
+    tab_interval_millipoints: DOCX_DEFAULT_TAB_STOP_TWIPS * 50,
+    font_manifest: { manifest_id: 'manifest:test', revision: 'manifest-revision:1' },
+    providers: { resolver_id: 'resolver:test', resolver_revision: '1', shaper_id: 'shaper:test', shaper_revision: '1', bidi_id: NATIVE_BIDI_PROVIDER_ID, bidi_revision: NATIVE_BIDI_PROVIDER_REVISION, bidi_unicode_version: BIDI_UNICODE_VERSION, unicode13_revision: UNICODE_13_CLASSIFIER_REVISION },
+    paragraphs: [{
+      paragraph_id: paragraph.id,
+      story_id: document.body.id,
+      story_kind: 'body',
+      direction: 'ltr',
+      alignment: 'start',
+      spacing_before_millipoints: 0,
+      spacing_after_millipoints: 0,
+      indent_start_millipoints: 0,
+      indent_end_millipoints: 0,
+      first_line_delta_millipoints: 0,
+      block_advance_millipoints: 10_000,
+      lines: [{
+        id: `line:${paragraph.id}:0`,
+        ordinal: 0,
+        available_width_millipoints: 40_000,
+        inline_offset_millipoints: 0,
+        advance_inline_millipoints: 10_000,
+        ascent_millipoints: 8_000,
+        descent_millipoints: -2_000,
+        line_gap_millipoints: 0,
+        line_height_millipoints: 10_000,
+        justified: false,
+        logical_to_visual: [0],
+        fragments: [{
+          id: `fragment:${paragraph.id}:0:0`,
+          source_kind: 'run',
+          source_id: 'run:1',
+          start_utf16: 0,
+          end_utf16: 2,
+          text: 'AA',
+          direction: 'ltr',
+          bidi_level: 0,
+          logical_order: 0,
+          script: 'Latn',
+          language: 'en-US',
+          face_id: 'face:test',
+          whitespace: false,
+          advance_inline_millipoints: 10_000,
+          justification_expansion_millipoints: 0,
+          ascent_millipoints: 8_000,
+          descent_millipoints: -2_000,
+          line_gap_millipoints: 0,
+          glyphs: [
+            { glyph_id: 7, advance_x_millipoints: 5_000, advance_y_millipoints: 0, offset_x_millipoints: 0, offset_y_millipoints: 0 },
+            { glyph_id: 7, advance_x_millipoints: 5_000, advance_y_millipoints: 0, offset_x_millipoints: 0, offset_y_millipoints: 0 },
+          ],
+        }],
+      }],
+    }],
+    diagnostics: [],
+  }
+  const settings: NativeDocxPaginationSettingsV1 = {
+    protocol: DOCX_PAGINATION_SETTINGS_PROTOCOL,
+    version: DOCX_PAGINATION_SETTINGS_VERSION,
+    document_id: document.document_id,
+    revision: document.revision,
+    package_sha256: HASH,
+    main_part: 'word/document.xml',
+    relationships_part: RELATIONSHIPS_PART,
+    relationships_sha256: RELATIONSHIPS_HASH,
+    relationship_id: 'rIdSettings',
+    settings_part: SETTINGS_PART,
+    settings_sha256: HASH,
+    profile: 'word-modern-default',
+    default_tab_stop_twips: DOCX_DEFAULT_TAB_STOP_TWIPS,
+    mirror_margins: false,
+    gutter_at_top: false,
+    even_and_odd_headers: false,
+    compatibility_mode: 15,
+    diagnostics: [],
+  }
+  return { protocol: DOCX_PAGINATION_REQUEST_PROTOCOL, version: DOCX_PAGINATION_REQUEST_VERSION, document, resolved_layout: resolved, shaped_lines: shaped, pagination_settings: settings }
+}
+
+function manifest(): NativeFontManifest {
+  return {
+    version: 1,
+    manifestId: 'manifest:test',
+    revision: 'manifest-revision:1',
+    faces: [{ faceId: 'face:test', family: 'Test', weight: 400, style: 'normal', stretch: 100, source: { kind: 'bundled', resourceId: 'font:test', contentDigest: HASH } }],
+    fallbackChains: [],
+  }
+}
+
+function fixture(): NativeDocxPagePaintRequestV1 {
+  const pagination = paginationRequest()
+  const layout = paginateNativeDocxV1(pagination)
+  if (!layout.ok || layout.value.status !== 'paginated') throw new Error(JSON.stringify(layout))
+  const fontManifest = manifest()
+  return {
+    protocol: DOCX_PAGE_PAINT_REQUEST_PROTOCOL,
+    version: DOCX_PAGE_PAINT_REQUEST_VERSION,
+    pagination_request: pagination,
+    paginated_layout: layout.value,
+    font_manifest: fontManifest,
+    media_assets: [],
+    integrity: {
+      font_manifest_sha256: nativeDocxPagePaintFontManifestSha256V1(fontManifest),
+      shaped_lines_sha256: nativeDocxPagePaintShapedLinesSha256V1(pagination.shaped_lines),
+      table_projection_sha256: nativeDocxTableProjectionSha256V1([]),
+      media_assets_sha256: nativeDocxPagePaintMediaAssetsSha256V1([]),
+      paginated_layout_sha256: nativeDocxPagePaintPaginatedLayoutSha256V1(layout.value),
+    },
+    outline_provider: { provider_id: 'outline:test', provider_revision: '1' },
+  }
+}
+
+class FixtureProvider implements NativeDocxGlyphOutlineProviderV1 {
+  providerId = 'outline:test'
+  providerRevision = '1'
+  calls = 0
+  result?: (request: Readonly<NativeDocxGlyphOutlineRequestV1>) => NativeDocxGlyphOutlineResultV1
+
+  getGlyphOutline(request: Readonly<NativeDocxGlyphOutlineRequestV1>): ReturnType<NativeDocxGlyphOutlineProviderV1['getGlyphOutline']> {
+    this.calls += 1
+    if (this.result) return this.result(request)
+    return {
+      status: 'outlined', face: { ...request.face }, glyph_id: request.glyph_id, units_per_em: 1_000,
+      path: [
+        { kind: 'move_to', x: 0, y: 0 },
+        { kind: 'line_to', x: 500, y: 0 },
+        { kind: 'line_to', x: 500, y: 700 },
+        { kind: 'line_to', x: 0, y: 700 },
+        { kind: 'close_path' },
+      ],
+    }
+  }
+}
+
+async function painted(request = fixture(), provider = new FixtureProvider()) {
+  const result = await compileNativeDocxPagePaintV1(request, provider)
+  expect(result.ok, JSON.stringify(result)).toBe(true)
+  if (!result.ok || result.value.status !== 'painted') throw new Error(JSON.stringify(result))
+  return { value: result.value, provider }
+}
+
+describe('native DOCX page-paint v1', () => {
+  it('keeps explicit legacy approximation separate from strict output and preserves original reasons', async () => {
+    const request = fixture()
+    const settings = request.pagination_request.pagination_settings
+    settings.profile = 'unsupported'
+    delete settings.compatibility_mode
+    settings.diagnostics = [{ code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]', preservation: 'preserve-verbatim', message: 'Exact legacy mode 14 requires a different layout policy' }]
+    const refused = paginateNativeDocxV1(request.pagination_request)
+    expect(refused.ok).toBe(true)
+    if (!refused.ok) return
+    request.paginated_layout = refused.value
+    request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(refused.value)
+    const original = structuredClone(request)
+    const eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: settings.package_sha256, settings_sha256: settings.settings_sha256, status: 'eligible', legacy_compatibility_mode: 14, reasons: ['Legacy mode 14 uses current layout only in explicit approximate preview'] }
+    const strict = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(strict).toMatchObject({ ok: true, value: { status: 'refused', pages: [] } })
+    const approximate = await compileNativeDocxApproximatePagePreviewV1(request, eligibility, new FixtureProvider())
+    expect(approximate).toMatchObject({ protocol: 'injoffice.docx.approximate-page-preview', fidelity: 'approximate', read_only: true, status: 'painted', content_status: 'complete', omitted_content: [], omitted_content_total: 0, unpainted_pages: [] })
+    expect(approximate.pages).toHaveLength(1)
+    expect(approximate.source_settings_diagnostics).toEqual(settings.diagnostics)
+    expect(approximate.rendering_provenance.pagination_settings).toEqual(settings)
+    expect(request).toEqual(original)
+    expect(decodeNativeDocxPagePaintV1(approximate).ok).toBe(false)
+    expect(decodeNativeDocxApproximatePagePreviewV1(approximate).ok).toBe(true)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, source_settings_diagnostics: [] }).ok).toBe(false)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, reasons: [] }).ok).toBe(false)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, reasons: [''] }).ok).toBe(false)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, reasons: ['Everything is exact'] }).ok).toBe(false)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, fidelity: 'exact' }).ok).toBe(false)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, rendering_provenance: { ...approximate.rendering_provenance, package_sha256: `sha256:${'f'.repeat(64)}` } }).ok).toBe(false)
+    await expect(compileNativeDocxApproximatePagePreviewV1(request, { ...eligibility, package_sha256: 'wrong' }, new FixtureProvider())).rejects.toThrow('exact-join')
+    const ineligible = await compileNativeDocxApproximatePagePreviewV1(request, { ...eligibility, status: 'ineligible', legacy_compatibility_mode: null }, new FixtureProvider())
+    expect(ineligible).toMatchObject({ fidelity: 'approximate', status: 'refused', pages: [] })
+    // A refused approximate preview says why in the reasons vector callers read,
+    // not only in the paint diagnostics array.
+    expect(ineligible.reasons).toContain(DOCX_APPROXIMATE_PAINT_REFUSED_WARNING)
+    expect(ineligible.reasons).toContain(nativeDocxApproximatePaintRefusalReason(ineligible.diagnostics[0]!))
+    expect(ineligible.reasons.some((reason) => reason.includes('Approximate legacy preview requires eligible settings'))).toBe(true)
+    expect(decodeNativeDocxApproximatePagePreviewV1(ineligible).ok).toBe(true)
+    // The declaration and the status must agree in both directions.
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...ineligible, reasons: ineligible.reasons.filter((reason) => reason !== DOCX_APPROXIMATE_PAINT_REFUSED_WARNING) }).ok).toBe(false)
+    expect(approximate.reasons).not.toContain(DOCX_APPROXIMATE_PAINT_REFUSED_WARNING)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, reasons: [...approximate.reasons, DOCX_APPROXIMATE_PAINT_REFUSED_WARNING] }).ok).toBe(false)
+  })
+  it('retains known approximate settings values and requires matching facts and warnings', async () => {
+    const request = fixture()
+    const settings = request.pagination_request.pagination_settings
+    settings.profile = 'unsupported'
+    delete settings.compatibility_mode
+    const fact = { kind: 'decimalSymbol', path: '/w:settings[1]/w:decimalSymbol[1]', values: { val: ',' } }
+    const warning = `Current-layout approximation disregards ${fact.kind} at ${fact.path}; source values are retained and Word layout may differ`
+    settings.diagnostics = [{ code: 'PAGINATION_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: fact.path, preservation: 'preserve-verbatim', message: 'Original decimal setting is not strictly qualified' }]
+    const refused = paginateNativeDocxV1(request.pagination_request)
+    if (!refused.ok) throw new Error('invalid fixture')
+    request.paginated_layout = refused.value
+    request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(refused.value)
+    const original = structuredClone(request)
+    const eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: settings.package_sha256, settings_sha256: settings.settings_sha256, status: 'eligible', legacy_compatibility_mode: 12, reasons: [warning], approximated_settings: [fact] }
+    const approximate = await compileNativeDocxApproximatePagePreviewV1(request, eligibility, new FixtureProvider())
+    expect(approximate).toMatchObject({ status: 'painted', approximated_settings: [fact] })
+    expect(decodeNativeDocxApproximatePagePreviewV1(approximate).ok).toBe(true)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, approximated_settings: [] }).ok).toBe(true)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, reasons: approximate.reasons.filter(reason => reason !== warning) }).ok).toBe(false)
+    const uncoveredPagination = await compileNativeDocxApproximatePagePreviewV1(request, { ...eligibility, approximated_settings: [], reasons: ['Legacy mode'] }, new FixtureProvider())
+    expect(uncoveredPagination.status).toBe('painted')
+    await expect(compileNativeDocxApproximatePagePreviewV1(request, { ...eligibility, reasons: ['missing setting warning'] }, new FixtureProvider())).rejects.toThrow('conflicts')
+    expect(request).toEqual(original)
+    expect(await compileNativeDocxPagePaintV1(request, new FixtureProvider())).toMatchObject({ ok: true, value: { status: 'refused' } })
+    const flag = { kind: 'enableOpenTypeFeatures', path: '/w:settings[1]/w:compat[1]/w:compatSetting[2]', values: { val: '1' } }
+    const flagSettings = structuredClone(settings)
+    flagSettings.diagnostics[0] = { ...flagSettings.diagnostics[0]!, code: 'COMPATIBILITY_SETTING_UNSUPPORTED', path: flag.path }
+    const flagEligibility = { ...eligibility, approximated_settings: [flag], reasons: [`Current-layout approximation disregards ${flag.kind} at ${flag.path}; source values are retained and Word layout may differ`] }
+    expect(decodeNativeDocxApproximationEligibilityV1(flagEligibility, flagSettings).status).toBe('eligible')
+    expect(() => decodeNativeDocxApproximationEligibilityV1({ ...flagEligibility, approximated_settings: [], reasons: ['Legacy mode'] }, flagSettings)).toThrow('conflicts')
+    const duplicateSettings = structuredClone(settings)
+    duplicateSettings.diagnostics = [{ code: 'DUPLICATE_SETTINGS_PROPERTY', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:activeWritingStyle[2]', preservation: 'preserve-verbatim', message: 'Duplicate settings property is ambiguous' }]
+    expect(decodeNativeDocxApproximationEligibilityV1({ ...eligibility, approximated_settings: [], reasons: ['Legacy mode'] }, duplicateSettings).status).toBe('eligible')
+    const breakingSettings = structuredClone(settings)
+    breakingSettings.diagnostics = [
+      { code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]/w:applyBreakingRules[1]', preservation: 'preserve-verbatim', message: 'Legacy compatibility markup changes Word layout and is not resolved' },
+      { code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]/w:compatSetting[1]', preservation: 'preserve-verbatim', message: 'Only one modern Word compatibilityMode=15 attestation is supported' },
+    ]
+    expect(decodeNativeDocxApproximationEligibilityV1({ ...eligibility, approximated_settings: [], reasons: ['Legacy mode'] }, breakingSettings).status).toBe('eligible')
+  })
+  it('admits attested mode 15 extras as current-layout approximation without painting strict', async () => {
+    const request = fixture()
+    const settings = request.pagination_request.pagination_settings
+    settings.profile = 'unsupported'
+    const flags = [
+      { kind: 'overrideTableStyleFontSizeAndJustification' as const, path: '/w:settings[1]/w:compat[1]/w:compatSetting[2]', values: { val: '1' } },
+      { kind: 'enableOpenTypeFeatures' as const, path: '/w:settings[1]/w:compat[1]/w:compatSetting[3]', values: { val: '1' } },
+      { kind: 'doNotFlipMirrorIndents' as const, path: '/w:settings[1]/w:compat[1]/w:compatSetting[4]', values: { val: '1' } },
+    ]
+    const reasons = flags.map(flag => `Current-layout approximation disregards ${flag.kind} at ${flag.path}; source values are retained and Word layout may differ`)
+    settings.diagnostics = [
+      ...flags.map(flag => ({ code: 'COMPATIBILITY_SETTING_UNSUPPORTED' as const, severity: 'unsupported' as const, part_name: SETTINGS_PART, path: flag.path, preservation: 'preserve-verbatim' as const, message: 'Only one modern Word compatibilityMode=15 attestation is supported' })),
+      { code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]/w:compatSetting[5]', preservation: 'preserve-verbatim', message: 'Only one modern Word compatibilityMode=15 attestation is supported' },
+      { code: 'PAGINATION_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:themeFontLang[1]', preservation: 'preserve-verbatim', message: 'This settings property is not proven neutral to native shaping and pagination' },
+    ]
+    const refused = paginateNativeDocxV1(request.pagination_request)
+    if (!refused.ok) throw new Error('invalid fixture')
+    request.paginated_layout = refused.value
+    request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(refused.value)
+    const eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: settings.package_sha256, settings_sha256: settings.settings_sha256, status: 'eligible' as const, legacy_compatibility_mode: 15 as const, reasons, approximated_settings: flags }
+    expect(decodeNativeDocxApproximationEligibilityV1(eligibility, settings).legacy_compatibility_mode).toBe(15)
+    await expect(compileNativeDocxApproximatePagePreviewV1(request, { ...eligibility, legacy_compatibility_mode: 14, reasons: ['Legacy mode 14'] }, new FixtureProvider())).rejects.toThrow('conflicts')
+    const modern = structuredClone(settings)
+    modern.profile = 'word-modern-default'
+    modern.diagnostics = []
+    expect(() => decodeNativeDocxApproximationEligibilityV1(eligibility, modern)).toThrow('conflicts')
+    const missingMode = structuredClone(settings)
+    delete missingMode.compatibility_mode
+    expect(() => decodeNativeDocxApproximationEligibilityV1(eligibility, missingMode)).toThrow('conflicts')
+    const approximate = await compileNativeDocxApproximatePagePreviewV1(request, eligibility, new FixtureProvider())
+    expect(approximate).toMatchObject({ status: 'painted', fidelity: 'approximate' })
+    expect(approximate.pages).toHaveLength(1)
+    expect(await compileNativeDocxPagePaintV1(request, new FixtureProvider())).toMatchObject({ ok: true, value: { status: 'refused', pages: [] } })
+  })
+  it('omits blocking shaping diagnostics in approximate paint and still refuses strict', async () => {
+    const request = fixture()
+    const settings = request.pagination_request.pagination_settings
+    settings.profile = 'unsupported'
+    delete settings.compatibility_mode
+    settings.diagnostics = [{ code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]', preservation: 'preserve-verbatim', message: 'Legacy Word mode 14 requires different semantics' }]
+    request.pagination_request.shaped_lines.diagnostics.push({
+      code: 'drawing-layout-unsupported', severity: 'unsupported', scope_id: 'paragraph:1', source_id: 'run:1', message: 'Drawing payload is missing',
+    }, {
+      code: 'empty-line-metrics-unresolved', severity: 'unsupported', scope_id: 'paragraph:1', message: 'An empty line has no safely resolved font metrics',
+    })
+    request.pagination_request.resolved_layout.diagnostics.push({
+      code: 'UNMODELED_FONT_METADATA', severity: 'unsupported', scope_id: settings.document_id, part_name: 'word/fontTable.xml', path: '/w:fonts[1]/w:font[1]/w:embedRegular[1]', preservation: 'preserve-verbatim', message: 'Font metadata is preserved for future font matching',
+    }, {
+      code: 'UNMODELED_FONT_SELECTION', severity: 'unsupported', scope_id: 'paragraph:1', part_name: 'word/document.xml', path: '/w:document[1]/w:body[1]/w:p[1]/w:r[1]/w:rPr[1]/w:rFonts[1]', preservation: 'preserve-verbatim', message: 'Font selection contains unknown attributes or nested markup and is not resolved',
+    }, {
+      code: 'THEME_COLOR_PRESERVED', severity: 'unsupported', scope_id: 'run:1', part_name: 'word/document.xml', path: '/w:document[1]/w:body[1]/w:p[1]/w:r[1]/w:rPr[1]/w:color[1]', preservation: 'preserve-verbatim', message: 'Run color markup outside the exact RGB or theme-srgb subset is preserved and not guessed',
+    }, {
+      code: 'INVALID_KERNING_THRESHOLD', severity: 'unsupported', scope_id: 'run:1', part_name: 'word/document.xml', path: '/w:document[1]/w:body[1]/w:p[1]/w:r[1]/w:rPr[1]/w:kern[1]', preservation: 'preserve-verbatim', message: 'Kerning requires one exact bounded half-point threshold; unqualified values remain preserved',
+    }, {
+      code: 'AUTO_PARAGRAPH_SPACING_PRESERVED', severity: 'unsupported', scope_id: 'paragraph:1', part_name: 'word/document.xml', path: '/w:document[1]/w:body[1]/w:p[1]/w:pPr[1]/w:spacing[1]', preservation: 'preserve-verbatim', message: 'Automatic paragraph spacing is preserved and not guessed',
+    }, {
+      code: 'FONT_MATCHING_METADATA_PRESERVED', severity: 'unsupported', scope_id: settings.document_id, part_name: 'word/fontTable.xml', path: '/w:fonts[1]/w:font[1]/w:family[1]', preservation: 'preserve-verbatim', message: 'Validated font matching metadata is preserved',
+    })
+    request.integrity.shaped_lines_sha256 = nativeDocxPagePaintShapedLinesSha256V1(request.pagination_request.shaped_lines)
+    const refused = paginateNativeDocxV1(request.pagination_request)
+    if (!refused.ok) throw new Error('invalid fixture')
+    expect(refused.value.status).toBe('refused')
+    request.paginated_layout = refused.value
+    request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(refused.value)
+    const eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: settings.package_sha256, settings_sha256: settings.settings_sha256, status: 'eligible' as const, legacy_compatibility_mode: 14 as const, reasons: ['Legacy mode 14 uses current layout'] }
+    const approximate = await compileNativeDocxApproximatePagePreviewV1(request, eligibility, new FixtureProvider())
+    expect(approximate).toMatchObject({ status: 'painted', fidelity: 'approximate' })
+    expect(approximate.pages).toHaveLength(1)
+    expect(approximate.pages[0]!.commands.some(command => command.kind === 'fill_glyph_path')).toBe(true)
+    expect(approximate.content_status).toBe('partial')
+    expect(approximate.omitted_content).toEqual([
+      expect.objectContaining({ code: 'drawing-layout-unsupported', origin: 'shaping', category: 'drawing', scope_id: 'run:1', path: '/w:document[1]/w:body[1]/w:p[1]/w:r[1]', count: 1 }),
+      expect.objectContaining({ code: 'empty-line-metrics-unresolved', origin: 'shaping', category: 'text', scope_id: 'paragraph:1', count: 1 }),
+    ])
+    expect(approximate.omitted_content.map(entry => entry.code)).not.toContain('THEME_COLOR_PRESERVED')
+    expect(approximate.unpainted_pages).toEqual([])
+    expect(approximate.reasons).toContain(DOCX_APPROXIMATE_OMITTED_CONTENT_WARNING)
+    expect(decodeNativeDocxApproximatePagePreviewV1(approximate).ok).toBe(true)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, content_status: 'complete' }).ok).toBe(false)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, omitted_content: [] }).ok).toBe(false)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, reasons: approximate.reasons.filter(reason => reason !== DOCX_APPROXIMATE_OMITTED_CONTENT_WARNING) }).ok).toBe(false)
+    const { content_status: _status, ...legacyEnvelope } = approximate
+    expect(decodeNativeDocxApproximatePagePreviewV1(legacyEnvelope).ok).toBe(false)
+    expect(await compileNativeDocxPagePaintV1(request, new FixtureProvider())).toMatchObject({ ok: true, value: { status: 'refused' } })
+  })
+  it('discloses a drawing-only document as partial with an unpainted page instead of a silently blank painted page', async () => {
+    const request = fixture()
+    const pagination = request.pagination_request
+    const settings = pagination.pagination_settings
+    const original = pagination.document.body.blocks[0]!.paragraph!
+    const drawingRun = { kind: 'drawing' as const, id: 'run:shape', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[1]', 110, 180), drawing: { id: 'drawing:shape', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[1]/w:drawing[1]', 112, 178), placement: 'inline' as const, width_emu: 914_400, height_emu: 914_400, edit_policy: { mode: 'read-only' as const, allowed_operations: [], refusal: { code: 'DRAWING_EFFECTS_UNSUPPORTED', message: 'Preserve the original drawing.', preservation: 'refuse-mutation' as const } } } }
+    original.runs = [drawingRun]
+    pagination.document.unsupported = [{ id: 'unsupported:shape', code: 'UNMODELED_DRAWING', capability: 'drawings', scope_id: 'run:shape', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[1]/w:drawing[1]', 112, 178), preservation: 'refuse-mutation', message: 'Drawing/object markup and related media are preserved verbatim' }]
+    pagination.resolved_layout.runs = [{ run_id: 'run:shape', paragraph_id: original.id, applied_paragraph_styles: [], applied_character_styles: [], properties: { font_family: 'Test', font_size_half_points: 20 } }]
+    pagination.shaped_lines.paragraphs = []
+    pagination.shaped_lines.diagnostics = [{ code: 'drawing-layout-unsupported', severity: 'unsupported', scope_id: original.id, source_id: 'run:shape', message: 'Drawing payload is missing' }]
+    settings.profile = 'unsupported'
+    delete settings.compatibility_mode
+    settings.diagnostics = [{ code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]', preservation: 'preserve-verbatim', message: 'Legacy Word mode 14 requires different semantics' }]
+    request.integrity.shaped_lines_sha256 = nativeDocxPagePaintShapedLinesSha256V1(pagination.shaped_lines)
+    const eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: settings.package_sha256, settings_sha256: settings.settings_sha256, status: 'eligible' as const, legacy_compatibility_mode: 14 as const, reasons: ['Legacy mode 14 uses current layout'] }
+    const strict = paginateNativeDocxV1(pagination)
+    expect(strict).toMatchObject({ ok: true, value: { status: 'refused' } })
+    request.paginated_layout = strict.ok ? strict.value : request.paginated_layout
+    request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(request.paginated_layout)
+    const approximate = await compileNativeDocxApproximatePagePreviewV1(request, eligibility, new FixtureProvider())
+    expect(approximate).toMatchObject({ status: 'painted', fidelity: 'approximate', content_status: 'partial' })
+    expect(approximate.pages).toHaveLength(1)
+    expect(approximate.pages[0]!.commands).toEqual([])
+    expect(approximate.unpainted_pages).toEqual([approximate.pages[0]!.id])
+    expect(approximate.omitted_content.filter(entry => entry.code === 'UNMODELED_DRAWING')).toEqual([{ code: 'UNMODELED_DRAWING', origin: 'source', category: 'drawing', scope_id: 'run:shape', part_name: 'word/document.xml', path: '/w:document[1]/w:body[1]/w:p[1]/w:r[1]/w:drawing[1]', message: 'Drawing/object markup and related media are preserved verbatim', count: 1 }])
+    expect(approximate.omitted_content.map(entry => entry.code)).toEqual(['UNMODELED_DRAWING', 'drawing-layout-unsupported'])
+    expect(approximate.omitted_content_total).toBe(2)
+    expect(approximate.reasons).toContain(DOCX_APPROXIMATE_OMITTED_CONTENT_WARNING)
+    expect(decodeNativeDocxApproximatePagePreviewV1(approximate).ok).toBe(true)
+    expect(decodeNativeDocxApproximatePagePreviewV1({ ...approximate, content_status: 'complete', omitted_content: [], omitted_content_total: 0, unpainted_pages: [], reasons: approximate.reasons.filter(reason => reason !== DOCX_APPROXIMATE_OMITTED_CONTENT_WARNING) }).ok).toBe(false)
+    expect(await compileNativeDocxPagePaintV1(request, new FixtureProvider())).toMatchObject({ ok: true, value: { status: 'refused' } })
+  })
+  it('paints a shaped paragraph whose unqualified drawing the approximate lane omitted, and still refuses strict', async () => {
+    // FigureAsLabelPicture.docx / graphic-object-fliph.docx: a caption paragraph whose
+    // picture the exact inline-image slice refuses (cx=2751151 EMU is not an exact
+    // milli-point extent), so shaping drops the run and pagination defers it. The
+    // remaining glyphs must still paint, with the drop disclosed.
+    const request = fixture()
+    const pagination = request.pagination_request
+    const settings = pagination.pagination_settings
+    const paragraph = pagination.document.body.blocks[0]!.paragraph!
+    const drawingRun = { kind: 'drawing' as const, id: 'run:picture', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[2]', 181, 189), drawing: { id: 'drawing:picture', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[2]/w:drawing[1]', 182, 188), placement: 'inline' as const, width_emu: 2_751_151, height_emu: 2_751_151, relationship_id: 'rId7', media_part: 'word/media/image1.png', content_type: 'image/png', edit_policy: { mode: 'read-only' as const, allowed_operations: [], refusal: { code: 'DRAWING_EFFECTS_UNSUPPORTED', message: 'Preserve the original drawing.', preservation: 'refuse-mutation' as const } } } }
+    paragraph.runs = [...paragraph.runs, drawingRun]
+    pagination.document.passthrough_parts = [...pagination.document.passthrough_parts, { part_name: 'word/media/image1.png', content_type: 'image/png', byte_length: 16, sha256: HASH, policy: 'preserve-verbatim' }]
+    pagination.resolved_layout.runs = [...pagination.resolved_layout.runs, { run_id: drawingRun.id, paragraph_id: paragraph.id, applied_paragraph_styles: [], applied_character_styles: [], properties: { font_family: 'Test', font_size_half_points: 20 } }]
+    // The drawing run has no shaped fragment: nativeShapingLines dropped it here.
+    pagination.shaped_lines.diagnostics = [{ code: 'drawing-layout-unsupported', severity: 'unsupported', scope_id: paragraph.id, source_id: drawingRun.id, message: 'Picture EMU extent is not exactly representable in integer milli-points within the geometry bound' }]
+    settings.profile = 'unsupported'
+    delete settings.compatibility_mode
+    settings.diagnostics = [{ code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]', preservation: 'preserve-verbatim', message: 'Legacy Word mode 14 requires different semantics' }]
+    request.integrity.shaped_lines_sha256 = nativeDocxPagePaintShapedLinesSha256V1(pagination.shaped_lines)
+    const strictLayout = paginateNativeDocxV1(pagination)
+    expect(strictLayout).toMatchObject({ ok: true, value: { status: 'refused' } })
+    request.paginated_layout = strictLayout.ok ? strictLayout.value : request.paginated_layout
+    request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(request.paginated_layout)
+    const eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: settings.package_sha256, settings_sha256: settings.settings_sha256, status: 'eligible' as const, legacy_compatibility_mode: 14 as const, reasons: ['Legacy mode 14 uses current layout'] }
+    const approximate = await compileNativeDocxApproximatePagePreviewV1(request, eligibility, new FixtureProvider())
+    expect(approximate).toMatchObject({ status: 'painted', fidelity: 'approximate', content_status: 'partial' })
+    expect(approximate.pages).toHaveLength(1)
+    expect(approximate.pages[0]!.commands.some(command => command.kind === 'fill_glyph_path')).toBe(true)
+    expect(approximate.omitted_content).toContainEqual(expect.objectContaining({ code: 'drawing-layout-unsupported', origin: 'shaping', category: 'drawing', scope_id: drawingRun.id, count: 1 }))
+    expect(approximate.reasons).toContain(DOCX_APPROXIMATE_OMITTED_CONTENT_WARNING)
+    expect(decodeNativeDocxApproximatePagePreviewV1(approximate).ok).toBe(true)
+    // The exemption is the approximate lane's alone.
+    expect(await compileNativeDocxPagePaintV1(request, new FixtureProvider())).toMatchObject({ ok: true, value: { status: 'refused', pages: [] } })
+  })
+  it('still refuses an approximate coverage gap on a drawing it could have painted', async () => {
+    // The exemption is not "a drawing may go missing in approximate mode": it is
+    // only the drop the approximate lane itself makes. A picture or inline textbox
+    // this build can paint must still cover exactly one visual fragment.
+    const approximatePaint = async (extra: unknown[]) => {
+      const request = fixture()
+      const pagination = request.pagination_request
+      const settings = pagination.pagination_settings
+      const paragraph = pagination.document.body.blocks[0]!.paragraph!
+      paragraph.runs = [...paragraph.runs, ...extra as typeof paragraph.runs]
+      pagination.document.passthrough_parts = [...pagination.document.passthrough_parts, { part_name: 'word/media/image1.png', content_type: 'image/png', byte_length: PNG_BYTES.byteLength, sha256: PNG_DIGEST, policy: 'preserve-verbatim' }]
+      request.media_assets = prepareNativeDocxPagePaintMediaAssetsV1(pagination.document, [{ part_name: 'word/media/image1.png', content_type: 'image/png', content_digest: PNG_DIGEST, bytes: PNG_BYTES }])
+      request.integrity.media_assets_sha256 = nativeDocxPagePaintMediaAssetsSha256V1(request.media_assets)
+      pagination.resolved_layout.runs = [...pagination.resolved_layout.runs, ...(extra as Array<{ id: string }>).map(run => ({ run_id: run.id, paragraph_id: paragraph.id, applied_paragraph_styles: [], applied_character_styles: [], properties: { font_family: 'Test', font_size_half_points: 20 } }))]
+      settings.profile = 'unsupported'
+      delete settings.compatibility_mode
+      settings.diagnostics = [{ code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]', preservation: 'preserve-verbatim', message: 'Legacy Word mode 14 requires different semantics' }]
+      request.integrity.shaped_lines_sha256 = nativeDocxPagePaintShapedLinesSha256V1(pagination.shaped_lines)
+      const strictLayout = paginateNativeDocxV1(pagination)
+      request.paginated_layout = strictLayout.ok ? strictLayout.value : request.paginated_layout
+      request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(request.paginated_layout)
+      const eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: settings.package_sha256, settings_sha256: settings.settings_sha256, status: 'eligible' as const, legacy_compatibility_mode: 14 as const, reasons: ['Legacy mode 14 uses current layout'] }
+      return compileNativeDocxApproximatePagePreviewV1(request, eligibility, new FixtureProvider())
+    }
+    const policy = { mode: 'read-only' as const, allowed_operations: [], refusal: { code: 'DRAWING_EFFECTS_UNSUPPORTED', message: 'Preserve the original drawing.', preservation: 'refuse-mutation' as const } }
+    // cx=2751151 EMU is not an exact milli-point extent, so this picture is omitted and
+    // its paragraph is not bidi-replayable - which is what lets the qualified picture
+    // beside it reach the paint coverage gate with no fragment of its own.
+    const unqualified = { kind: 'drawing' as const, id: 'run:omitted', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[2]', 181, 185), drawing: { id: 'drawing:omitted', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[2]/w:drawing[1]', 182, 184), placement: 'inline' as const, width_emu: 2_751_151, height_emu: 2_751_151, relationship_id: 'rId7', media_part: 'word/media/image1.png', content_type: 'image/png', edit_policy: policy } }
+    const qualified = { kind: 'drawing' as const, id: 'run:picture', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[3]', 186, 189), drawing: { id: 'drawing:picture', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[3]/w:drawing[1]', 187, 188), placement: 'inline' as const, width_emu: 914_400, height_emu: 914_400, relationship_id: 'rId7', media_part: 'word/media/image1.png', content_type: 'image/png', edit_policy: policy } }
+    const textbox = { kind: 'drawing' as const, id: 'run:textbox', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[3]', 186, 189), drawing: { id: 'drawing:textbox', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[3]/w:drawing[1]', 187, 188), placement: 'inline' as const, width_emu: 914_400, height_emu: 914_400, textbox_text: 'Box', edit_policy: policy } }
+    const picture = await approximatePaint([unqualified, qualified])
+    expect(picture.status).toBe('refused')
+    expect(picture.diagnostics.map(entry => entry.message).join(' ')).toContain('A painted native image must have exactly one visual fragment')
+    const box = await approximatePaint([textbox])
+    expect(box.status).toBe('refused')
+    expect(box.diagnostics.map(entry => entry.message).join(' ')).toContain('A painted native image must have exactly one visual fragment')
+    // A qualified picture that lost its fragment is also rejected one layer earlier:
+    // its paragraph stays bidi-replayable, so the pagination request never validates.
+    const alone = fixture()
+    const soleParagraph = alone.pagination_request.document.body.blocks[0]!.paragraph!
+    soleParagraph.runs = [...soleParagraph.runs, qualified]
+    alone.pagination_request.document.passthrough_parts = [...alone.pagination_request.document.passthrough_parts, { part_name: 'word/media/image1.png', content_type: 'image/png', byte_length: 16, sha256: HASH, policy: 'preserve-verbatim' }]
+    alone.pagination_request.resolved_layout.runs = [...alone.pagination_request.resolved_layout.runs, { run_id: qualified.id, paragraph_id: soleParagraph.id, applied_paragraph_styles: [], applied_character_styles: [], properties: { font_family: 'Test', font_size_half_points: 20 } }]
+    expect(paginateNativeDocxV1(alone.pagination_request)).toMatchObject({ ok: false, issues: [expect.objectContaining({ message: 'fragments must cover every visible native control and U+FFFC image source atom exactly once' })] })
+  })
+  it('omits a comment/drawing paragraph that failed shaping and still paints a sibling paragraph', async () => {
+    const request = fixture()
+    const pagination = request.pagination_request
+    const settings = pagination.pagination_settings
+    const edit = pagination.document.body.blocks[0]!.paragraph!.edit_policy
+    const commentAnchor = { part_name: 'word/comments.xml', path: '/w:comments[1]/w:comment[1]', start_byte: 10, end_byte: 400, xml_sha256: HASH }
+    const storyAnchor = { part_name: 'word/comments.xml', path: '/w:comments[1]/w:comment[1]/w:p[1]', start_byte: 20, end_byte: 300, xml_sha256: HASH }
+    const commentBody = {
+      id: 'paragraph:comment-body',
+      anchor: storyAnchor,
+      edit_policy: edit,
+      properties: {},
+      runs: [{ kind: 'text' as const, id: 'run:comment-body', anchor: { ...storyAnchor, path: `${storyAnchor.path}/w:r[1]`, start_byte: 30, end_byte: 80 }, text: 'c' }],
+    }
+    pagination.document.comment_stories = [{
+      id: 'story:comment:1', kind: 'comment', part_name: 'word/comments.xml', native_story_id: '1',
+      anchor: storyAnchor, blocks: [{ kind: 'paragraph', id: commentBody.id, paragraph: commentBody }],
+    }]
+    pagination.document.comments = [{ id: 'comment:1', native_comment_id: '1', author: 't', anchor: commentAnchor, body_story_id: 'story:comment:1' }]
+    const dropped = {
+      id: 'paragraph:comment',
+      anchor: anchor('/w:document[1]/w:body[1]/w:p[1]', 40, 90),
+      edit_policy: edit,
+      properties: {},
+      runs: [
+        { kind: 'reference' as const, id: 'run:comment-start', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:commentRangeStart[1]', 42, 50), reference: { kind: 'comment-range-start' as const, target_id: 'comment:1' } },
+        { kind: 'drawing' as const, id: 'run:comment-drawing', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[1]', 51, 70), drawing: { id: 'drawing:1', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[1]/w:drawing[1]', 52, 69), placement: 'inline' as const, width_emu: 914_400, height_emu: 914_400, edit_policy: { mode: 'read-only' as const, allowed_operations: [], refusal: { code: 'DRAWING_EFFECTS_UNSUPPORTED', message: 'Preserve the original drawing.', preservation: 'refuse-mutation' as const } } } },
+        { kind: 'reference' as const, id: 'run:comment-end', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:commentRangeEnd[1]', 71, 78), reference: { kind: 'comment-range-end' as const, target_id: 'comment:1' } },
+        { kind: 'reference' as const, id: 'run:comment-ref', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[2]', 79, 88), reference: { kind: 'comment' as const, target_id: 'comment:1' } },
+      ],
+    }
+    pagination.document.body.blocks.unshift({ kind: 'paragraph', id: dropped.id, paragraph: dropped })
+    pagination.document.sections[0]!.starts_at_block_id = dropped.id
+    pagination.resolved_layout.paragraphs.unshift(
+      { paragraph_id: dropped.id, applied_styles: [], properties: {}, paragraph_mark_properties: { font_family: 'Test', font_size_half_points: 20 } },
+      { paragraph_id: commentBody.id, applied_styles: [], properties: {}, paragraph_mark_properties: { font_family: 'Test', font_size_half_points: 20 } },
+    )
+    pagination.resolved_layout.runs.push(
+      { run_id: 'run:comment-start', paragraph_id: dropped.id, applied_paragraph_styles: [], applied_character_styles: [], properties: { font_family: 'Test', font_size_half_points: 20 } },
+      { run_id: 'run:comment-drawing', paragraph_id: dropped.id, applied_paragraph_styles: [], applied_character_styles: [], properties: { font_family: 'Test', font_size_half_points: 20 } },
+      { run_id: 'run:comment-end', paragraph_id: dropped.id, applied_paragraph_styles: [], applied_character_styles: [], properties: { font_family: 'Test', font_size_half_points: 20 } },
+      { run_id: 'run:comment-ref', paragraph_id: dropped.id, applied_paragraph_styles: [], applied_character_styles: [], properties: { font_family: 'Test', font_size_half_points: 20 } },
+      { run_id: 'run:comment-body', paragraph_id: commentBody.id, applied_paragraph_styles: [], applied_character_styles: [], properties: { font_family: 'Test', font_size_half_points: 20 } },
+    )
+    pagination.shaped_lines.diagnostics.push({
+      code: 'reference-layout-unsupported', severity: 'unsupported', scope_id: dropped.id, source_id: 'run:comment-start',
+      message: 'Reference display text is not in the exact uniquely ordered decimal note subset',
+    })
+    settings.profile = 'unsupported'
+    delete settings.compatibility_mode
+    settings.diagnostics = [{ code: 'COMPATIBILITY_SETTING_UNSUPPORTED', severity: 'unsupported', part_name: SETTINGS_PART, path: '/w:settings[1]/w:compat[1]', preservation: 'preserve-verbatim', message: 'Legacy Word mode 14 requires different semantics' }]
+    request.integrity.shaped_lines_sha256 = nativeDocxPagePaintShapedLinesSha256V1(pagination.shaped_lines)
+    const eligibility = { protocol: 'injoffice.docx.approximation-eligibility', version: 1, document_id: settings.document_id, revision: settings.revision, package_sha256: settings.package_sha256, settings_sha256: settings.settings_sha256, status: 'eligible' as const, legacy_compatibility_mode: 14 as const, reasons: ['Legacy mode 14 uses current layout'] }
+    const strict = paginateNativeDocxV1(pagination)
+    expect(strict, JSON.stringify(strict)).toMatchObject({ ok: true, value: { status: 'refused' } })
+    if (strict.ok) expect(strict.value.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'shaped-paragraph-missing', scope_id: dropped.id })]))
+    const approximateLayout = paginateNativeDocxApproximateLegacyV1(pagination, eligibility)
+    expect(approximateLayout.layout.status).toBe('paginated')
+    expect(approximateLayout.layout.pages[0]!.lines.map(line => line.paragraph_id)).toEqual(['paragraph:1'])
+    request.paginated_layout = strict.ok ? strict.value : request.paginated_layout
+    request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(request.paginated_layout)
+    const approximate = await compileNativeDocxApproximatePagePreviewV1(request, eligibility, new FixtureProvider())
+    expect(approximate).toMatchObject({ status: 'painted', fidelity: 'approximate' })
+    expect(approximate.pages[0]!.commands.some(command => command.kind === 'fill_glyph_path' && command.source_id === 'run:1')).toBe(true)
+    expect(approximate.content_status).toBe('partial')
+    expect(approximate.omitted_content.map(entry => [entry.code, entry.category, entry.scope_id])).toEqual([
+      ['reference-layout-unsupported', 'comment', 'run:comment-start'],
+    ])
+    expect(approximate.unpainted_pages).toEqual([])
+    expect(await compileNativeDocxPagePaintV1(request, new FixtureProvider())).toMatchObject({ ok: true, value: { status: 'refused' } })
+  })
+  it('bounds upstream refusal reasons and keeps valid atomic output', async () => {
+    const request = fixture()
+    const settings = request.pagination_request.pagination_settings
+    settings.profile = 'unsupported'
+    settings.diagnostics = Array.from({ length: 12 }, (_, index) => ({
+      code: 'PAGINATION_SETTING_UNSUPPORTED' as const, severity: 'unsupported' as const, preservation: 'preserve-verbatim' as const,
+      part_name: settings.settings_part!, path: '/w:settings[1]', message: `Unsupported setting ${index}`,
+    }))
+    const layout = paginateNativeDocxV1(request.pagination_request)
+    expect(layout.ok, JSON.stringify(layout)).toBe(true)
+    if (!layout.ok) return
+    request.paginated_layout = layout.value
+    request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(layout.value)
+    const provider = new FixtureProvider()
+    const result = await compileNativeDocxPagePaintV1(request, provider)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.status).toBe('refused')
+    expect(result.value.pages).toEqual([])
+    expect(result.value.resources).toEqual([])
+    expect(result.value.diagnostics).toHaveLength(10)
+    expect(result.value.diagnostics[1]!.message).toContain('PAGINATION_SETTING_UNSUPPORTED')
+    expect(result.value.diagnostics.at(-1)!.message).toContain('4 additional pagination reasons omitted')
+    expect(result.value.diagnostics.every((entry) => entry.message.length <= 4096)).toBe(true)
+    expect(decodeNativeDocxPagePaintV1(result.value).ok).toBe(true)
+    expect(provider.calls).toBe(0)
+  })
+
+  it('paints with qualified latent metadata without removing preservation evidence', async () => {
+    const request = fixture()
+    const resolved = request.pagination_request.resolved_layout
+    resolved.source_parts.styles_part = 'word/styles.xml'
+    resolved.diagnostics.push({ code: 'LATENT_STYLE_BEHAVIOR_PRESERVED', severity: 'unsupported', scope_id: resolved.document_id, part_name: 'word/styles.xml', path: '/w:styles[1]/w:latentStyles[1]', preservation: 'preserve-verbatim', message: 'Exact UI metadata retained' })
+    const before = JSON.stringify(request.pagination_request.document)
+    const result = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(result.ok && result.value.status).toBe('painted')
+    expect(resolved.diagnostics).toHaveLength(1)
+    expect(JSON.stringify(request.pagination_request.document)).toBe(before)
+    resolved.diagnostics[0]!.code = 'LATENT_STYLES_PRESERVED'
+    const unknown = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(unknown.ok && unknown.value.status).toBe('refused')
+  })
+  it('retains qualified font matching diagnostics while painting supplied glyphs', async () => {
+    const request = fixture()
+    const resolved = request.pagination_request.resolved_layout
+    resolved.source_parts.font_table_part = 'word/fonts.xml'
+    resolved.diagnostics.push({ code: 'FONT_MATCHING_METADATA_PRESERVED', severity: 'unsupported', scope_id: resolved.document_id, part_name: 'word/fonts.xml', path: '/w:fonts[1]/w:font[1]/w:panose1[1]', preservation: 'preserve-verbatim', message: 'Matching metadata retained' })
+    const before = JSON.stringify(request.pagination_request.document)
+    const result = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(result.ok && result.value.status).toBe('painted')
+    expect(resolved.diagnostics).toHaveLength(1)
+    expect(JSON.stringify(request.pagination_request.document)).toBe(before)
+    resolved.diagnostics[0]!.code = 'UNMODELED_FONT_METADATA'
+    const unknown = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(unknown.ok && unknown.value.status).toBe('refused')
+  })
+
+  it('retains empty default numbering style evidence without blocking paint', async () => {
+    const request = fixture(), resolved = request.pagination_request.resolved_layout
+    resolved.source_parts.styles_part = 'word/styles.xml'
+    resolved.diagnostics.push({ code: 'EMPTY_NUMBERING_STYLE_PRESERVED', severity: 'unsupported', scope_id: resolved.document_id, part_name: 'word/styles.xml', path: '/w:styles[1]/w:style[4]', preservation: 'preserve-verbatim', message: 'Exact empty default numbering style retained' })
+    const result = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(result.ok && result.value.status).toBe('painted')
+    expect(resolved.diagnostics).toHaveLength(1)
+    resolved.diagnostics[0]!.code = 'NUMBERING_STYLE_PRESERVED'
+    const unknown = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(unknown.ok && unknown.value.status).toBe('refused')
+  })
+
+  it('retains a repeated font-table entry without blocking paint', async () => {
+    const request = fixture(), resolved = request.pagination_request.resolved_layout
+    resolved.source_parts.font_table_part = 'word/fontTable.xml'
+    resolved.diagnostics.push({ code: 'DUPLICATE_FONT_TABLE_ENTRY', severity: 'unsupported', scope_id: resolved.document_id, part_name: 'word/fontTable.xml', path: '/w:fonts[1]/w:font[4]', preservation: 'preserve-verbatim', message: 'A repeated font-table entry for this family is preserved' })
+    const result = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(result.ok && result.value.status).toBe('painted')
+    expect(resolved.diagnostics).toHaveLength(1)
+    resolved.diagnostics[0]!.path = '/w:fonts[1]/w:font[4]/w:panose1[1]'
+    const elsewhere = await compileNativeDocxPagePaintV1(request, new FixtureProvider())
+    expect(elsewhere.ok && elsewhere.value.status).toBe('refused')
+  })
+
+  it('bounds paginated-layout hashing and keeps object-key order irrelevant', () => {
+    const layout = fixture().paginated_layout
+    const reordered = Object.fromEntries(Object.entries(structuredClone(layout)).reverse()) as typeof layout
+    expect(nativeDocxPagePaintPaginatedLayoutSha256V1(reordered)).toBe(nativeDocxPagePaintPaginatedLayoutSha256V1(layout))
+    const cyclic: any = structuredClone(layout)
+    cyclic.loop = cyclic
+    expect(() => nativeDocxPagePaintPaginatedLayoutSha256V1(cyclic)).toThrow(/acyclic/)
+    const deep: any = structuredClone(layout)
+    let cursor = deep
+    for (let index = 0; index <= DOCX_NATIVE_LIMITS.maxDepth; index += 1) cursor = cursor.extra = {}
+    expect(() => nativeDocxPagePaintPaginatedLayoutSha256V1(deep)).toThrow(/bounded traversal/)
+  })
+
+  it('keeps strict binding-field manifests in parity with request and output objects', async () => {
+    const request = fixture()
+    const { value } = await painted(request)
+    const page = value.pages[0]!
+    const line = page.lines[0]!
+    const command = page.commands[0]!
+    if (command.kind !== 'fill_glyph_path') throw new Error('expected glyph command')
+    const fields = (value: object) => Object.keys(value).sort()
+    expect(fields(request)).toEqual([...DOCX_PAGE_PAINT_REQUEST_V1_BINDING_FIELDS.RequestV1].sort())
+    expect(fields(request.integrity)).toEqual([...DOCX_PAGE_PAINT_REQUEST_V1_BINDING_FIELDS.IntegrityV1].sort())
+    expect(fields(request.outline_provider)).toEqual([...DOCX_PAGE_PAINT_REQUEST_V1_BINDING_FIELDS.OutlineProviderV1].sort())
+    expect(fields(value)).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.OutputV1].sort())
+    expect(fields(value.provenance)).toEqual(DOCX_PAGE_PAINT_V1_BINDING_FIELDS.ProvenanceV1.filter((key) => key !== 'numbering_source' && key !== 'body_field_source_sha256').sort())
+    expect(fields(value.provenance.font_manifest)).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.ManifestV1].sort())
+    expect(fields(value.provenance.media_assets)).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.MediaSourceV1].sort())
+    expect(fields(value.provenance.providers)).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.ProvidersV1].sort())
+    expect(fields(page)).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.PageV1].sort())
+    expect(fields(line)).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.BodyLineV1].sort())
+    expect(fields(command)).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.GlyphCommandV1].sort())
+    expect(fields(command.face)).toEqual(['content_digest', 'face_id'])
+    expect(fields(page.glyph_outlines[0]!)).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.GlyphOutlineV1].sort())
+    expect(fields(nativeDocxPlacedGlyphOutlineV1(page, command)[0]!)).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.PathMoveV1].sort())
+    expect(fields(nativeDocxPlacedGlyphOutlineV1(page, command).at(-1)!)).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.PathCloseV1].sort())
+  })
+
+  it('emits non-empty absolute integer glyph paths, explicit page geometry, and caches exact face/glyph keys', async () => {
+    const request = fixture()
+    const { value, provider } = await painted(request)
+    expect(value.protocol).toBe(DOCX_PAGE_PAINT_PROTOCOL)
+    expect(value.pages).toHaveLength(1)
+    expect(value.pages[0]).toMatchObject({ id: 'page:section:1:0', ordinal: 0, width_millipoints: 50_000, height_millipoints: 50_000, body_box: { x_millipoints: 5_000, y_millipoints: 5_000, width_millipoints: 40_000, height_millipoints: 40_000 } })
+    expect(value.pages[0]!.commands).toHaveLength(2)
+    const command = value.pages[0]!.commands[0]!
+    if (command.kind !== 'fill_glyph_path') throw new Error('expected glyph command')
+    expect(command).toMatchObject({ glyph_id: 7, font_size_millipoints: 10_000, fill_rgb: '123456', outline_kind: 'path' })
+    const placed = nativeDocxPlacedGlyphOutlineV1(value.pages[0]!, command)
+    expect(placed[0]).toEqual({ kind: 'move_to', x_millipoints: 5_000, y_millipoints: 13_000 })
+    expect(placed.some((entry) => entry.kind === 'line_to')).toBe(true)
+    // One shared outline per distinct face/glyph/size, referenced by origin only.
+    expect(value.pages[0]!.glyph_outlines).toHaveLength(1)
+    expect(value.pages[0]!.glyph_outlines[0]!.path[0]).toEqual({ kind: 'move_to', x_millipoints: 0, y_millipoints: 0 })
+    expect(provider.calls).toBe(1)
+    expect(decodeNativeDocxPagePaintV1(value).ok).toBe(true)
+    expect(decodeNativeDocxPagePaintForRequestV1(value, request, { provider_id: provider.providerId, provider_revision: provider.providerRevision }).ok).toBe(true)
+    expect((await validateNativeDocxPagePaintForRequestV1(value, request, new FixtureProvider())).ok).toBe(true)
+  })
+
+  it('transports one shared outline per distinct glyph and places every repetition by exact integer translation', async () => {
+    const request = fixture()
+    const { value } = await painted(request)
+    if (value.status !== 'painted') throw new Error('expected a painted page')
+    const page = value.pages[0]!
+    const glyphs = page.commands.flatMap((command) => command.kind === 'fill_glyph_path' ? [command] : [])
+    expect(glyphs.length).toBeGreaterThan(1)
+    // Every repetition of one face/glyph/size shares a single stored contour.
+    expect(page.glyph_outlines).toHaveLength(new Set(glyphs.map((glyph) => `${glyph.face.content_digest}|${glyph.glyph_id}|${glyph.font_size_millipoints}`)).size)
+    expect(new Set(glyphs.map((glyph) => glyph.outline_index)).size).toBe(page.glyph_outlines.length)
+    // Placing a repetition is integer addition of its origin, so two occurrences of the
+    // same outline differ by exactly their origin delta and by nothing else.
+    const [first, second] = glyphs
+    expect(second!.outline_index).toBe(first!.outline_index)
+    const shift = { x: second!.origin_x_millipoints - first!.origin_x_millipoints, y: second!.origin_y_millipoints - first!.origin_y_millipoints }
+    expect(nativeDocxPlacedGlyphOutlineV1(page, second!)).toEqual(nativeDocxPlacedGlyphOutlineV1(page, first!).map((part) => Object.fromEntries(Object.entries(part).map(([key, entry]) => [key, key.endsWith('x_millipoints') ? (entry as number) + shift.x : key.endsWith('y_millipoints') ? (entry as number) + shift.y : entry]))))
+    // The shared table is what makes the wire smaller: a page carrying each placed path
+    // inline is strictly larger than the same page carrying the table plus origins.
+    const inline = JSON.stringify(glyphs.map((glyph) => nativeDocxPlacedGlyphOutlineV1(page, glyph))).length
+    expect(JSON.stringify(page.glyph_outlines).length + JSON.stringify(glyphs.map((glyph) => [glyph.outline_index, glyph.origin_x_millipoints, glyph.origin_y_millipoints])).length).toBeLessThan(inline)
+  })
+
+  it('paints exact native list-marker glyphs with marker font/color and carries numbering hashes through provenance', async () => {
+    const request = fixture()
+    const pagination = request.pagination_request
+    const nativeParagraph = pagination.document.body.blocks[0]!.paragraph!
+    nativeParagraph.properties.numbering = { num_id: '7', abstract_num_id: '3', level: 0 }
+    pagination.document.passthrough_parts.push({ part_name: NUMBERING_PART, content_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml', byte_length: 1, sha256: NUMBERING_HASH, policy: 'preserve-verbatim' })
+    const resolvedParagraph = pagination.resolved_layout.paragraphs[0]!
+    resolvedParagraph.properties = { indent_start_twips: 200, hanging_twips: 200 }
+    resolvedParagraph.numbering = {
+      marker_id: 'marker:paragraph:1', definition_sha256: HASH, num_id: '7', abstract_num_id: '3', level: 0, start: 1,
+      format: 'decimal', text: '%1', suffix: 'nothing', alignment: 'start', never_restart: true,
+      counter_value: 1, counter_values: [{ level: 0, value: 1, format: 'decimal' }], resolved_text: '1',
+      label_start_twips: 0, label_end_twips: 200, text_start_twips: 200,
+      marker_properties: { font_family: 'Test', font_size_half_points: 20, color: '654321', language: 'en-US' },
+    }
+    pagination.resolved_layout.source_parts.numbering_part = NUMBERING_PART
+    const numberingSourceBase = {
+      relationships_part: RELATIONSHIPS_PART, relationships_sha256: RELATIONSHIPS_HASH,
+      relationship_id: 'rIdNumbering', relationship_type: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering', relationship_target: 'numbering.xml',
+      part_name: NUMBERING_PART, content_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml' as const, part_sha256: NUMBERING_HASH,
+    }
+    resolvedParagraph.numbering.definition_sha256 = nativeDocxResolvedNumberingDefinitionSha256V1(resolvedParagraph.numbering, NUMBERING_HASH)
+    const numberingSource = { ...numberingSourceBase, model_sha256: nativeDocxResolvedNumberingModelSha256V1(pagination.resolved_layout.paragraphs, numberingSourceBase) }
+    pagination.resolved_layout.numbering_source = numberingSource
+    const shapedParagraph = pagination.shaped_lines.paragraphs[0]!
+    shapedParagraph.indent_start_millipoints = 10_000
+    shapedParagraph.first_line_delta_millipoints = -10_000
+    shapedParagraph.list_marker = {
+      marker_id: resolvedParagraph.numbering.marker_id, definition_sha256: resolvedParagraph.numbering.definition_sha256,
+      numbering_part_sha256: NUMBERING_HASH, model_sha256: numberingSource.model_sha256,
+      num_id: '7', abstract_num_id: '3', level: 0, counter_value: 1, text: '1', suffix: 'nothing', alignment: 'start',
+      label_start_millipoints: 0, label_end_millipoints: 10_000, marker_start_millipoints: 0, marker_advance_millipoints: 5_000, text_start_millipoints: 5_000,
+    }
+    pagination.shaped_lines.numbering_source = numberingSource
+    const line = shapedParagraph.lines[0]!
+    line.advance_inline_millipoints = 15_000
+    line.fragments.forEach((fragment) => { fragment.logical_order += 1 })
+    line.logical_to_visual = [0, 1]
+    line.fragments[0]!.id = 'fragment:paragraph:1:0:1'
+    line.fragments.unshift({
+      id: 'fragment:paragraph:1:0:0', source_kind: 'list-marker', source_id: 'paragraph:1', start_utf16: 0, end_utf16: 1, text: '1',
+      direction: 'ltr', bidi_level: 0, logical_order: 0, script: 'Zyyy', language: 'en-US', face_id: 'face:test', whitespace: false,
+      advance_inline_millipoints: 5_000, ascent_millipoints: 8_000, descent_millipoints: -2_000, line_gap_millipoints: 0,
+      justification_expansion_millipoints: 0,
+      glyphs: [{ glyph_id: 8, advance_x_millipoints: 5_000, advance_y_millipoints: 0, offset_x_millipoints: 0, offset_y_millipoints: 0 }],
+    })
+    const layout = paginateNativeDocxV1(pagination)
+    expect(layout.ok && layout.value.status, JSON.stringify(layout)).toBe('paginated')
+    if (!layout.ok || layout.value.status !== 'paginated') return
+
+    const forgedGeometry = structuredClone(pagination)
+    const forgedParagraph = forgedGeometry.shaped_lines.paragraphs[0]!
+    const forgedMarker = forgedParagraph.list_marker!
+    const forgedLine = forgedParagraph.lines[0]!
+    forgedMarker.marker_start_millipoints = 1_000
+    forgedMarker.text_start_millipoints = 6_000
+    forgedLine.advance_inline_millipoints += 1_000
+    forgedLine.fragments.forEach((fragment) => { fragment.logical_order += 1 })
+    forgedLine.logical_to_visual = [0, 1, 2]
+    forgedLine.fragments[0]!.id = 'fragment:paragraph:1:0:1'
+    forgedLine.fragments[1]!.id = 'fragment:paragraph:1:0:2'
+    forgedLine.fragments.unshift({
+      id: 'fragment:paragraph:1:0:0', source_kind: 'list-marker', source_id: 'paragraph:1', start_utf16: 0, end_utf16: 0, text: '',
+      direction: 'ltr', bidi_level: 0, logical_order: 0, script: 'Zyyy', language: 'en-US', whitespace: false,
+      advance_inline_millipoints: 1_000, ascent_millipoints: 0, descent_millipoints: 0, line_gap_millipoints: 0, glyphs: [],
+      justification_expansion_millipoints: 0,
+    })
+    expect(paginateNativeDocxV1(forgedGeometry).ok).toBe(false)
+
+    request.paginated_layout = layout.value
+    request.integrity.shaped_lines_sha256 = nativeDocxPagePaintShapedLinesSha256V1(pagination.shaped_lines)
+    request.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(layout.value)
+    const { value } = await painted(request)
+    expect(value.pages[0]!.commands.flatMap((command) => command.kind === 'fill_glyph_path' ? [[command.source_id, command.fill_rgb]] : [])).toEqual([
+      ['paragraph:1', '654321'], ['run:1', '123456'], ['run:1', '123456'],
+    ])
+    expect(value.provenance.numbering_source).toEqual(numberingSource)
+    expect(decodeNativeDocxPagePaintForRequestV1(value, request, { provider_id: 'outline:test', provider_revision: '1' }).ok).toBe(true)
+  })
+
+  it('is deterministic and does not mutate caller-owned request data', async () => {
+    const request = fixture()
+    const before = structuredClone(request)
+    const first = await painted(request, new FixtureProvider())
+    const second = await painted(request, new FixtureProvider())
+    expect(second.value).toEqual(first.value)
+    expect(JSON.stringify(second.value)).toBe(JSON.stringify(first.value))
+    expect(request).toEqual(before)
+    const layoutHash = nativeDocxPagePaintPaginatedLayoutSha256V1(request.paginated_layout)
+    expect(nativeDocxPagePaintPaginatedLayoutSha256V1(structuredClone(request.paginated_layout))).toBe(layoutHash)
+    const changedColumn = structuredClone(request.paginated_layout)
+    changedColumn.pages[0]!.columns[0]!.id = 'column:section:1:changed'
+    expect(nativeDocxPagePaintPaginatedLayoutSha256V1(changedColumn)).not.toBe(layoutHash)
+  })
+
+  it('strictly decodes request/output exact keys and request-bound glyph identity', async () => {
+    const request = fixture()
+    expect(Object.keys(request).sort()).toEqual([...DOCX_PAGE_PAINT_REQUEST_V1_BINDING_FIELDS.RequestV1].sort())
+    expect(decodeNativeDocxPagePaintRequestV1(request).ok).toBe(true)
+    for (const mutate of [
+      (value: any) => { value.extra = true },
+      (value: any) => { value.version = 2 },
+      (value: any) => { value.outline_provider.provider_id = null },
+      (value: any) => { value.pagination_request.shaped_lines.paragraphs[0].lines[0].ordinal = -0 },
+      (value: any) => { value.paginated_layout.pages[0].lines[0].x_millipoints += 1 },
+      (value: any) => { value.font_manifest.revision = 'wrong' },
+      (value: any) => { value.font_manifest.faces[0].source.contentDigest = `sha256:${'d'.repeat(64)}` },
+    ]) {
+      const invalid: any = structuredClone(request)
+      mutate(invalid)
+      expect(decodeNativeDocxPagePaintRequestV1(invalid).ok).toBe(false)
+    }
+
+    const { value } = await painted(request)
+    expect(Object.keys(value).sort()).toEqual([...DOCX_PAGE_PAINT_V1_BINDING_FIELDS.OutputV1].sort())
+    const tampered: any = structuredClone(value)
+    // The shared outline carries the glyph identity too, so a command must be re-pointed
+    // consistently to stay structurally valid; only the request join can then reject it.
+    tampered.pages[0].glyph_outlines.push({ ...structuredClone(tampered.pages[0].glyph_outlines[tampered.pages[0].commands[0].outline_index]), glyph_id: 8 })
+    tampered.pages[0].commands[0].glyph_id = 8
+    tampered.pages[0].commands[0].outline_index = tampered.pages[0].glyph_outlines.length - 1
+    expect(decodeNativeDocxPagePaintV1(tampered).ok).toBe(true)
+    expect(decodeNativeDocxPagePaintForRequestV1(tampered, request, { provider_id: 'outline:test', provider_revision: '1' }).ok).toBe(false)
+
+    // A glyph command that no longer agrees with the outline it points at, or points past
+    // the page's table, is a structural failure: a viewer must never quietly paint the
+    // wrong contour or drop one.
+    for (const mutate of [
+      (output: any) => { output.pages[0].commands[0].glyph_id = 8 },
+      (output: any) => { output.pages[0].commands[0].font_size_millipoints += 1000 },
+      (output: any) => { output.pages[0].commands[0].outline_kind = 'empty' },
+      (output: any) => { output.pages[0].commands[0].outline_index = output.pages[0].glyph_outlines.length },
+      (output: any) => { output.pages[0].glyph_outlines[0].face.content_digest = `sha256:${'c'.repeat(64)}` },
+    ]) {
+      const broken: any = structuredClone(value)
+      mutate(broken)
+      expect(decodeNativeDocxPagePaintV1(broken).ok).toBe(false)
+    }
+
+    for (const mutate of [
+      (output: any) => { output.pages[0].commands[0].face.content_digest = `sha256:${'c'.repeat(64)}` },
+      (output: any) => { output.pages[0].commands[0].face.collection_index = 1 },
+      (output: any) => { output.pages[0].commands[0].font_size_millipoints += 1 },
+      (output: any) => { output.pages[0].commands[0].fill_rgb = '654321' },
+      (output: any) => { output.pages[0].lines[0].command_ids = [] },
+    ]) {
+      const invalid: any = structuredClone(value)
+      mutate(invalid)
+      expect(decodeNativeDocxPagePaintForRequestV1(invalid, request, { provider_id: 'outline:test', provider_revision: '1' }).ok).toBe(false)
+    }
+
+    for (const mutate of [
+      (output: any) => { output.extra = true },
+      (output: any) => { output.provenance.shaped_lines.protocol = 'forged' },
+      (output: any) => { output.provenance.paginated_layout.protocol = 'forged' },
+      (output: any) => { output.provenance.pagination_settings.extra = true },
+      (output: any) => { output.pages[0].section_ids.push(output.pages[0].section_id) },
+      (output: any) => { output.pages[0].columns[0].section_id = 'section:forged' },
+      (output: any) => { output.pages[0].lines[0].column_ordinal = 1 },
+      (output: any) => { output.pages[0].columns[0].x_millipoints = output.pages[0].width_millipoints },
+      (output: any) => { output.pages[0].lines[0].x_millipoints = output.pages[0].columns[0].x_millipoints + output.pages[0].columns[0].width_millipoints },
+      (output: any) => { output.pages[0].commands[0].fill_rule = 'evenodd' },
+      (output: any) => { output.pages[0].glyph_outlines[0].path[0].x_millipoints = -0 },
+      (output: any) => { output.pages[0].glyph_outlines[0].path.pop() },
+    ]) {
+      const invalid: any = structuredClone(value)
+      mutate(invalid)
+      expect(decodeNativeDocxPagePaintV1(invalid).ok).toBe(false)
+    }
+
+    const cyclicRequest: any = fixture()
+    cyclicRequest.loop = cyclicRequest
+    expect(decodeNativeDocxPagePaintRequestV1(cyclicRequest).ok).toBe(false)
+    const cyclicOutput: any = structuredClone(value)
+    cyclicOutput.pages[0].glyph_outlines[0].path.push(cyclicOutput)
+    expect(decodeNativeDocxPagePaintV1(cyclicOutput).ok).toBe(false)
+  })
+
+  it('refuses a structurally valid shaped projection that omits native source clusters', async () => {
+    const request = fixture()
+    request.pagination_request.document.body.blocks[0]!.paragraph!.runs[0]!.text = 'AAA'
+    const provider = new FixtureProvider()
+    const result = await compileNativeDocxPagePaintV1(request, provider)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.value).toMatchObject({ status: 'refused', diagnostics: [expect.objectContaining({ code: 'identity-mismatch', scope_id: 'run:1' })], pages: [] })
+  })
+
+  it('atomically refuses missing faces, provider mismatch/refusal/failure, and invalid paths', async () => {
+    const cases: Array<{ request?: NativeDocxPagePaintRequestV1; provider: FixtureProvider; code: string }> = []
+    const noDigest = fixture()
+    delete (noDigest.font_manifest.faces[0]!.source as { contentDigest?: string }).contentDigest
+    noDigest.integrity.font_manifest_sha256 = nativeDocxPagePaintFontManifestSha256V1(noDigest.font_manifest)
+    cases.push({ request: noDigest, provider: new FixtureProvider(), code: 'missing-font' })
+
+    const wrongIdentity = new FixtureProvider()
+    wrongIdentity.providerRevision = '2'
+    cases.push({ provider: wrongIdentity, code: 'provider-mismatch' })
+
+    const missing = new FixtureProvider()
+    missing.result = (request) => ({ status: 'refused', face: { ...request.face }, glyph_id: request.glyph_id, code: 'missing-glyph', message: 'glyph absent' })
+    cases.push({ provider: missing, code: 'missing-glyph' })
+
+    const invalid = new FixtureProvider()
+    invalid.result = (request) => ({ status: 'outlined', face: { ...request.face }, glyph_id: request.glyph_id, units_per_em: 1_000, path: [{ kind: 'move_to', x: 0, y: 0 }, { kind: 'line_to', x: 1, y: 1 }] })
+    cases.push({ provider: invalid, code: 'invalid-provider-output' })
+
+    const collapsed = new FixtureProvider()
+    collapsed.result = (request) => ({
+      status: 'outlined', face: { ...request.face }, glyph_id: request.glyph_id, units_per_em: 1_000_000,
+      path: [{ kind: 'move_to', x: 0, y: 0 }, { kind: 'line_to', x: 1, y: 0 }, { kind: 'line_to', x: 0, y: 1 }, { kind: 'close_path' }],
+    })
+    cases.push({ provider: collapsed, code: 'invalid-path' })
+
+    const emptyVisible = new FixtureProvider()
+    emptyVisible.result = (request) => ({ status: 'empty', face: { ...request.face }, glyph_id: request.glyph_id, units_per_em: 1_000 })
+    cases.push({ provider: emptyVisible, code: 'missing-glyph' })
+
+    const degenerate = new FixtureProvider()
+    degenerate.result = (request) => ({ status: 'outlined', face: { ...request.face }, glyph_id: request.glyph_id, units_per_em: 1_000, path: [{ kind: 'move_to', x: 1, y: 1 }, { kind: 'line_to', x: 1, y: 1 }, { kind: 'close_path' }] })
+    cases.push({ provider: degenerate, code: 'invalid-provider-output' })
+
+    for (const entry of cases) {
+      const result = await compileNativeDocxPagePaintV1(entry.request ?? fixture(), entry.provider)
+      expect(result.ok).toBe(true)
+      if (!result.ok) continue
+      expect(result.value).toMatchObject({ status: 'refused', pages: [], diagnostics: [{ code: entry.code }] })
+      expect(decodeNativeDocxPagePaintV1(result.value).ok).toBe(true)
+    }
+
+    const throwing = new FixtureProvider()
+    throwing.getGlyphOutline = () => { throw new Error('boom') }
+    const failure = await compileNativeDocxPagePaintV1(fixture(), throwing)
+    expect(failure.ok && failure.value.status === 'refused' && failure.value.pages).toEqual([])
+    if (failure.ok) expect(failure.value.diagnostics[0]?.code).toBe('provider-failure')
+  })
+
+  it('owns provider output and detects provider identity mutation during an async call', async () => {
+    const provider = new FixtureProvider()
+    const resultObject = provider.getGlyphOutline({ face: { face_id: 'face:test', content_digest: HASH }, glyph_id: 7 })
+    provider.getGlyphOutline = (async (request) => {
+      provider.providerRevision = 'mutated'
+      return { ...(resultObject as any), face: { ...request.face }, glyph_id: request.glyph_id }
+    }) as NativeDocxGlyphOutlineProviderV1['getGlyphOutline']
+    const result = await compileNativeDocxPagePaintV1(fixture(), provider)
+    expect(result.ok && result.value.status === 'refused' ? result.value.diagnostics[0]?.code : undefined).toBe('provider-mismatch')
+    expect(result.ok && result.value.pages).toEqual([])
+  })
+
+  it('bounds hostile provider values and resource-heavy paths without leaking partial pages', async () => {
+    const huge = new FixtureProvider()
+    huge.result = (request) => ({
+      status: 'outlined', face: { ...request.face }, glyph_id: request.glyph_id, units_per_em: 1_000,
+      path: Array.from({ length: 65_537 }, () => ({ kind: 'close_path' as const })),
+    })
+    const overflow = await compileNativeDocxPagePaintV1(fixture(), huge)
+    expect(overflow.ok && overflow.value.status === 'refused' ? overflow.value.diagnostics[0]?.code : undefined).toBe('resource-limit')
+    expect(overflow.ok && overflow.value.pages).toEqual([])
+
+    const unreadable = new FixtureProvider()
+    unreadable.getGlyphOutline = (() => {
+      const result: Record<string, unknown> = {}
+      Object.defineProperty(result, 'status', { enumerable: true, get() { throw new Error('hostile getter') } })
+      return result as unknown as NativeDocxGlyphOutlineResultV1
+    }) as NativeDocxGlyphOutlineProviderV1['getGlyphOutline']
+    const hostile = await compileNativeDocxPagePaintV1(fixture(), unreadable)
+    expect(hostile.ok && hostile.value.status === 'refused' ? hostile.value.diagnostics[0]?.code : undefined).toBe('invalid-provider-output')
+    expect(hostile.ok && hostile.value.pages).toEqual([])
+
+    const errorGetter = new FixtureProvider()
+    errorGetter.getGlyphOutline = (() => {
+      const thrown: Record<string, unknown> = {}
+      Object.defineProperty(thrown, 'message', { get() { throw new Error('nested') } })
+      throw thrown
+    }) as NativeDocxGlyphOutlineProviderV1['getGlyphOutline']
+    const failure = await compileNativeDocxPagePaintV1(fixture(), errorGetter)
+    expect(failure.ok && failure.value.status === 'refused' ? failure.value.diagnostics[0]?.message : '').toContain('unreadable provider error')
+    expect(failure.ok ? decodeNativeDocxPagePaintV1(failure.value).ok : false).toBe(true)
+
+    const lateRequest = fixture()
+    lateRequest.pagination_request.shaped_lines.paragraphs[0]!.lines[0]!.fragments[0]!.glyphs[1]!.glyph_id = 8
+    const lateLayout = paginateNativeDocxV1(lateRequest.pagination_request)
+    if (!lateLayout.ok || lateLayout.value.status !== 'paginated') throw new Error(JSON.stringify(lateLayout))
+    lateRequest.paginated_layout = lateLayout.value
+    lateRequest.integrity.shaped_lines_sha256 = nativeDocxPagePaintShapedLinesSha256V1(lateRequest.pagination_request.shaped_lines)
+    const late = new FixtureProvider()
+    late.result = (request) => request.glyph_id === 8
+      ? { status: 'refused', face: { ...request.face }, glyph_id: request.glyph_id, code: 'missing-glyph', message: 'second glyph missing' }
+      : new FixtureProvider().getGlyphOutline(request) as NativeDocxGlyphOutlineResultV1
+    const atomic = await compileNativeDocxPagePaintV1(lateRequest, late)
+    expect(late.calls).toBe(2)
+    expect(atomic.ok && atomic.value.status === 'refused' ? atomic.value.diagnostics[0]?.code : undefined).toBe('missing-glyph')
+    expect(atomic.ok && atomic.value.pages).toEqual([])
+  })
+
+  it('refuses unsupported paint semantics before calling the outline provider', async () => {
+    const request = fixture()
+    request.pagination_request.resolved_layout.runs[0]!.properties.underline = 'single'
+    const provider = new FixtureProvider()
+    const result = await compileNativeDocxPagePaintV1(request, provider)
+    expect(result.ok && result.value.status === 'refused' ? result.value.diagnostics[0]?.code : undefined).toBe('unsupported-source')
+    expect(provider.calls).toBe(0)
+
+    const tabRequest = fixture()
+    tabRequest.pagination_request.resolved_layout.runs[0]!.properties.underline = 'single'
+    const nativeRun: any = tabRequest.pagination_request.document.body.blocks[0]!.paragraph!.runs[0]!
+    nativeRun.kind = 'control'; nativeRun.control = 'tab'; delete nativeRun.text
+    const fragment: any = tabRequest.pagination_request.shaped_lines.paragraphs[0]!.lines[0]!.fragments[0]!
+    fragment.source_kind = 'tab'; fragment.text = '\t'; fragment.start_utf16 = 0; fragment.end_utf16 = 0; fragment.whitespace = true; fragment.glyphs = []
+    const tabLayout = paginateNativeDocxV1(tabRequest.pagination_request)
+    if (!tabLayout.ok || tabLayout.value.status !== 'paginated') throw new Error(JSON.stringify(tabLayout))
+    tabRequest.paginated_layout = tabLayout.value
+    tabRequest.integrity.shaped_lines_sha256 = nativeDocxPagePaintShapedLinesSha256V1(tabRequest.pagination_request.shaped_lines)
+    const tabProvider = new FixtureProvider()
+    const tabResult = await compileNativeDocxPagePaintV1(tabRequest, tabProvider)
+    expect(tabResult.ok, JSON.stringify(tabResult)).toBe(true)
+    expect(tabResult.ok && tabResult.value.status === 'refused' ? tabResult.value.diagnostics[0]?.code : undefined).toBe('unsupported-source')
+    expect(tabProvider.calls).toBe(0)
+
+    const drawingRequest = fixture()
+    const drawingRun: any = drawingRequest.pagination_request.document.body.blocks[0]!.paragraph!.runs[0]!
+    delete drawingRun.text
+    drawingRun.kind = 'drawing'
+    drawingRun.drawing = {
+      id: 'drawing:1', anchor: anchor('/w:document[1]/w:body[1]/w:p[1]/w:r[1]/w:drawing[1]', 120, 170),
+      placement: 'floating', width_emu: 914400, height_emu: 914400, x_emu: 0, y_emu: 0,
+      horizontal_relative_from: 'page', vertical_relative_from: 'page', wrap: 'square',
+      edit_policy: { mode: 'read-only', allowed_operations: [], refusal: { code: 'EXTRACT_ONLY', message: 'Drawing placement unavailable.', preservation: 'refuse-mutation' } },
+    }
+    const refusedLayout = paginateNativeDocxV1(drawingRequest.pagination_request)
+    if (!refusedLayout.ok || refusedLayout.value.status !== 'refused') throw new Error(JSON.stringify(refusedLayout))
+    drawingRequest.paginated_layout = refusedLayout.value
+    drawingRequest.integrity.paginated_layout_sha256 = nativeDocxPagePaintPaginatedLayoutSha256V1(refusedLayout.value)
+    const drawingProvider = new FixtureProvider()
+    const drawingResult = await compileNativeDocxPagePaintV1(drawingRequest, drawingProvider)
+    expect(drawingResult.ok && drawingResult.value.status === 'refused' ? drawingResult.value.diagnostics[0]?.code : undefined).toBe('upstream-refused')
+    expect(drawingResult.ok && drawingResult.value.diagnostics.slice(1)).toEqual(expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining(refusedLayout.value.diagnostics[0]!.code) })]))
+    if (drawingResult.ok) expect(decodeNativeDocxPagePaintV1(drawingResult.value).ok).toBe(true)
+    expect(drawingResult.ok && drawingResult.value.pages).toEqual([])
+    expect(drawingProvider.calls).toBe(0)
+  })
+
+  it('contains no browser text/layout authority', () => {
+    const source = ['./nativePagePaintV1.ts', './nativeTablePagePaintV1.ts', './nativePagePaintCompilerV1.ts'].map((file) => readFileSync(new URL(file, import.meta.url), 'utf8')).join('\n')
+    for (const forbidden of ['CanvasRenderingContext2D', 'fill' + 'Text', 'measure' + 'Text', 'new Font' + 'Face', 'document.createElement', 'window.', 'getComputedStyle', 'system-font', 'pdfjs', 'pdf-lib', 'screen' + 'shot']) expect(source).not.toContain(forbidden)
+  })
+})

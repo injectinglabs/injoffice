@@ -1,0 +1,1153 @@
+package docxpatch
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"fmt"
+	"os"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+// wordMacListFixture returns the untouched bytes of python-docx's Apache-2.0
+// features/steps/test_files/num-having-numbering-part.docx at commit
+// e45454602b53e8e572b179ccf1c91093ec9f4ed7, saved by Microsoft Macintosh
+// Word 14.0. The textual envelope keeps the repository patch reviewable.
+func wordMacListFixture(t *testing.T) []byte {
+	t.Helper()
+	encoded, err := os.ReadFile("testdata/word-mac-list-numbering.docx.base64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(string(encoded)), ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest := fmt.Sprintf("%x", sha256.Sum256(data)); digest != "66b45ace7afa65acab6036bdc63d9416554576df633c13a6774bf41d4a60a47e" {
+		t.Fatalf("Word fixture digest = %s", digest)
+	}
+	pkg, err := openNativeDOCXPackage(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(pkg.files["docProps/app.xml"], []byte("Microsoft Macintosh Word")) {
+		t.Fatal("Word producer metadata is missing from genuine fixture")
+	}
+	return data
+}
+
+func strictNumberingFixture(t *testing.T) []byte {
+	t.Helper()
+	encoded, err := os.ReadFile("testdata/native-numbering-strict-v1.docx.base64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(string(encoded)), ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest := fmt.Sprintf("%x", sha256.Sum256(data)); digest != "9865a76e1111e0ab529c84a9bbf0b36b5f0b71fca612ef36f012825f8753b5f5" {
+		t.Fatalf("Strict numbering fixture digest = %s", digest)
+	}
+	return data
+}
+
+func TestNativeNumberingGenuineMicrosoftWordFixture(t *testing.T) {
+	resolved, err := ResolveNativeDocumentLayoutV1(wordMacListFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Paragraphs) != 1 {
+		t.Fatalf("Word fixture paragraph count = %d", len(resolved.Paragraphs))
+	}
+	marker := resolved.Paragraphs[0].Numbering
+	if marker == nil || marker.NumID != "6" || marker.AbstractNumID != "8" || marker.LevelStyleID == nil || *marker.LevelStyleID != "ListNumber" || marker.ResolvedText != "1." || marker.Alignment != "left" || marker.NumberingTabTwips == nil || *marker.NumberingTabTwips != 360 || marker.LabelStartTwips != 0 || marker.TextStartTwips != 360 {
+		t.Fatalf("Word fixture marker projection is not exact: %#v", marker)
+	}
+	if hasResolutionDiagnostic(resolved, "UNSUPPORTED_MULTI_LEVEL_BEHAVIOR") {
+		t.Fatalf("ordinary Word numbering emitted a stale blocking diagnostic: %#v", resolved.Diagnostics)
+	}
+	if resolved.NumberingSource == nil || resolved.NumberingSource.ModelSHA256 != nativeResolvedNumberingModelSHA256(resolved) {
+		t.Fatalf("Word fixture numbering provenance is incomplete: %#v", resolved.NumberingSource)
+	}
+}
+
+func TestNativeNumberingGenuineStrictWordprocessingMLFixture(t *testing.T) {
+	data := strictNumberingFixture(t)
+	pkg, err := openNativeDOCXPackage(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(pkg.files["Strict/document.xml"], []byte(wordMLStrict)) || !bytes.Contains(pkg.files["Strict/Numbering.XML"], []byte(wordMLStrict)) || !bytes.Contains(pkg.files["Strict/_rels/document.xml.rels"], []byte(relBaseStrict+"numbering")) {
+		t.Fatal("fixture is not a genuine Strict WordprocessingML package and numbering relationship")
+	}
+	resolved, err := ResolveNativeDocumentLayoutV1(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Paragraphs) != 3 {
+		t.Fatalf("Strict fixture paragraph count = %d", len(resolved.Paragraphs))
+	}
+	styleRTL, first, second := resolved.Paragraphs[0].Numbering, resolved.Paragraphs[1].Numbering, resolved.Paragraphs[2].Numbering
+	if styleRTL == nil || styleRTL.Level != 1 || styleRTL.LevelStyleID == nil || *styleRTL.LevelStyleID != "ListStrict" || styleRTL.ResolvedText != "I)" || styleRTL.Alignment != "right" || styleRTL.NumberingTabTwips == nil || *styleRTL.NumberingTabTwips != 900 || styleRTL.LabelStartTwips != 540 || styleRTL.LabelEndTwips != 900 || styleRTL.TextStartTwips != 900 {
+		t.Fatalf("Strict style/pStyle/tab/RTL marker projection is not exact: %#v", styleRTL)
+	}
+	if first == nil || second == nil || first.ResolvedText != "1." || first.CounterValue != 1 || second.ResolvedText != "2." || second.CounterValue != 2 {
+		t.Fatalf("Strict concrete numId counters changed: first=%#v second=%#v", first, second)
+	}
+	if resolved.NumberingSource == nil || resolved.NumberingSource.RelationshipsPart != "Strict/_rels/document.xml.rels" || resolved.NumberingSource.RelationshipID != "rIdNumberingStrict" || resolved.NumberingSource.RelationshipType != relBaseStrict+"numbering" || resolved.NumberingSource.RelationshipTarget != "Numbering.XML" || resolved.NumberingSource.PartName != "Strict/Numbering.XML" || resolved.NumberingSource.ModelSHA256 != nativeResolvedNumberingModelSHA256(resolved) {
+		t.Fatalf("Strict numbering relationship/model attestation is not exact: %#v", resolved.NumberingSource)
+	}
+}
+
+func TestNativeNumberingParagraphStyleSelectsExactLinkedAbstractLevel(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1">
+<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl>
+	<w:lvl w:ilvl="2"><w:pStyle w:val="BaseList"/><w:start w:val="4"/><w:numFmt w:val="upperRoman"/><w:lvlText w:val="%3)"/><w:pPr><w:ind w:left="1080" w:hanging="360"/></w:pPr></w:lvl>
+</w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	styles := `<w:styles xmlns:w="` + wordMLTransitional + `"><w:style w:type="paragraph" w:styleId="BaseList"><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr></w:pPr></w:style><w:style w:type="paragraph" w:styleId="ListDeep"><w:basedOn w:val="BaseList"/></w:style></w:styles>`
+	parts := resolvedNumberingTestParts(numbering)
+	parts["[Content_Types].xml"] = strings.Replace(parts["[Content_Types].xml"], `</Types>`, `<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`, 1)
+	parts["word/_rels/document.xml.rels"] = strings.Replace(parts["word/_rels/document.xml.rels"], `</Relationships>`, `<Relationship Id="styles" Type="`+relBaseTransitional+`styles" Target="styles.xml"/></Relationships>`, 1)
+	parts["word/styles.xml"] = styles
+	parts["word/document.xml"] = `<w:document xmlns:w="` + wordMLTransitional + `"><w:body><w:p><w:pPr><w:pStyle w:val="ListDeep"/></w:pPr><w:r><w:t>styled</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListDeep"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr></w:pPr><w:r><w:t>direct</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`
+	resolved, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(parts)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, direct := resolved.Paragraphs[0].Numbering, resolved.Paragraphs[1].Numbering
+	if styled == nil || styled.Level != 2 || styled.LevelStyleID == nil || *styled.LevelStyleID != "BaseList" || styled.ResolvedText != "IV)" {
+		t.Fatalf("style ilvl was trusted instead of exact abstract pStyle mapping: %#v", styled)
+	}
+	if direct == nil || direct.Level != 0 || direct.LevelStyleID != nil || direct.ResolvedText != "1." {
+		t.Fatalf("direct paragraph numPr semantics changed: %#v", direct)
+	}
+	originalDefinition := styled.DefinitionSHA256
+	*styled.LevelStyleID = "ForgedStyle"
+	resolved.Paragraphs[0].StyleID = nativeString("ForgedStyle")
+	resolved.NumberingSource.ModelSHA256 = nativeResolvedNumberingModelSHA256(resolved)
+	if styled.DefinitionSHA256 != originalDefinition || ValidateNativeResolvedLayoutInputV1(resolved) == nil {
+		t.Fatal("style-level selection provenance tamper with recomputed model digest was accepted")
+	}
+}
+
+func TestNativeNumberingParagraphStyleLevelMappingRefusalsAreBounded(t *testing.T) {
+	styles := `<w:styles xmlns:w="` + wordMLTransitional + `"><w:style w:type="paragraph" w:styleId="ListDeep"><w:pPr><w:numPr><w:ilvl w:val="8"/><w:numId w:val="2"/></w:numPr></w:pPr></w:style></w:styles>`
+	for _, test := range []struct {
+		name, levels, code string
+	}{
+		{"missing", `<w:lvl w:ilvl="0"><w:pStyle w:val="Other"/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl>`, "MISSING_NUMBERING_STYLE_LEVEL"},
+		{"ambiguous", `<w:lvl w:ilvl="0"><w:pStyle w:val="ListDeep"/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl><w:lvl w:ilvl="1"><w:pStyle w:val="ListDeep"/><w:pPr><w:ind w:left="720" w:hanging="180"/></w:pPr></w:lvl>`, "AMBIGUOUS_NUMBERING_STYLE_LEVEL"},
+		{"duplicate", `<w:lvl w:ilvl="0"><w:pStyle w:val="ListDeep"/><w:pStyle w:val="Other"/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl>`, "DUPLICATE_NUMBERING_STYLE_LEVEL"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1">` + test.levels + `</w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+			parts := resolvedNumberingTestParts(numbering)
+			parts["[Content_Types].xml"] = strings.Replace(parts["[Content_Types].xml"], `</Types>`, `<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`, 1)
+			parts["word/_rels/document.xml.rels"] = strings.Replace(parts["word/_rels/document.xml.rels"], `</Relationships>`, `<Relationship Id="styles" Type="`+relBaseTransitional+`styles" Target="styles.xml"/></Relationships>`, 1)
+			parts["word/styles.xml"] = styles
+			parts["word/document.xml"] = `<w:document xmlns:w="` + wordMLTransitional + `"><w:body><w:p><w:pPr><w:pStyle w:val="ListDeep"/></w:pPr><w:r><w:t>styled</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`
+			resolved, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(parts)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resolved.Paragraphs[0].Numbering != nil || !hasResolutionDiagnostic(resolved, test.code) {
+				t.Fatalf("%s style mapping was guessed or silent: %#v", test.name, resolved)
+			}
+		})
+	}
+}
+
+func TestNativeNumberingUnusedDefinitionsDoNotEmitSemanticDiagnostics(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:r="` + relNSTransitional + `"><w:numPicBullet w:numPicBulletId="9"><w:pict><v:shape><v:imagedata r:id="rId1"/></v:shape></w:pict></w:numPicBullet><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num><w:abstractNum w:abstractNumId="3"><w:unknown/><w:lvl w:ilvl="0"><w:numFmt w:val="decimal" w:format="custom"/><w:lvlText w:val="%1"/><w:lvlPicBulletId w:val="9"/><w:isLgl/><w:legacy/><w:mystery/></w:lvl></w:abstractNum><w:num w:numId="4"><w:abstractNumId w:val="3"/><w:mystery/></w:num></w:numbering>`
+	unused := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "ordinary"))
+	for _, code := range []string{"PICTURE_BULLET_PRESERVED", "CUSTOM_NUMBER_FORMAT", "UNMODELED_NUMBERING_LEVEL", "UNMODELED_ABSTRACT_NUMBERING", "UNMODELED_NUMBERING_INSTANCE"} {
+		if hasResolutionDiagnostic(unused, code) {
+			t.Fatalf("unused definition emitted %s: %#v", code, unused.Diagnostics)
+		}
+	}
+	referenced := resolveNumberingFixture(t, numbering, numberedParagraph("4", 0, "unsupported"))
+	if referenced.Paragraphs[0].Numbering != nil {
+		t.Fatalf("referenced picture/custom level was modeled: %#v", referenced.Paragraphs[0].Numbering)
+	}
+	for _, code := range []string{"PICTURE_BULLET_PRESERVED", "CUSTOM_NUMBER_FORMAT", "UNMODELED_NUMBERING_LEVEL", "UNMODELED_ABSTRACT_NUMBERING", "UNMODELED_NUMBERING_INSTANCE"} {
+		if !hasResolutionDiagnostic(referenced, code) {
+			t.Fatalf("referenced definition omitted %s: %#v", code, referenced.Diagnostics)
+		}
+	}
+	for _, diagnostic := range referenced.Diagnostics {
+		if diagnostic.ScopeID == referenced.DocumentID {
+			t.Fatalf("referenced numbering semantic remained document-scoped: %#v", diagnostic)
+		}
+	}
+}
+
+func TestNativeNumberingRootSemanticsDeferUntilConcreteNumIDReference(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `" xmlns:x="urn:foreign-numbering"><w:globalSemantic w:val="opaque"/><x:foreignGlobal x:mode="opaque"/><x:abstractNum x:abstractNumId="spoofed-but-preserved"/><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	unused := resolveNumberingFixture(t, numbering, `<w:p><w:r><w:t>plain</w:t></w:r></w:p>`)
+	for _, code := range []string{"UNMODELED_NUMBERING_ROOT", "FOREIGN_NUMBERING_ROOT"} {
+		if hasResolutionDiagnostic(unused, code) {
+			t.Fatalf("unused numbering-root semantic emitted %s: %#v", code, unused.Diagnostics)
+		}
+	}
+
+	referenced := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "numbered"))
+	if referenced.Paragraphs[0].Numbering == nil {
+		t.Fatalf("ordinary marker semantics disappeared instead of remaining visibly refused downstream: %#v", referenced)
+	}
+	for _, code := range []string{"UNMODELED_NUMBERING_ROOT", "FOREIGN_NUMBERING_ROOT"} {
+		if !hasResolutionDiagnostic(referenced, code) {
+			t.Fatalf("referenced numbering-root semantic omitted %s: %#v", code, referenced.Diagnostics)
+		}
+	}
+	for _, diagnostic := range referenced.Diagnostics {
+		if (diagnostic.Code == "UNMODELED_NUMBERING_ROOT" || diagnostic.Code == "FOREIGN_NUMBERING_ROOT") && diagnostic.ScopeID != referenced.Paragraphs[0].ParagraphID {
+			t.Fatalf("numbering-root semantic was not scoped to its concrete reference: %#v", diagnostic)
+		}
+	}
+}
+
+// w:numIdMacAtCleanup (ECMA-376 17.9.16) names the last numbering instance an
+// application had already reviewed when it last cleaned up numbering.xml. It is
+// bookkeeping about a past editing pass, applies to no paragraph, and selects no
+// counter, format, level text or geometry, so it must not defer a refusal onto
+// every numbered paragraph the way an unknown root element does.
+func TestNativeNumberingCleanupBookkeepingRootIsNotUnmodeled(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num><w:numIdMacAtCleanup w:val="142"/></w:numbering>`
+	referenced := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "numbered"))
+	if referenced.Paragraphs[0].Numbering == nil {
+		t.Fatalf("cleanup bookkeeping dropped the marker: %#v", referenced)
+	}
+	if hasResolutionDiagnostic(referenced, "UNMODELED_NUMBERING_ROOT") {
+		t.Fatalf("cleanup bookkeeping was deferred as unknown numbering-root semantics: %#v", referenced.Diagnostics)
+	}
+	// An unknown w: root element still defers to its concrete reference.
+	unknownPart := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num><w:mystery w:val="1"/></w:numbering>`
+	if unknown := resolveNumberingFixture(t, unknownPart, numberedParagraph("2", 0, "numbered")); !hasResolutionDiagnostic(unknown, "UNMODELED_NUMBERING_ROOT") {
+		t.Fatalf("an unknown numbering-root element stopped deferring: %#v", unknown.Diagnostics)
+	}
+	// A foreign-namespace element borrowing the local name is still foreign.
+	foreignPart := `<w:numbering xmlns:w="` + wordMLTransitional + `" xmlns:x="urn:foreign-numbering"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num><x:numIdMacAtCleanup x:val="142"/></w:numbering>`
+	if alien := resolveNumberingFixture(t, foreignPart, numberedParagraph("2", 0, "numbered")); !hasResolutionDiagnostic(alien, "FOREIGN_NUMBERING_ROOT") || hasResolutionDiagnostic(alien, "UNMODELED_NUMBERING_ROOT") {
+		t.Fatalf("a foreign-namespace element borrowing the local name stopped being preserved as foreign: %#v", alien.Diagnostics)
+	}
+}
+
+func TestNativeResolvedTwipsAreBoundedBeforeMilliPointConversion(t *testing.T) {
+	maximum := nativeMaxTwipsForMilliPoints
+	properties := NativeResolvedParagraphPropertiesV1{
+		SpacingBeforeTwips: nativeInt64(maximum),
+		IndentStartTwips:   nativeInt64(-maximum),
+	}
+	if err := validateNativeResolvedParagraphProperties(properties); err != nil {
+		t.Fatalf("exact maximum convertible twips were rejected: %v", err)
+	}
+	properties.SpacingBeforeTwips = nativeInt64(maximum + 1)
+	if err := validateNativeResolvedParagraphProperties(properties); err == nil {
+		t.Fatal("nonnegative twips beyond the exact x50 boundary were accepted")
+	}
+	properties.SpacingBeforeTwips = nativeInt64(maximum)
+	properties.IndentStartTwips = nativeInt64(-maximum - 1)
+	if err := validateNativeResolvedParagraphProperties(properties); err == nil {
+		t.Fatal("signed twips beyond the exact x50 boundary were accepted")
+	}
+}
+
+func TestNativeNumberingSyntheticOOXMLFixture(t *testing.T) {
+	data, err := os.ReadFile("testdata/native-numbering-v1.docx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := ResolveNativeDocumentLayoutV1(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"1.", "1.a)", "1.", "2."}
+	if len(first.Paragraphs) != len(want) {
+		t.Fatalf("fixture paragraph count = %d; want %d", len(first.Paragraphs), len(want))
+	}
+	for index, paragraph := range first.Paragraphs {
+		if paragraph.Numbering == nil || paragraph.Numbering.ResolvedText != want[index] {
+			t.Fatalf("fixture marker %d = %#v; want %q", index, paragraph.Numbering, want[index])
+		}
+	}
+	if first.NumberingSource == nil || first.NumberingSource.PartSHA256 == "" || first.NumberingSource.RelationshipsSHA256 == "" || first.NumberingSource.ModelSHA256 != nativeResolvedNumberingModelSHA256(first) {
+		t.Fatalf("fixture numbering provenance is incomplete: %#v", first.NumberingSource)
+	}
+	encoded, err := EncodeNativeResolvedLayoutInputV1(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(`"fonts":null`)) || !bytes.Contains(encoded, []byte(`"fonts":[]`)) {
+		t.Fatalf("empty resolved collections must remain strict JSON arrays: %s", encoded)
+	}
+	second, err := ResolveNativeDocumentLayoutV1(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reencoded, err := EncodeNativeResolvedLayoutInputV1(second)
+	if err != nil || !bytes.Equal(encoded, reencoded) {
+		t.Fatalf("fixture resolution is nondeterministic: err=%v", err)
+	}
+}
+
+func TestValidateNativeResolvedNumberingRejectsProvenanceAndModelSubstitution(t *testing.T) {
+	data, err := os.ReadFile("testdata/native-numbering-v1.docx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := []struct {
+		name   string
+		mutate func(*NativeResolvedLayoutInputV1)
+	}{
+		{"relationship type", func(input *NativeResolvedLayoutInputV1) {
+			input.NumberingSource.RelationshipType = "https://example.invalid/numbering"
+		}},
+		{"raw part hash", func(input *NativeResolvedLayoutInputV1) {
+			input.NumberingSource.PartSHA256 = "sha256:" + strings.Repeat("0", 64)
+		}},
+		{"relationship target", func(input *NativeResolvedLayoutInputV1) {
+			input.NumberingSource.RelationshipTarget = "substituted.xml"
+			input.NumberingSource.ModelSHA256 = nativeResolvedNumberingModelSHA256(input)
+		}},
+		{"model hash", func(input *NativeResolvedLayoutInputV1) {
+			input.NumberingSource.ModelSHA256 = "sha256:" + strings.Repeat("0", 64)
+		}},
+		{"resolved marker text", func(input *NativeResolvedLayoutInputV1) { input.Paragraphs[0].Numbering.ResolvedText = "forged" }},
+		{"definition hash", func(input *NativeResolvedLayoutInputV1) { input.Paragraphs[0].Numbering.DefinitionSHA256 = "forged" }},
+		{"alignment with recomputed model", func(input *NativeResolvedLayoutInputV1) {
+			input.Paragraphs[0].Numbering.Alignment = "left"
+			input.NumberingSource.ModelSHA256 = nativeResolvedNumberingModelSHA256(input)
+		}},
+		{"duplicate counter level", func(input *NativeResolvedLayoutInputV1) {
+			marker := input.Paragraphs[1].Numbering
+			marker.CounterValues = append(marker.CounterValues, marker.CounterValues[0])
+		}},
+		{"unsafe label geometry", func(input *NativeResolvedLayoutInputV1) {
+			input.Paragraphs[0].Numbering.LabelEndTwips = 9007199254740992
+			input.Paragraphs[0].Numbering.TextStartTwips = 9007199254740992
+			input.NumberingSource.ModelSHA256 = nativeResolvedNumberingModelSHA256(input)
+		}},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			input, resolveErr := ResolveNativeDocumentLayoutV1(data)
+			if resolveErr != nil {
+				t.Fatal(resolveErr)
+			}
+			mutation.mutate(input)
+			if err := ValidateNativeResolvedLayoutInputV1(input); err == nil {
+				t.Fatal("substituted numbering projection was accepted")
+			}
+		})
+	}
+}
+
+func numberedParagraph(numID string, level int, text string) string {
+	return fmt.Sprintf(`<w:p><w:pPr><w:numPr><w:ilvl w:val="%d"/><w:numId w:val="%s"/></w:numPr></w:pPr><w:r><w:t>%s</w:t></w:r></w:p>`, level, numID, text)
+}
+
+func resolveNumberingFixture(t *testing.T, numbering, paragraphs string) *NativeResolvedLayoutInputV1 {
+	t.Helper()
+	parts := resolvedNumberingTestParts(numbering)
+	parts["word/document.xml"] = `<w:document xmlns:w="` + wordMLTransitional + `"><w:body>` + paragraphs + `<w:sectPr/></w:body></w:document>`
+	resolved, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(parts)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
+}
+
+func TestNativeNumberingSourceOrderCountersRestartsAndOverrides(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `">
+<w:abstractNum w:abstractNumId="3">
+  <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:suff w:val="tab"/><w:lvlJc w:val="right"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr><w:rPr><w:rFonts w:ascii="Test" w:hAnsi="Test"/><w:sz w:val="20"/></w:rPr></w:lvl>
+  <w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%1.%2)"/><w:suff w:val="space"/><w:lvlJc w:val="start"/><w:pPr><w:ind w:left="1440" w:hanging="360"/></w:pPr><w:rPr><w:rFonts w:ascii="Test" w:hAnsi="Test"/><w:lang w:val="en-US"/></w:rPr></w:lvl>
+</w:abstractNum>
+<w:num w:numId="5"><w:abstractNumId w:val="3"/></w:num>
+<w:num w:numId="6"><w:abstractNumId w:val="3"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride></w:num>
+</w:numbering>`
+	paragraphs := numberedParagraph("5", 0, "one") + numberedParagraph("5", 1, "one-a") + numberedParagraph("5", 1, "one-b") + numberedParagraph("5", 0, "two") + numberedParagraph("5", 1, "two-a") + numberedParagraph("6", 0, "override") + numberedParagraph("5", 0, "shared-family")
+	resolved := resolveNumberingFixture(t, numbering, paragraphs)
+	wantText := []string{"1.", "1.a)", "1.b)", "2.", "2.a)", "1.", "3."}
+	wantValues := []int{1, 1, 2, 2, 1, 1, 3}
+	if len(resolved.Paragraphs) != len(wantText) {
+		t.Fatalf("paragraph count = %d", len(resolved.Paragraphs))
+	}
+	for index, paragraph := range resolved.Paragraphs {
+		if paragraph.Numbering == nil || paragraph.Numbering.ResolvedText != wantText[index] || paragraph.Numbering.CounterValue != wantValues[index] {
+			t.Fatalf("marker %d = %#v; want text %q value %d", index, paragraph.Numbering, wantText[index], wantValues[index])
+		}
+		if paragraph.Numbering.MarkerID == "" || paragraph.Numbering.DefinitionSHA256 == "" || paragraph.Numbering.LabelEndTwips != paragraph.Numbering.TextStartTwips {
+			t.Fatalf("marker %d lacks durable provenance or exact geometry: %#v", index, paragraph.Numbering)
+		}
+	}
+	if resolved.NumberingSource == nil || resolved.NumberingSource.PartName != "word/numbering.xml" || resolved.NumberingSource.RelationshipsPart != "word/_rels/document.xml.rels" || resolved.NumberingSource.RelationshipID != "numbering" || resolved.NumberingSource.RelationshipTarget != "numbering.xml" {
+		t.Fatalf("numbering relationship closure was not attested: %#v", resolved.NumberingSource)
+	}
+	if resolved.NumberingSource.PartSHA256 != nativeSHA([]byte(numbering)) || resolved.NumberingSource.ModelSHA256 != nativeResolvedNumberingModelSHA256(resolved) {
+		t.Fatalf("numbering hashes do not attest raw bytes and canonical marker model: %#v", resolved.NumberingSource)
+	}
+}
+
+func TestNativeNumberingCountersAreScopedToConcreteInstances(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `">
+<w:abstractNum w:abstractNumId="1">
+  <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl>
+  <w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%1.%2)"/><w:pPr><w:ind w:left="720" w:hanging="180"/></w:pPr></w:lvl>
+</w:abstractNum>
+<w:num w:numId="10"><w:abstractNumId w:val="1"/></w:num>
+<w:num w:numId="11"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="7"/></w:lvlOverride></w:num>
+</w:numbering>`
+	paragraphs := numberedParagraph("10", 0, "a1") + numberedParagraph("11", 0, "b7") + numberedParagraph("10", 0, "a2") + numberedParagraph("11", 0, "b8") +
+		numberedParagraph("10", 1, "a2a") + numberedParagraph("11", 0, "b9") + numberedParagraph("10", 1, "a2b")
+	resolved := resolveNumberingFixture(t, numbering, paragraphs)
+	want := []string{"1.", "7.", "2.", "8.", "2.a)", "9.", "2.b)"}
+	for index, paragraph := range resolved.Paragraphs {
+		if paragraph.Numbering == nil || paragraph.Numbering.ResolvedText != want[index] {
+			t.Fatalf("interleaved marker %d = %#v; want %q", index, paragraph.Numbering, want[index])
+		}
+	}
+}
+
+func TestNativeNumberingReplacementLevelsHonorStartsAndWordRestartPolicy(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `">
+	<w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%2)"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>
+	<w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num>
+<w:num w:numId="2"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="1"><w:lvl w:ilvl="1"><w:start w:val="4"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%2)"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:lvlOverride></w:num>
+<w:abstractNum w:abstractNumId="3"/>
+<w:num w:numId="4"><w:abstractNumId w:val="3"/><w:lvlOverride w:ilvl="1"><w:startOverride w:val="7"/><w:lvl w:ilvl="1"><w:start w:val="4"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%2)"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:lvlOverride></w:num>
+<w:abstractNum w:abstractNumId="5">
+  <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl>
+  <w:lvl w:ilvl="1"><w:start w:val="1"/><w:lvlRestart w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1.%2"/><w:pPr><w:ind w:left="720" w:hanging="180"/></w:pPr></w:lvl>
+</w:abstractNum>
+<w:num w:numId="6"><w:abstractNumId w:val="5"/><w:lvlOverride w:ilvl="1"><w:lvl w:ilvl="1"><w:start w:val="1"/><w:lvlRestart w:val="0"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1.%2"/><w:pPr><w:ind w:left="720" w:hanging="180"/></w:pPr></w:lvl></w:lvlOverride></w:num>
+</w:numbering>`
+	paragraphs := numberedParagraph("1", 1, "base-start") + numberedParagraph("2", 1, "replacement-start") + numberedParagraph("4", 1, "start-override") +
+		numberedParagraph("6", 0, "one") + numberedParagraph("6", 1, "one-one") + numberedParagraph("6", 0, "two") + numberedParagraph("6", 1, "two-one")
+	resolved := resolveNumberingFixture(t, numbering, paragraphs)
+	want := []string{"1)", "1)", "7)", "1.", "1.1", "2.", "2.1"}
+	for index, paragraph := range resolved.Paragraphs {
+		if paragraph.Numbering == nil || paragraph.Numbering.ResolvedText != want[index] {
+			t.Fatalf("replacement marker %d = %#v; want %q", index, paragraph.Numbering, want[index])
+		}
+	}
+}
+
+func TestNativeNumberingRestartRangeAndSpecifiedOrEarlierSemantics(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1">
+<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1"/><w:pPr><w:ind w:left="180" w:hanging="90"/></w:pPr></w:lvl>
+<w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%2"/><w:pPr><w:ind w:left="360" w:hanging="90"/></w:pPr></w:lvl>
+<w:lvl w:ilvl="2"><w:start w:val="1"/><w:lvlRestart w:val="2"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%3"/><w:pPr><w:ind w:left="540" w:hanging="90"/></w:pPr></w:lvl>
+</w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	paragraphs := numberedParagraph("2", 2, "a") + numberedParagraph("2", 2, "b") + numberedParagraph("2", 1, "l1") + numberedParagraph("2", 2, "c") + numberedParagraph("2", 2, "d") + numberedParagraph("2", 0, "l0") + numberedParagraph("2", 2, "e")
+	resolved := resolveNumberingFixture(t, numbering, paragraphs)
+	want := []string{"1", "2", "1", "1", "2", "1", "1"}
+	for index, paragraph := range resolved.Paragraphs {
+		if paragraph.Numbering == nil || paragraph.Numbering.ResolvedText != want[index] {
+			t.Fatalf("restart marker %d = %#v; want %q", index, paragraph.Numbering, want[index])
+		}
+	}
+
+	invalid := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="8"><w:lvlRestart w:val="8"/></w:lvl></w:abstractNum></w:numbering>`
+	if _, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(resolvedNumberingTestParts(invalid)))); err == nil || !strings.Contains(err.Error(), "invalid lvlRestart") {
+		t.Fatalf("lvlRestart 8 was accepted: %v", err)
+	}
+}
+
+func TestNativeNumberingParsesAndAttestsNumTabStops(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:suff w:val="tab"/><w:pPr><w:tabs><w:tab w:val="num" w:pos="840"/></w:tabs><w:ind w:left="840" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	resolved := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "tabbed"))
+	marker := resolved.Paragraphs[0].Numbering
+	if marker == nil || marker.NumberingTabTwips == nil || *marker.NumberingTabTwips != 840 || hasResolutionDiagnostic(resolved, "UNMODELED_PARAGRAPH_PROPERTY") {
+		t.Fatalf("ordinary Word num tab was not parsed exactly: marker=%#v diagnostics=%#v", marker, resolved.Diagnostics)
+	}
+	originalDefinition := marker.DefinitionSHA256
+	*marker.NumberingTabTwips = 841
+	resolved.NumberingSource.ModelSHA256 = nativeResolvedNumberingModelSHA256(resolved)
+	if marker.DefinitionSHA256 != originalDefinition || ValidateNativeResolvedLayoutInputV1(resolved) == nil {
+		t.Fatal("numbering tab substitution with a self-consistent model digest was accepted")
+	}
+
+	for _, tabs := range []string{
+		`<w:tabs><w:tab w:val="num"/></w:tabs>`,
+		`<w:tabs><w:tab w:val="left" w:pos="840"/></w:tabs>`,
+		`<w:tabs><w:tab w:val="num" w:pos="840"/><w:tab w:val="num" w:pos="900"/></w:tabs>`,
+	} {
+		malformed := strings.Replace(numbering, `<w:tabs><w:tab w:val="num" w:pos="840"/></w:tabs>`, tabs, 1)
+		if _, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(func() map[string]string {
+			parts := resolvedNumberingTestParts(malformed)
+			parts["word/document.xml"] = `<w:document xmlns:w="` + wordMLTransitional + `"><w:body>` + numberedParagraph("2", 0, "bad") + `<w:sectPr/></w:body></w:document>`
+			return parts
+		}()))); err == nil {
+			t.Fatalf("malformed numbering tabs were accepted: %s", tabs)
+		}
+	}
+}
+
+func TestNativeNumberingUnsupportedGeometryReturnsDiagnostic(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	resolved := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "no hanging geometry"))
+	if resolved.Paragraphs[0].Numbering != nil || !hasResolutionDiagnostic(resolved, "UNSUPPORTED_NUMBERING_GEOMETRY") {
+		t.Fatalf("unsupported marker geometry was emitted or silent: %#v", resolved)
+	}
+}
+
+// Word's own PDF export of listWithLgl.docx fixes this geometry exactly:
+// MediaBox [0 0 612 792], the ilvl=0 marker origin at x = 72.0 pt (the 1 inch
+// left margin, i.e. offset 0 from the text margin) and the ilvl=1 marker at
+// x = 108.0 pt (offset 720 twips = 36 pt, its w:firstLine). Both levels state
+// w:ind w:left="0" and no hanging indent at all.
+func TestNativeNumberingCollapsedLabelRegionWithoutHangingIndent(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1">` +
+		`<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="upperRoman"/><w:suff w:val="nothing"/><w:lvlText w:val="CH %1"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="0" w:firstLine="0"/></w:pPr></w:lvl>` +
+		`<w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="decimalZero"/><w:lvlText w:val="Sect %1.%2"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="0" w:firstLine="720"/></w:pPr></w:lvl>` +
+		`</w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	resolved := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "chapter")+numberedParagraph("2", 1, "section"))
+	root := resolved.Paragraphs[0].Numbering
+	if root == nil || root.ResolvedText != "CH I" || root.Suffix != "nothing" || root.LabelStartTwips != 0 || root.LabelEndTwips != 0 || root.TextStartTwips != 0 {
+		t.Fatalf("zero first-line marker geometry was not modelled: %#v", root)
+	}
+	child := resolved.Paragraphs[1].Numbering
+	if child == nil || child.LabelStartTwips != 720 || child.LabelEndTwips != 720 || child.TextStartTwips != 720 {
+		t.Fatalf("first-line marker geometry was not modelled: %#v", child)
+	}
+	if hasResolutionDiagnostic(resolved, "UNSUPPORTED_NUMBERING_GEOMETRY") {
+		t.Fatalf("a legal zero hanging indent was refused: %#v", resolved)
+	}
+}
+
+func TestNativeNumberingRefusesNegativeAndMalformedLabelGeometry(t *testing.T) {
+	for _, indent := range []string{
+		`<w:ind w:left="-360" w:firstLine="0"/>`,
+		`<w:ind w:left="-360"/>`,
+		`<w:ind w:left="360" w:hanging="720"/>`,
+		`<w:ind w:left="not-a-number"/>`,
+		`<w:ind w:left="0x10" w:hanging="360"/>`,
+		`<w:ind w:left="180143985094819" w:firstLine="1"/>`,
+	} {
+		numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr>` + indent + `</w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+		resolved := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "refused"))
+		if resolved.Paragraphs[0].Numbering != nil || !hasResolutionDiagnostic(resolved, "UNSUPPORTED_NUMBERING_GEOMETRY") {
+			t.Fatalf("invalid marker geometry %s was accepted: %#v", indent, resolved.Paragraphs[0].Numbering)
+		}
+	}
+}
+
+func TestNativeNumberingOmittedAndMalformedLevelAlignment(t *testing.T) {
+	base := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/>ALIGN<w:pPr><w:ind w:start="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	omitted := resolveNumberingFixture(t, strings.Replace(base, "ALIGN", "", 1), numberedParagraph("2", 0, "default"))
+	if marker := omitted.Paragraphs[0].Numbering; marker == nil || marker.Alignment != "left" {
+		t.Fatalf("omitted lvlJc did not retain the directional Word default: %#v", marker)
+	}
+	rtlParagraph := `<w:p><w:pPr><w:bidi/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr></w:pPr><w:r><w:t>rtl default</w:t></w:r></w:p>`
+	rtl := resolveNumberingFixture(t, strings.Replace(base, "ALIGN", "", 1), rtlParagraph)
+	if marker := rtl.Paragraphs[0].Numbering; marker == nil || marker.Alignment != "right" {
+		t.Fatalf("omitted RTL lvlJc did not materialize the right default: %#v", marker)
+	}
+	for _, alignment := range []string{`<w:lvlJc/>`, `<w:lvlJc w:val="bogus"/>`, `<w:lvlJc w:val="both"/>`} {
+		result := resolveNumberingFixture(t, strings.Replace(base, "ALIGN", alignment, 1), numberedParagraph("2", 0, "bad"))
+		if result.Paragraphs[0].Numbering != nil || !hasResolutionDiagnostic(result, "UNSUPPORTED_NUMBER_ALIGNMENT") {
+			t.Fatalf("malformed explicit lvlJc was guessed: %s %#v", alignment, result)
+		}
+	}
+}
+
+func TestNativeNumberingFormatsUseWordLetterAndRomanSequences(t *testing.T) {
+	letterCases := map[int]string{1: "a", 26: "z", 27: "aa", 52: "zz", 53: "aaa", 806: strings.Repeat("z", 31)}
+	for value, want := range letterCases {
+		got, ok := nativeFormatAlphabetic(value, false)
+		if !ok || got != want {
+			t.Fatalf("letter %d = %q, %v; want %q", value, got, ok, want)
+		}
+	}
+	if _, ok := nativeFormatAlphabetic(807, false); ok {
+		t.Fatal("letter output beyond the 31-character bound was accepted")
+	}
+	for _, test := range []struct {
+		value int
+		upper bool
+		want  string
+	}{{4, true, "IV"}, {9, false, "ix"}, {4000, true, "MMMM"}} {
+		got, ok := nativeFormatRoman(test.value, test.upper)
+		if !ok || got != test.want {
+			t.Fatalf("Roman %d = %q, %v; want %q", test.value, got, ok, test.want)
+		}
+	}
+}
+
+func TestNativeNumberingLiteralBulletPercentAndStrictPlaceholderRefusals(t *testing.T) {
+	bullet := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/><w:lvlText w:val="•😀é%"/><w:suff w:val="nothing"/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	resolved := resolveNumberingFixture(t, bullet, numberedParagraph("2", 0, "bullet"))
+	if marker := resolved.Paragraphs[0].Numbering; marker == nil || marker.ResolvedText != "•😀é%" || marker.Format != "bullet" || len(marker.CounterValues) != 0 {
+		t.Fatalf("bullet literal was not preserved exactly: %#v", marker)
+	}
+
+	literal := `%%|%0|%x|😀é|%1%`
+	literalNumbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="` + literal + `"/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	literalResult := resolveNumberingFixture(t, literalNumbering, numberedParagraph("2", 0, "literal"))
+	if marker := literalResult.Paragraphs[0].Numbering; marker == nil || marker.ResolvedText != "%%|%0|%x|😀é|1%" || len(marker.CounterValues) != 1 {
+		t.Fatalf("literal percent text was not preserved exactly: %#v", marker)
+	}
+
+	for _, template := range []string{"%10", "%2"} {
+		t.Run(template, func(t *testing.T) {
+			numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="` + template + `"/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+			result := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "bad"))
+			if result.Paragraphs[0].Numbering != nil || !hasResolutionDiagnostic(result, "MALFORMED_NUMBERING_TEXT") {
+				t.Fatalf("malformed placeholder %q was guessed or silent: %#v", template, result)
+			}
+		})
+	}
+
+	oversized := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/><w:lvlText w:val="` + strings.Repeat("•", 32) + `"/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	oversizedResult := resolveNumberingFixture(t, oversized, numberedParagraph("2", 0, "oversized"))
+	if oversizedResult.Paragraphs[0].Numbering != nil || !hasResolutionDiagnostic(oversizedResult, "MALFORMED_NUMBERING_TEXT") {
+		t.Fatalf("oversized Unicode bullet was guessed or silent: %#v", oversizedResult)
+	}
+}
+
+func TestNativeNumberingDefinitionCanonicalDigestVector(t *testing.T) {
+	styleID := "List<&>😀"
+	marker := NativeResolvedNumberingV1{
+		NumID: "7", AbstractNumID: "3", Level: 2, LevelStyleID: &styleID,
+		Start: 4, Format: "decimal", Text: "<>&\u2028\u2029😀é%3", Suffix: "space", Alignment: "center",
+		RestartAfterLevel: nativeInt(1), NumberingTabTwips: nativeInt64(840),
+		LabelStartTwips: 360, LabelEndTwips: 1080, TextStartTwips: 1080,
+	}
+	got := nativeResolvedNumberingDefinitionSHA256(&marker, "sha256:"+strings.Repeat("a", 64))
+	const want = "sha256:654cfe4ae66ee21d8b0e330ec13d58eef947f7fd76378515500cdd5a6489a31d"
+	if got != want {
+		t.Fatalf("canonical numbering definition digest = %q; want %q", got, want)
+	}
+}
+
+func TestNativeNumberingRefusesUnsupportedFormatsAndAmbiguousRelationships(t *testing.T) {
+	for _, format := range []string{"legal", "ordinal", "cardinalText", "ordinalText"} {
+		t.Run(format, func(t *testing.T) {
+			numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="` + format + `"/><w:lvlText w:val="%1"/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+			result := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "unsupported"))
+			if result.Paragraphs[0].Numbering != nil || !hasResolutionDiagnostic(result, "UNSUPPORTED_NUMBER_FORMAT") {
+				t.Fatalf("format %q was guessed or silent: %#v", format, result)
+			}
+		})
+	}
+	for _, kind := range []string{"singleLevel", "multilevel", "hybridMultilevel"} {
+		t.Run(kind, func(t *testing.T) {
+			numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="` + kind + `"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1"/><w:pPr><w:ind w:left="360" w:hanging="180"/></w:pPr></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1.%2"/><w:pPr><w:ind w:left="720" w:hanging="180"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+			result := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "one")+numberedParagraph("2", 1, "one-one"))
+			if result.Paragraphs[0].Numbering == nil || result.Paragraphs[1].Numbering == nil || result.Paragraphs[1].Numbering.ResolvedText != "1.1" || hasResolutionDiagnostic(result, "UNSUPPORTED_MULTI_LEVEL_BEHAVIOR") {
+				t.Fatalf("valid %s metadata changed actual level semantics: %#v", kind, result)
+			}
+		})
+	}
+
+	parts := resolvedNumberingTestParts(`<w:numbering xmlns:w="` + wordMLTransitional + `"/>`)
+	parts["word/_rels/document.xml.rels"] = strings.Replace(parts["word/_rels/document.xml.rels"], `</Relationships>`, `<Relationship Id="numbering2" Type="`+relBaseTransitional+`numbering" Target="numbering.xml"/></Relationships>`, 1)
+	if _, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(parts))); err == nil || !strings.Contains(err.Error(), "multiple numbering relationships") {
+		t.Fatalf("duplicate numbering relationship error = %v", err)
+	}
+
+	external := resolvedNumberingTestParts(`<w:numbering xmlns:w="` + wordMLTransitional + `"/>`)
+	external["word/_rels/document.xml.rels"] = strings.Replace(external["word/_rels/document.xml.rels"], `Target="numbering.xml"`, `Target="https://example.invalid/numbering.xml" TargetMode="External"`, 1)
+	if _, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(external))); err == nil || !strings.Contains(err.Error(), "must be internal") {
+		t.Fatalf("external numbering relationship error = %v", err)
+	}
+}
+
+// TestNativeNumberingEmptyLevelTextDrawsNoLabel pins the
+// decimal-numbering-no-leveltext benchmark document: <w:lvlText w:val=""/> is
+// a label with no text, not a malformed one. Word advances the counter, paints
+// nothing, and lays the paragraph out at its own indents.
+func TestNativeNumberingEmptyLevelTextDrawsNoLabel(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val=""/><w:lvlJc w:val="left"/></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	parts := resolvedNumberingTestParts(numbering)
+	parts["word/document.xml"] = `<w:document xmlns:w="` + wordMLTransitional + `"><w:body><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr><w:ind w:left="720"/></w:pPr><w:r><w:t>hello</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`
+	result, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(parts)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasResolutionDiagnostic(result, "MALFORMED_NUMBERING_TEXT") {
+		t.Fatal("an empty lvlText with no hanging indent was reported as malformed")
+	}
+	if result.Paragraphs[0].Numbering != nil {
+		t.Fatalf("an empty label produced a marker: %#v", result.Paragraphs[0].Numbering)
+	}
+	if properties := result.Paragraphs[0].Properties; properties.IndentLeftTwips == nil || *properties.IndentLeftTwips != 720 || properties.HangingTwips != nil {
+		t.Fatalf("the paragraph lost its own indents: %#v", properties)
+	}
+
+	// Under a hanging indent the empty label still owns the label region and
+	// the suffix still moves the first line. That stays refused.
+	parts["word/document.xml"] = `<w:document xmlns:w="` + wordMLTransitional + `"><w:body><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr><w:ind w:left="720" w:hanging="360"/></w:pPr><w:r><w:t>hello</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`
+	hanging, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(parts)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hanging.Paragraphs[0].Numbering != nil || !hasResolutionDiagnostic(hanging, "MALFORMED_NUMBERING_TEXT") {
+		t.Fatalf("an empty label under a hanging indent was guessed or silent: %#v", hanging)
+	}
+}
+
+// TestNativeZeroCharacterIndentKeepsInheritedAbsoluteIndent pins the cjklist
+// benchmark documents, where a List Paragraph style carries both
+// w:leftChars="200" and w:left="480" and the paragraph carries only
+// w:leftChars="0". Word keeps the absolute indent and renders the marker at
+// the text margin; cancelling the character channel must not cancel the
+// indent, or the numbered paragraph loses its whole label region.
+func TestNativeZeroCharacterIndentKeepsInheritedAbsoluteIndent(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="480" w:hanging="480"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	parts := resolvedNumberingTestParts(numbering)
+	parts["[Content_Types].xml"] = strings.Replace(parts["[Content_Types].xml"], `</Types>`, `<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`, 1)
+	parts["word/_rels/document.xml.rels"] = strings.Replace(parts["word/_rels/document.xml.rels"], `</Relationships>`, `<Relationship Id="styles" Type="`+relBaseTransitional+`styles" Target="styles.xml"/></Relationships>`, 1)
+	parts["word/styles.xml"] = `<w:styles xmlns:w="` + wordMLTransitional + `"><w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:pPr><w:ind w:leftChars="200" w:left="480"/></w:pPr></w:style></w:styles>`
+	parts["word/document.xml"] = `<w:document xmlns:w="` + wordMLTransitional + `"><w:body><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr><w:ind w:leftChars="0"/></w:pPr><w:r><w:t>item</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`
+	result, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(parts)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasResolutionDiagnostic(result, "UNSUPPORTED_NUMBERING_GEOMETRY") {
+		t.Fatal("a zero character indent cancelled the inherited absolute indent and destroyed the label region")
+	}
+	marker := result.Paragraphs[0].Numbering
+	if marker == nil || marker.LabelStartTwips != 0 || marker.LabelEndTwips != 480 || marker.TextStartTwips != 480 {
+		t.Fatalf("resolved label geometry = %#v", marker)
+	}
+	if properties := result.Paragraphs[0].Properties; properties.IndentLeftTwips == nil || *properties.IndentLeftTwips != 480 {
+		t.Fatalf("resolved left indent = %#v", properties.IndentLeftTwips)
+	}
+}
+
+// TestNativeNumberingIdeographicFormats pins the five ideographic systems
+// against Microsoft Word's own rendering of the benchmark documents
+// cjklist30/31/34/35/44, which number twenty identical list paragraphs at
+// level zero. Reading the markers off those pages is what fixes the cycle
+// boundaries, the tens-unit spelling and the positional digits; none of it is
+// derivable from the format name.
+func TestNativeNumberingIdeographicFormats(t *testing.T) {
+	for _, test := range []struct {
+		format string
+		want   []string
+	}{
+		{"ideographTraditional", []string{"甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"}},
+		{"ideographZodiac", []string{"子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥", "13", "14", "15", "16", "17", "18", "19", "20"}},
+		{"ideographLegalTraditional", []string{"壹", "貳", "參", "肆", "伍", "陸", "柒", "捌", "玖", "壹拾", "壹拾壹", "壹拾貳", "壹拾參", "壹拾肆", "壹拾伍", "壹拾陸", "壹拾柒", "壹拾捌", "壹拾玖", "貳拾"}},
+		{"taiwaneseCountingThousand", []string{"一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十"}},
+		{"koreanDigital2", []string{"一", "二", "三", "四", "五", "六", "七", "八", "九", "一零", "一一", "一二", "一三", "一四", "一五", "一六", "一七", "一八", "一九", "二零"}},
+	} {
+		t.Run(test.format, func(t *testing.T) {
+			numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="` + test.format + `"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="480" w:hanging="480"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+			paragraphs := ""
+			for index := range test.want {
+				paragraphs += numberedParagraph("2", 0, fmt.Sprintf("item %d", index+1))
+			}
+			result := resolveNumberingFixture(t, numbering, paragraphs)
+			if hasResolutionDiagnostic(result, "UNSUPPORTED_NUMBER_FORMAT") {
+				t.Fatalf("%s is modeled but was refused as an unsupported format", test.format)
+			}
+			if len(result.Paragraphs) != len(test.want) {
+				t.Fatalf("paragraph count = %d; want %d", len(result.Paragraphs), len(test.want))
+			}
+			for index, want := range test.want {
+				marker := result.Paragraphs[index].Numbering
+				if marker == nil {
+					t.Fatalf("counter %d produced no marker", index+1)
+				}
+				if marker.ResolvedText != want+"." || marker.Format != test.format || marker.CounterValue != index+1 {
+					t.Fatalf("counter %d = %q (format %q, value %d); want %q", index+1, marker.ResolvedText, marker.Format, marker.CounterValue, want+".")
+				}
+			}
+		})
+	}
+
+	// The counting systems stop where the documents stop attesting them: the
+	// hundreds spelling needs zero-insertion rules that are not modeled, so the
+	// marker is refused rather than guessed. The positional system has no such
+	// boundary, and the cycles fall back to decimal by Word's own rule.
+	for _, test := range []struct {
+		format string
+		value  int
+		want   string
+		ok     bool
+	}{
+		{"ideographLegalTraditional", 99, "玖拾玖", true},
+		{"ideographLegalTraditional", 100, "", false},
+		{"taiwaneseCountingThousand", 99, "九十九", true},
+		{"taiwaneseCountingThousand", 100, "", false},
+		{"koreanDigital2", 100, "一零零", true},
+		{"ideographTraditional", 0, "", false},
+		{"ideographZodiac", 1000, "1000", true},
+		{"ideographDigital", 1, "", false},
+	} {
+		got, ok := nativeFormatNumberingCounter(test.value, test.format)
+		if got != test.want || ok != test.ok {
+			t.Fatalf("%s %d = %q, %v; want %q, %v", test.format, test.value, got, ok, test.want, test.ok)
+		}
+	}
+}
+
+// TestNativeNumberingEnclosedCircleFormat pins ECMA-376 §17.18.59
+// decimalEnclosedCircle against Microsoft Word's own export of the benchmark
+// document numbering-circle.docx. Word's PDF for that page draws the marker as
+// two glyphs, CID 7555 and CID 15 of HiraMinProN-W3, which are U+2460 CIRCLED
+// DIGIT ONE and FULL STOP: the format is the precomposed Unicode enclosed
+// series, not a digit composed with a drawn ring. Unicode supplies that series
+// only to twenty (U+2473 CIRCLED NUMBER TWENTY), so twenty-one is refused
+// rather than approximated.
+func TestNativeNumberingEnclosedCircleFormat(t *testing.T) {
+	want := []string{"①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩", "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳"}
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimalEnclosedCircle"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	paragraphs := ""
+	for index := range want {
+		paragraphs += numberedParagraph("2", 0, fmt.Sprintf("item %d", index+1))
+	}
+	result := resolveNumberingFixture(t, numbering, paragraphs)
+	if hasResolutionDiagnostic(result, "UNSUPPORTED_NUMBER_FORMAT") {
+		t.Fatal("decimalEnclosedCircle is modeled but was refused as an unsupported format")
+	}
+	if len(result.Paragraphs) != len(want) {
+		t.Fatalf("paragraph count = %d; want %d", len(result.Paragraphs), len(want))
+	}
+	for index, expected := range want {
+		marker := result.Paragraphs[index].Numbering
+		if marker == nil {
+			t.Fatalf("counter %d produced no marker", index+1)
+		}
+		if marker.ResolvedText != expected+"." || marker.Format != "decimalEnclosedCircle" || marker.CounterValue != index+1 {
+			t.Fatalf("counter %d = %q (format %q, value %d); want %q", index+1, marker.ResolvedText, marker.Format, marker.CounterValue, expected+".")
+		}
+	}
+
+	for _, test := range []struct {
+		value int
+		want  string
+		ok    bool
+	}{
+		{1, "①", true},
+		{20, "⑳", true},
+		{21, "", false},
+		{0, "", false},
+		{-1, "", false},
+	} {
+		got, ok := nativeFormatNumberingCounter(test.value, "decimalEnclosedCircle")
+		if got != test.want || ok != test.ok {
+			t.Fatalf("decimalEnclosedCircle %d = %q, %v; want %q, %v", test.value, got, ok, test.want, test.ok)
+		}
+	}
+
+	// A twenty-first counter has no enclosed form to render, so the marker is
+	// refused at the lvlText rather than falling back to a bare digit.
+	overflow := resolveNumberingFixture(t, numbering, paragraphs+numberedParagraph("2", 0, "item 21"))
+	if last := overflow.Paragraphs[len(overflow.Paragraphs)-1]; last.Numbering != nil {
+		t.Fatalf("counter 21 resolved a marker %#v", last.Numbering)
+	}
+	if !hasResolutionDiagnostic(overflow, "MALFORMED_NUMBERING_TEXT") {
+		t.Fatal("counter 21 was neither resolved nor reported")
+	}
+
+	// Neighbouring enclosed formats stay outside the modeled set: only the
+	// plain circled series is attested by a Word reference.
+	for _, format := range []string{"decimalEnclosedCircleChinese", "decimalEnclosedFullstop", "decimalEnclosedParen"} {
+		if _, ok := nativeFormatNumberingCounter(1, format); ok {
+			t.Fatalf("%s is not attested by any reference but was modeled", format)
+		}
+		if nativeOrdinaryNumberFormat(format) {
+			t.Fatalf("%s is not attested by any reference but was admitted as ordinary", format)
+		}
+	}
+}
+
+// TestNativeNumberingLegalLevelsAndDecimalZero pins w:isLgl (ECMA-376 17.9.10)
+// and the decimalZero format against Microsoft Word's own export of the
+// benchmark document listWithLgl.docx. That package numbers two chapters at
+// level zero with upperRoman and lvlText "CH %1", and one section under each at
+// level one with decimalZero, w:isLgl and lvlText "Sect %1.%2". Word's PDF for
+// that page prints, in order:
+//
+//	CH I / Sect 1.01 / CH II / Sect 2.01
+//
+// Two facts follow and neither is derivable from the element names. isLgl
+// re-renders the INHERITED parent counter as plain decimal -- "I" becomes "1",
+// "II" becomes "2" -- and leaves the level's own format alone, which is why the
+// second component stays decimalZero's "01" rather than becoming "1".
+// decimalZero itself pads to two digits below ten.
+//
+// The fixture below is listWithLgl's numbering with one change: the two levels
+// are given hanging indents. The source declares w:ind left="0" firstLine="N",
+// which states no hanging label region and is refused separately by
+// UNSUPPORTED_NUMBERING_GEOMETRY; the indent does not enter the counter text.
+func TestNativeNumberingLegalLevelsAndDecimalZero(t *testing.T) {
+	numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="multilevel"/><w:name w:val="CustomList"/>` +
+		`<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="upperRoman"/><w:suff w:val="nothing"/><w:lvlText w:val="CH %1"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="720"/></w:pPr></w:lvl>` +
+		`<w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="decimalZero"/><w:isLgl/><w:lvlText w:val="Sect %1.%2"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="2160" w:hanging="1440"/></w:pPr></w:lvl>` +
+		`</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	paragraphs := numberedParagraph("1", 0, "") + numberedParagraph("1", 1, "Foo") + numberedParagraph("1", 0, "") + numberedParagraph("1", 1, "Bar")
+	result := resolveNumberingFixture(t, numbering, paragraphs)
+	for _, code := range []string{"UNMODELED_ABSTRACT_NUMBERING", "UNMODELED_NUMBERING_LEVEL", "UNSUPPORTED_NUMBER_FORMAT", "UNSUPPORTED_NUMBERING_GEOMETRY"} {
+		if hasResolutionDiagnostic(result, code) {
+			t.Fatalf("modeled numbering still reports %s", code)
+		}
+	}
+	for index, want := range []string{"CH I", "Sect 1.01", "CH II", "Sect 2.01"} {
+		marker := result.Paragraphs[index].Numbering
+		if marker == nil {
+			t.Fatalf("paragraph %d resolved no marker", index)
+		}
+		if marker.ResolvedText != want {
+			t.Fatalf("paragraph %d marker = %q; want %q", index, marker.ResolvedText, want)
+		}
+	}
+
+	// The inherited counter is recorded as the decimal it was rendered as, and
+	// the level's own counter keeps the format the level declares.
+	section := result.Paragraphs[1].Numbering
+	if section.Format != "decimalZero" || len(section.CounterValues) != 2 {
+		t.Fatalf("section counter values = %#v", section.CounterValues)
+	}
+	if section.CounterValues[0].Format != "decimal" || section.CounterValues[1].Format != "decimalZero" {
+		t.Fatalf("isLgl recorded counter formats %q and %q", section.CounterValues[0].Format, section.CounterValues[1].Format)
+	}
+
+	// Without isLgl the same lvlText prints the parent in its own upperRoman.
+	plain := resolveNumberingFixture(t, strings.Replace(numbering, "<w:isLgl/>", "", 1), paragraphs)
+	if marker := plain.Paragraphs[1].Numbering; marker == nil || marker.ResolvedText != "Sect I.01" {
+		t.Fatalf("without isLgl the section marker = %#v; want \"Sect I.01\"", marker)
+	}
+	// An explicitly disabled w:isLgl is the same as its absence, and is not a
+	// preserved unknown.
+	disabled := resolveNumberingFixture(t, strings.Replace(numbering, "<w:isLgl/>", `<w:isLgl w:val="false"/>`, 1), paragraphs)
+	if hasResolutionDiagnostic(disabled, "UNMODELED_NUMBERING_LEVEL") {
+		t.Fatal("a disabled isLgl was preserved as an unknown level semantic")
+	}
+	if marker := disabled.Paragraphs[1].Numbering; marker == nil || marker.ResolvedText != "Sect I.01" {
+		t.Fatalf("with isLgl disabled the section marker = %#v; want \"Sect I.01\"", marker)
+	}
+	// w:legacy still states layout this tier does not model.
+	legacy := resolveNumberingFixture(t, strings.Replace(numbering, "<w:isLgl/>", `<w:legacy w:legacy="1" w:legacySpace="0" w:legacyIndent="0"/>`, 1), paragraphs)
+	if !hasResolutionDiagnostic(legacy, "UNMODELED_NUMBERING_LEVEL") {
+		t.Fatal("w:legacy is not modeled but was admitted")
+	}
+
+	for _, test := range []struct {
+		value int
+		want  string
+		ok    bool
+	}{
+		{0, "00", true},
+		{1, "01", true},
+		{9, "09", true},
+		{10, "10", true},
+		{100, "100", true},
+		{-1, "", false},
+	} {
+		got, ok := nativeFormatNumberingCounter(test.value, "decimalZero")
+		if got != test.want || ok != test.ok {
+			t.Fatalf("decimalZero %d = %q, %v; want %q, %v", test.value, got, ok, test.want, test.ok)
+		}
+	}
+}
+
+// TestNativeNumberingNameIsAuthoringMetadata pins ECMA-376 17.9.11 w:name: it
+// is the label Word shows for a list in its own gallery, and it selects no
+// counter, format, text or geometry. Unknown abstractNum metadata stays
+// preserved and refused.
+func TestNativeNumberingNameIsAuthoringMetadata(t *testing.T) {
+	level := `<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>`
+	build := func(extra string) string {
+		return `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1">` + extra + level + `</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	}
+	paragraphs := numberedParagraph("1", 0, "one")
+	named := resolveNumberingFixture(t, build(`<w:name w:val="CustomList"/>`), paragraphs)
+	if hasResolutionDiagnostic(named, "UNMODELED_ABSTRACT_NUMBERING") {
+		t.Fatal("w:name selects no numbering semantic but was preserved as unmodeled metadata")
+	}
+	bare := resolveNumberingFixture(t, build(""), paragraphs)
+	if named.Paragraphs[0].Numbering == nil || bare.Paragraphs[0].Numbering == nil {
+		t.Fatal("the fixture resolved no marker")
+	}
+	// The definition digest attests the numbering bytes, which do differ; every
+	// other field of the marker must not.
+	withName, withoutName := *named.Paragraphs[0].Numbering, *bare.Paragraphs[0].Numbering
+	withName.DefinitionSHA256, withoutName.DefinitionSHA256 = "", ""
+	if !reflect.DeepEqual(withName, withoutName) {
+		t.Fatalf("w:name changed the resolved marker: %#v vs %#v", withName, withoutName)
+	}
+	unknown := resolveNumberingFixture(t, build(`<w:numStyleLink w:val="Other"/>`), paragraphs)
+	if !hasResolutionDiagnostic(unknown, "UNMODELED_ABSTRACT_NUMBERING") {
+		t.Fatal("unknown abstract numbering metadata is not modeled but was admitted")
+	}
+}
+
+// Letter numbering resolves from the plain ASCII alphabet, so it is exact only
+// where the marker's language attests that alphabet. BCP 47 / ISO 639-2
+// register `zxx` for "no linguistic content, not applicable": a marker whose
+// language states that makes no language-specific claim about its alphabet at
+// all, which is exactly what `und` already attests here. Word's own PDF export
+// of `tdf118812_tableStyles-comprehensive.docx` pins it -- that package's
+// `w:docDefaults` states `w:lang w:val="zxx"` and Word still prints the ilvl 0
+// upperLetter marker of its `numId` 9 list as `A.`. A language that does name a
+// script keeps refusing, and a non-letter format never consults the language.
+func TestNativeNumberingLetterAlphabetAttestation(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		format   string
+		language string
+		refused  bool
+	}{
+		{"no linguistic content", "upperLetter", `<w:lang w:val="zxx"/>`, false},
+		{"no linguistic content uppercase", "lowerLetter", `<w:lang w:val="ZXX"/>`, false},
+		{"undetermined", "upperLetter", `<w:lang w:val="und"/>`, false},
+		{"english", "lowerLetter", `<w:lang w:val="en-US"/>`, false},
+		{"absent language", "upperLetter", ``, false},
+		{"russian", "upperLetter", `<w:lang w:val="ru-RU"/>`, true},
+		{"japanese", "lowerLetter", `<w:lang w:val="ja-JP"/>`, true},
+		{"decimal ignores the language", "decimal", `<w:lang w:val="ru-RU"/>`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="` + tc.format + `"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr><w:rPr>` + tc.language + `</w:rPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+			resolved := resolveNumberingFixture(t, numbering, numberedParagraph("2", 0, "letter"))
+			if got := hasResolutionDiagnostic(resolved, "UNSUPPORTED_NUMBERING_LANGUAGE"); got != tc.refused {
+				t.Fatalf("UNSUPPORTED_NUMBERING_LANGUAGE = %v, want %v: %#v", got, tc.refused, resolved.Diagnostics)
+			}
+			if marker := resolved.Paragraphs[0].Numbering; marker == nil {
+				t.Fatalf("numbered paragraph resolved no marker: %#v", resolved.Diagnostics)
+			}
+		})
+	}
+}
+
+// ECMA-376 17.9.26 states w:start as the number the first paragraph at a level
+// uses, so a parent counter that no paragraph has reached yet is AT its start
+// rather than absent, and an lvlText that references it is not malformed.
+// Word prints exactly that. Its own PDF export of `mixednumberings.docx` numbers
+// that document's second Heading 2 run `1|1.1|1.2|1.3` where the `1.1` marker's
+// own numbering instance has never numbered a Heading 1: the parent counter
+// takes its w:start. Resolving the same three paragraphs previously refused
+// them with "lvlText references an uninitialized parent counter" and the
+// document produced no page.
+func TestNativeNumberingUninitializedParentCounterTakesLevelStart(t *testing.T) {
+	level := func(ilvl int, format, text, start string) string {
+		return `<w:lvl w:ilvl="` + fmt.Sprint(ilvl) + `"><w:start w:val="` + start + `"/><w:numFmt w:val="` + format + `"/><w:lvlText w:val="` + text + `"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>`
+	}
+	for _, tc := range []struct {
+		name       string
+		parent     string
+		start      string
+		paragraphs string
+		want       []string
+	}{
+		{"parent never numbered", "decimal", "1", numberedParagraph("2", 1, "child"), []string{"1.1"}},
+		{"parent never numbered with a later start", "decimal", "7", numberedParagraph("2", 1, "child"), []string{"7.1"}},
+		{"parent never numbered in its own format", "upperLetter", "3", numberedParagraph("2", 1, "child"), []string{"C.1"}},
+		{"parent numbered first is unchanged", "decimal", "1", numberedParagraph("2", 0, "parent") + numberedParagraph("2", 1, "child"), []string{"1", "1.1"}},
+		{"parent numbered twice is unchanged", "decimal", "1", numberedParagraph("2", 0, "a") + numberedParagraph("2", 0, "b") + numberedParagraph("2", 1, "child"), []string{"1", "2", "2.1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			numbering := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1">` +
+				level(0, tc.parent, "%1", tc.start) + level(1, "decimal", "%1.%2", "1") +
+				`</w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+			resolved := resolveNumberingFixture(t, numbering, tc.paragraphs)
+			if hasResolutionDiagnostic(resolved, "MALFORMED_NUMBERING_TEXT") {
+				t.Fatalf("an uninitialized parent counter was reported malformed: %#v", resolved.Diagnostics)
+			}
+			got := []string{}
+			for _, paragraph := range resolved.Paragraphs {
+				if paragraph.Numbering == nil {
+					t.Fatalf("paragraph %s resolved no marker: %#v", paragraph.ParagraphID, resolved.Diagnostics)
+				}
+				got = append(got, paragraph.Numbering.ResolvedText)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("markers = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// A placeholder naming a level the definition does not carry is still
+	// malformed: there is no w:start to fall back to and nothing to render.
+	missing := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1">` + level(1, "decimal", "%1.%2", "1") + `</w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	resolved := resolveNumberingFixture(t, missing, numberedParagraph("2", 1, "child"))
+	if resolved.Paragraphs[0].Numbering != nil || !hasResolutionDiagnostic(resolved, "MALFORMED_NUMBERING_TEXT") {
+		t.Fatalf("a placeholder for a missing level was guessed: %#v", resolved)
+	}
+}
+
+// styledNumberingTestParts builds a package whose paragraph is styled by
+// `Untertitel`, with `numbering` omitted entirely when it is empty. That is the
+// exact shape of the corpus file this covers: Word's built-in Subtitle style
+// carries a vestigial `<w:numPr><w:ilvl w:val="1"/></w:numPr>` and the package
+// has no numbering part at all.
+func styledNumberingTestParts(styleNumPr, numbering, paragraphNumPr string) map[string]string {
+	types := `<Types xmlns="` + opcContentTypesNS + `"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>`
+	rels := `<Relationships xmlns="` + opcRelationshipsNS + `"><Relationship Id="styles" Type="` + relBaseTransitional + `styles" Target="styles.xml"/>`
+	parts := map[string]string{
+		"_rels/.rels":       `<Relationships xmlns="` + opcRelationshipsNS + `"><Relationship Id="office" Type="` + relBaseTransitional + `officeDocument" Target="word/document.xml"/></Relationships>`,
+		"word/document.xml": `<w:document xmlns:w="` + wordMLTransitional + `"><w:body><w:p><w:pPr><w:pStyle w:val="Untertitel"/>` + paragraphNumPr + `</w:pPr><w:r><w:t>Nunc viverra imperdiet enim.</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`,
+		"word/styles.xml":   `<w:styles xmlns:w="` + wordMLTransitional + `"><w:style w:type="paragraph" w:styleId="Untertitel"><w:name w:val="Subtitle"/><w:pPr>` + styleNumPr + `</w:pPr></w:style></w:styles>`,
+	}
+	if numbering != "" {
+		types += `<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>`
+		rels += `<Relationship Id="numbering" Type="` + relBaseTransitional + `numbering" Target="numbering.xml"/>`
+		parts["word/numbering.xml"] = numbering
+	}
+	parts["[Content_Types].xml"] = types + `</Types>`
+	parts["word/_rels/document.xml.rels"] = rels + `</Relationships>`
+	return parts
+}
+
+// TestNativeNumberingLevelWithoutNumIDSelectsNoNumbering covers a `w:numPr`
+// that states only `w:ilvl`. ECMA-376 17.9.19 binds a paragraph to a numbering
+// definition instance through `w:numId`, so such a reference names no instance
+// and the paragraph is ordinary text. Word's own PDF export of
+// `StyleRef-DE.docx` prints that document's `Untertitel` paragraph at the same
+// 72 pt left edge as every body paragraph around it, with no marker and no
+// hanging indent.
+func TestNativeNumberingLevelWithoutNumIDSelectsNoNumbering(t *testing.T) {
+	definition := `<w:numbering xmlns:w="` + wordMLTransitional + `"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1.%2."/><w:pPr><w:ind w:left="1440" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	for _, tc := range []struct {
+		name         string
+		styleNumPr   string
+		numbering    string
+		paragraph    string
+		wantMarker   string
+		wantDiagnose string
+	}{
+		{name: "style level only, no numbering part", styleNumPr: `<w:numPr><w:ilvl w:val="1"/></w:numPr>`},
+		{name: "style level only beside a real definition", styleNumPr: `<w:numPr><w:ilvl w:val="1"/></w:numPr>`, numbering: definition},
+		{name: "direct level only", numbering: definition, paragraph: `<w:numPr><w:ilvl w:val="1"/></w:numPr>`},
+		{name: "empty numPr stays silent", styleNumPr: `<w:numPr/>`, numbering: definition},
+		// The inherited level is still read: a direct numId resolves against
+		// the style's ilvl, so dropping the diagnostic did not drop the layer.
+		{name: "style level with a direct numId still numbers", styleNumPr: `<w:numPr><w:ilvl w:val="1"/></w:numPr>`, numbering: definition, paragraph: `<w:numPr><w:numId w:val="2"/></w:numPr>`, wantMarker: "1.1."},
+		// Negatives: a numId that is present but names nothing, or is not a
+		// decimal id at all, keeps its own refusal.
+		{name: "level with a missing instance still refuses", styleNumPr: `<w:numPr><w:ilvl w:val="1"/><w:numId w:val="9"/></w:numPr>`, numbering: definition, wantDiagnose: "MISSING_NUMBERING_INSTANCE"},
+		{name: "level with an invalid numId still refuses", styleNumPr: `<w:numPr><w:ilvl w:val="1"/><w:numId w:val="x"/></w:numPr>`, numbering: definition, wantDiagnose: "INVALID_NUMBERING_REFERENCE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parts := styledNumberingTestParts(tc.styleNumPr, tc.numbering, tc.paragraph)
+			resolved, err := ResolveNativeDocumentLayoutV1(buildNativeDOCX(t, nativeEntries(parts)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hasResolutionDiagnostic(resolved, "INCOMPLETE_NUMBERING_REFERENCE") {
+				t.Fatalf("a numPr stating no numId was reported an incomplete reference: %#v", resolved.Diagnostics)
+			}
+			if len(resolved.Paragraphs) != 1 {
+				t.Fatalf("paragraph count = %d", len(resolved.Paragraphs))
+			}
+			marker := ""
+			if resolved.Paragraphs[0].Numbering != nil {
+				marker = resolved.Paragraphs[0].Numbering.ResolvedText
+			}
+			if marker != tc.wantMarker {
+				t.Fatalf("marker = %q, want %q: %#v", marker, tc.wantMarker, resolved.Diagnostics)
+			}
+			if tc.wantDiagnose != "" && !hasResolutionDiagnostic(resolved, tc.wantDiagnose) {
+				t.Fatalf("want %s: %#v", tc.wantDiagnose, resolved.Diagnostics)
+			}
+		})
+	}
+}

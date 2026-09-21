@@ -1,0 +1,121 @@
+.office-editor { display: flex; flex-direction: column; min-height: 0; height: 100%; color: var(--text); font-family: inherit; }
+.office-editbar, .office-paging, .office-sheet-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.office-editbar { padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+.office-editor button:not(.ribbon-button, [role="tab"], .ribbon-file) { font: inherit; font-size: 12px; cursor: pointer; padding: 6px 11px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: inherit; }
+.office-editor button:not(.ribbon-button, [role="tab"], .ribbon-file):hover:not(:disabled) { background: var(--hover); }
+.office-editor button:not(.ribbon-button, [role="tab"], .ribbon-file):disabled { opacity: .45; cursor: default; }
+.office-editor button:focus-visible, .office-editor select:focus-visible, .office-editor textarea:focus-visible, .office-text-run:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.office-editbar label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; }
+.office-editbar select, .office-editbar textarea { font: inherit; font-size: 13px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 7px; max-width: 450px; color: inherit; }
+.office-editbar select { width: 280px; }
+.office-value { flex: 1; min-width: 200px; }
+.office-value textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.office-preview { flex: 1; min-height: 0; overflow: auto; padding: 20px; background: var(--canvas); }
+.office-preview-scale { min-height: 100%; }
+.office-note { color: var(--text-muted); font-size: 12px; line-height: 1.6; margin: 0 0 16px; }
+.office-preview-details { margin: 0 0 14px; color: var(--text-muted); font-size: 11px; line-height: 1.6; }
+.office-preview-details summary { cursor: pointer; width: fit-content; }
+.office-preview-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.office-preview-details p { max-width: 650px; margin: 6px 0 0; }
+.office-error { padding: 12px 20px; color: var(--danger); background: var(--danger-soft); border-bottom: 1px solid var(--danger-border); font-size: 13px; flex-shrink: 0; }
+.office-empty { padding: 40px; text-align: center; }
+.office-sheet-tabs { margin-bottom: 14px; }
+.office-sheet-tabs button[aria-pressed=true] { background: var(--accent-fill); color: var(--accent-text); border-color: var(--accent-fill); }
+.office-paging { margin-bottom: 14px; font-size: 12px; }
+.office-grid-scroll { overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; }
+.office-grid { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 13px; }
+.office-grid th { background: var(--surface-muted); color: var(--text-muted); font-size: 11px; padding: 8px; font-weight: 500; position: sticky; top: 0; }
+.office-grid td, .office-grid th { border: 1px solid var(--border-subtle); max-width: 280px; }
+.office-grid td>button, .office-grid td>span { display: block; min-width: 100px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 7px 9px; text-align: left; }
+.office-grid td>button { width: 100%; border: 0; border-radius: 0; }
+.office-grid td.selected { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--accent-soft); }
+.office-document-preview { padding: 0; overflow: hidden; }
+.office-document-preview > .office-preview-scale { height: 100%; }
+.office-document-layout { display: flex; height: 100%; min-height: 0; }
+.office-navigation { width: 232px; min-width: 232px; padding: 24px 16px; border-right: 1px solid var(--border); background: var(--surface-muted); overflow: auto; }
+.office-navigation h2 { font-size: 19px; font-weight: 400; color: var(--text-secondary); margin: 0 0 21px; }
+.office-navigation-tab { border-bottom: 2px solid var(--accent); padding: 0 0 9px; margin-bottom: 12px; font-size: 12px; color: var(--accent); font-weight: 600; }
+.office-navigation ol { list-style: none; padding: 0; margin: 0; }
+.office-navigation li { margin: 3px 0; }
+.office-navigation button { display: block; width: 100%; padding: 8px; border: 0; background: transparent; text-align: left; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.office-navigation button[aria-current=location] { background: var(--accent-soft); color: var(--accent); }
+.office-navigation > p { color: var(--text-muted); font-size: 12px; line-height: 1.6; margin: 19px 8px; }
+.office-document-canvas { flex: 1; min-width: 0; overflow: auto; padding: 0 32px 56px; background: var(--canvas); }
+.office-document-note { font-size: 11px; line-height: 1.5; color: var(--text-muted); margin: 15px auto; width: max-content; max-width: 100%; }
+.office-document-zoom { width: max-content; min-width: 100%; }
+.office-paper { cursor: text; width: 816px; min-height: 1056px; background: var(--document-surface); border: 1px solid var(--document-border); box-shadow: 0 2px 6px var(--shadow-soft); padding: 80px 84px 96px; margin: 0 auto; font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: var(--document-text); overflow-wrap: break-word; }
+.office-paragraph { margin: 0 0 10pt; white-space: pre-wrap; min-height: 1em; scroll-margin-top: 32px; outline: none; }
+.office-paragraph:focus-visible { outline: 1px solid var(--document-focus); outline-offset: 5px; }
+.office-heading { color: var(--document-heading); font-weight: 600; margin: 22pt 0 8pt; }
+.office-heading-1 { font-size: 20pt; }
+.office-heading-2 { font-size: 16pt; }
+.office-heading-3 { font-size: 13pt; }
+.office-heading-4, .office-heading-5, .office-heading-6, .office-heading-7, .office-heading-8, .office-heading-9 { font-size: 11pt; }
+.office-doc-title { font-size: 28pt; line-height: 1.2; margin: 0 0 18pt; }
+.office-text-run, .office-inline-input { font-family: inherit; font-size: inherit; line-height: inherit; font-weight: inherit; border: 0; padding: 0; border-radius: 1px; background: none; white-space: pre-wrap; text-align: inherit; }
+.office-text-run { cursor: text; }
+.office-text-run[aria-disabled=true] { cursor: default; }
+.office-inline-input { display: inline; outline: none; background: none; caret-color: var(--document-text); }
+.office-inline-input:empty { display: inline-block; min-width: 2px; }
+/* An empty paragraph is a whole line you can click anywhere on, the way Word shows one. */
+.office-text-run.office-text-run-fill, .office-inline-input.office-inline-input-fill { display: inline-block; min-width: 100%; min-height: 1.5em; vertical-align: top; }
+.office-inline-input[contenteditable=false] { opacity: .65; }
+/* Caret-side, self-dismissing notice. The anchor takes no space in the line. */
+.office-hint-anchor { position: relative; display: inline-block; width: 0; height: 0; }
+.office-inline-hint { position: absolute; top: 6px; left: 0; z-index: 20; max-width: 280px; font: 11px/1.5 'Segoe UI', Arial, sans-serif; background: var(--surface-raised); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 5px 9px; box-shadow: 0 6px 18px var(--shadow); pointer-events: none; }
+/* An empty run keeps a click target on the line without printing anything. */
+.office-empty-run { display: inline-block; min-width: 6em; }
+.office-empty-slide-text { color: var(--document-muted); font: 13px/1.6 'Segoe UI', Arial, sans-serif; }
+.office-preserved-image { display: inline-block; padding: 4px 12px; font: 11px/1.5 'Segoe UI', Arial, sans-serif; color: var(--document-muted); border: 1px dashed var(--document-border); background: var(--document-surface); }
+.office-preserved-content { font-size: 11px; color: var(--document-muted); }
+.office-story { width: 816px; margin: 28px auto 0; }
+.office-story > h2 { font: 500 12px/1.5 'Segoe UI', Arial, sans-serif; color: var(--text-muted); margin: 0 0 9px; }
+.office-story-content { cursor: text; background: var(--document-surface); border: 1px solid var(--document-border); padding: 28px 84px; font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: var(--document-text); }
+.office-doc-table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+.office-doc-table td { border: 1px solid var(--document-border); padding: 8px; vertical-align: top; }
+.office-doc-table p { margin: 0; }
+.office-slide { background: var(--document-surface); box-shadow: 0 2px 6px var(--shadow-soft); padding: 48px 64px; margin: 20px auto 0; max-width: 800px; min-height: 380px; font-family: Calibri, Arial, sans-serif; line-height: 1.6; }
+.office-slide h2 { font: 500 12px 'Segoe UI', Arial, sans-serif; color: var(--document-muted); border-bottom: 1px solid var(--document-border); padding-bottom: 18px; margin-bottom: 28px; }
+.office-pdf canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; background: var(--document-surface); box-shadow: 0 2px 12px var(--shadow-soft); }
+@media (max-width: 900px) { .office-navigation { width: 185px; min-width: 185px; padding: 20px 12px; } .office-document-canvas { padding-left: 20px; padding-right: 20px; } .office-editbar select { width: 220px; } }
+.formatting-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 20px; background: var(--surface-muted); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.formatting-group { display: flex; align-items: center; gap: 4px; }
+.formatting-group + .formatting-group { padding-left: 12px; border-left: 1px solid var(--border); }
+.formatting-toolbar select { font: inherit; font-size: 12px; min-height: 31px; max-width: 155px; padding: 4px 7px; background: var(--surface); color: inherit; border: 1px solid var(--border); border-radius: 4px; }
+.formatting-toolbar button { min-width: 31px; height: 31px; padding: 4px 8px; }
+.formatting-toolbar button[aria-pressed=true] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); }
+.formatting-scope { margin-left: auto; color: var(--text-muted); font-size: 11px; }
+.document-insert-table {position:relative;}
+.document-insert-table fieldset {position:absolute;z-index:10;top:100%;left:0;display:flex;align-items:end;gap:8px;padding:12px;background:var(--surface-raised);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px var(--shadow);}
+.document-insert-table label {display:flex;flex-direction:column;gap:4px;font-size:12px;}
+.document-insert-table input {width:64px;padding:6px;border:1px solid var(--border);border-radius:4px;}
+
+.office-document-status{display:flex;align-items:center;gap:10px;flex-shrink:0;padding:6px 18px;border-top:1px solid var(--border);background:var(--surface-muted);color:var(--text-secondary);font-size:11px}.office-document-status span:last-child{margin-left:auto;}
+.office-status-alert{display:inline-flex;flex-shrink:0;align-items:center;gap:6px;padding:1px 8px;border:1px solid var(--warning);border-radius:10px;color:var(--warning-text);background:var(--warning-soft);font-weight:600}
+.office-status-info{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid var(--border-strong);border-radius:50%;font:italic 600 9px/1 'Segoe UI',Arial,sans-serif;color:var(--text-muted);cursor:default}
+.office-status-info:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.office-inline-image{position:relative;display:inline-block;max-width:100%;vertical-align:middle}.office-image-actions{position:absolute;right:4px;top:4px;display:flex;gap:4px;white-space:nowrap;opacity:0}.office-image-actions button{padding:4px 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--surface-raised);color:var(--text);font:11px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.office-inline-image:hover .office-image-actions,.office-inline-image:focus-within .office-image-actions{opacity:1}.office-image-actions button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+
+.office-page-layout-note{margin:0;padding:12px 18px;color:var(--text-muted);font-size:12px;}
+
+.office-link-control form{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px;background:var(--surface-muted);border:1px solid var(--border);border-radius:8px}.office-link-control label{display:grid;gap:4px;font-size:12px}.office-link-control input{min-width:260px;padding:6px;border:1px solid var(--border-strong);border-radius:4px}.office-link-control small{max-width:220px;color:var(--text-muted)}
+
+.office-text-run[data-hyperlink],.office-inline-input[data-hyperlink]{text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:var(--document-link);text-underline-offset:3px}
+
+/* Layout tab: Word's Page Setup galleries and the Indent/Spacing spinners. */
+.document-layout-menu{position:relative;display:inline-flex}
+.document-layout-value{color:var(--text-muted)}
+.document-layout-caret{color:var(--text-muted);font-size:9px}
+.document-layout-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;min-width:210px;display:flex;flex-direction:column;padding:4px;background:var(--surface-raised);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px var(--shadow)}
+.document-layout-list button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:6px 9px;border:0;border-radius:5px;background:transparent;color:var(--text);font:inherit;font-size:12px;text-align:left;cursor:pointer}
+.document-layout-list button:hover{background:var(--hover)}
+.document-layout-list button[aria-checked=true]{color:var(--accent);background:var(--accent-soft)}
+.document-layout-list small{color:var(--text-muted);font-size:10.5px}
+.document-layout-paragraph{position:relative;display:flex;align-items:center;gap:10px}
+.document-layout-paragraph>div{display:flex;flex-direction:column;gap:4px}
+.ribbon .document-layout-field{flex-direction:row;align-items:center;gap:6px;white-space:nowrap;color:var(--text)}
+.document-layout-field input{width:66px}
+.document-layout-panel{position:absolute;z-index:20;top:calc(100% + 6px);right:0;display:grid;gap:8px;padding:12px;background:var(--surface-raised);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px var(--shadow)}
+.ribbon .document-layout-panel label{flex-direction:row;align-items:center;justify-content:space-between;gap:10px;color:var(--text)}

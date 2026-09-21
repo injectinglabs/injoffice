@@ -1,0 +1,88 @@
+package docxpatch
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// InspectNativePartialSourceV1 joins extraction and style resolution from the
+// same immutable caller bytes. It supplies no font assets or mutation authority.
+func InspectNativePartialSourceV1(data []byte) ([]byte, error) {
+	if len(data) == 0 || len(data) > NativeDOCXMaxPackageBytes {
+		return nil, fmt.Errorf("partial source package size must be 1..%d bytes", NativeDOCXMaxPackageBytes)
+	}
+	data = append([]byte(nil), data...)
+	document, err := ExtractNativeDocumentV1(data)
+	if err != nil {
+		return nil, err
+	}
+	layout, err := ResolveNativeDocumentLayoutV1(data)
+	if err != nil {
+		return nil, err
+	}
+	if document.DocumentID != layout.DocumentID || document.Revision != layout.Revision || document.Source.MainPart != layout.SourceParts.MainPart {
+		return nil, fmt.Errorf("partial source identity mismatch")
+	}
+	docJSON, err := EncodeNativeDocumentV1(document)
+	if err != nil {
+		return nil, err
+	}
+	layoutJSON, err := EncodeNativeResolvedLayoutInputV1(layout)
+	if err != nil {
+		return nil, err
+	}
+	equations, err := inspectNativePartialEquations(data, document)
+	if err != nil {
+		return nil, err
+	}
+	notices, err := inspectNativeEquationContext(data, document, layout, equations)
+	if err != nil {
+		return nil, err
+	}
+	nestedTables, err := inspectNativePartialNestedTables(data, document)
+	if err != nil {
+		return nil, err
+	}
+	review, err := inspectNativePartialReview(data, document)
+	if err != nil {
+		return nil, err
+	}
+	tableContexts, err := inspectNativePartialTableTextContexts(data, document, layout)
+	if err != nil {
+		return nil, err
+	}
+	textboxes, err := inspectNativePartialTextboxes(data, document)
+	if err != nil {
+		return nil, err
+	}
+	nestedText, err := inspectNativePartialNestedText(data, document, nestedTables, tableContexts)
+	if err != nil {
+		return nil, err
+	}
+	geometry, err := inspectNativeTextboxGeometry(data, document)
+	if err != nil {
+		return nil, err
+	}
+	result, err := json.Marshal(struct {
+		TextboxGeometry        *NativeTextboxGeometryEvidenceV1  `json:"textbox_geometry,omitempty"`
+		TextboxInventory       *NativePartialTextboxesV1         `json:"textbox_inventory,omitempty"`
+		NestedText             []NativePartialNestedTextV1       `json:"nested_text,omitempty"`
+		TableTextContexts      []NativePartialTableTextContextV1 `json:"table_text_contexts,omitempty"`
+		ReviewChanges          *NativePartialReviewV1            `json:"review_changes,omitempty"`
+		Protocol               string                            `json:"protocol"`
+		Version                int                               `json:"version"`
+		PackageSHA256          string                            `json:"package_sha256"`
+		Document               json.RawMessage                   `json:"document"`
+		ResolvedLayout         json.RawMessage                   `json:"resolved_layout"`
+		Equations              []NativePartialEquationV1         `json:"equations,omitempty"`
+		EquationContextNotices []NativeEquationContextNoticeV1   `json:"equation_context_notices,omitempty"`
+		NestedTableOmissions   *NativePartialNestedTablesV1      `json:"nested_table_omissions,omitempty"`
+	}{geometry, textboxes, nestedText, tableContexts, review, "injoffice.docx.partial-source", 1, document.Source.PackageSHA256, docJSON, layoutJSON, equations, notices, nestedTables})
+	if err != nil {
+		return nil, err
+	}
+	if len(result) > 2*NativeDOCXMaxJSONBytes {
+		return nil, fmt.Errorf("partial source JSON exceeds bounded response size")
+	}
+	return result, nil
+}

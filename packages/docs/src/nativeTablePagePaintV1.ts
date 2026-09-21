@@ -1,0 +1,631 @@
+/**
+ * Pure qualification and geometry for the bounded native WordprocessingML
+ * table page-paint slice. This module is the only authority for table math;
+ * it has no web-layout or document-conversion dependency.
+ */
+
+import { sha256 } from '@noble/hashes/sha2.js'
+import { bytesToHex } from '@noble/hashes/utils.js'
+import type {
+  NativeDocxDocumentV1,
+  NativeDocxTableBorderV1,
+  NativeDocxTableBordersV1,
+  NativeDocxTableCellV1,
+  NativeDocxTableV1,
+} from './nativeContract.js'
+import type { NativeDocxResolvedLayoutInputV1, NativeDocxResolvedTableV1 } from './nativeResolvedLayout.js'
+import type { NativeDocxShapedLinesV1, NativeDocxShapedParagraphV1 } from './nativeShapingLines.js'
+import { nativeDocxCellWidthAgreesWithGridV1 } from './nativeContract.js'
+import { validNativeDocxAutomaticBorderEvidenceV1 } from './nativeAutomaticBorderEvidenceV1.js'
+import { nativeDocxUnresolvableTableStyleV1 } from './nativeRenderDiagnostics.js'
+import { qualifyNativeDocxSectionColumnsV1 } from './nativeSectionColumnsV1.js'
+import { resolveNativeDocxTableAutofitV1, type NativeDocxTableAutofitPolicyV1 } from './nativeTableAutofitV1.js'
+import { fitNativeDocxApproximateTableGridV1, type NativeDocxApproximateTableGridPolicyV1 } from './nativeApproximateTableGridV1.js'
+import { fitNativeDocxApproximatePercentTableV1, type NativeDocxApproximatePercentTablePolicyV1 } from './nativeApproximatePercentTableV1.js'
+import { projectNativeDocxApproximateUniformCellBordersV1, type NativeDocxApproximateUniformCellBorderPolicyV1 } from './nativeApproximateUniformCellBordersV1.js'
+
+export const DOCX_TABLE_PAGE_PAINT_LIMITS = {
+  maxTables: 1_000,
+  maxRows: 10_000,
+  maxCells: 100_000,
+  maxGridColumns: 256,
+  maxCoordinateMilliPoints: 1_000_000_000_000,
+} as const
+
+export interface NativeDocxQualifiedTableCellV1 {
+  cell: NativeDocxTableCellV1
+  column_ordinal: number
+  grid_span: number
+  vertical_merge: NativeDocxTableCellV1['vertical_merge']
+  x_millipoints: number
+  width_millipoints: number
+  content_x_millipoints: number
+  content_width_millipoints: number
+}
+
+export interface NativeDocxQualifiedTableRowV1 {
+  row_id: string
+  row_ordinal: number
+  cells: NativeDocxQualifiedTableCellV1[]
+}
+
+export interface NativeDocxQualifiedTableV1 {
+  origin_policy?: {name:'legacy-content-aligned-origin-v1';source:import('./nativeLegacyTableOriginV1.js').NativeDocxLegacyTableOriginV1;delta_millipoints:number}
+  border_reservation_policy?: {name:'collapsed-horizontal-border-reservation-v1';above_content_millipoints:number}
+  cell_border_policy?: NativeDocxApproximateUniformCellBorderPolicyV1
+  width_policy?: { name: 'fixed-grid-percent-exact-twips-v1'; section_id: string; container_width_twips: number; percent_fiftieths: number; source_grid_widths_twips: number[] } | NativeDocxTableAutofitPolicyV1 | NativeDocxApproximateTableGridPolicyV1 | NativeDocxApproximatePercentTablePolicyV1
+  table: NativeDocxTableV1
+  /** Set by pagination when a `w:tblpPr` frame has been applied: `x_millipoints`
+   * then measures from the anchor box, so the table may legitimately overhang
+   * the text column Word itself computed it against. */
+  floating?: true
+  width_millipoints: number
+  x_millipoints: number
+  grid_widths_millipoints: number[]
+  rows: NativeDocxQualifiedTableRowV1[]
+}
+
+export interface NativeDocxTableQualificationDiagnosticV1 {
+  code: 'unsupported-table-source' | 'table-resource-limit'
+  scope_id: string
+  message: string
+}
+
+export type NativeDocxQualifiedTablesV1 =
+  | { status: 'qualified'; tables: NativeDocxQualifiedTableV1[]; paragraph_widths: ReadonlyMap<string, number>; sha256: string }
+  | { status: 'refused'; tables: []; paragraph_widths: ReadonlyMap<string, number>; diagnostics: NativeDocxTableQualificationDiagnosticV1[] }
+
+export interface NativeDocxTableCellGeometryV1 {
+  cell_id: string
+  column_ordinal: number
+  grid_span: number
+  row_span: number
+  vertical_merge: NativeDocxTableCellV1['vertical_merge']
+  x_millipoints: number
+  y_millipoints: number
+  width_millipoints: number
+  height_millipoints: number
+  content_x_millipoints: number
+  content_y_millipoints: number
+  content_width_millipoints: number
+  content_height_millipoints: number
+  shading_rgb?: string
+}
+
+export interface NativeDocxTableRowGeometryV1 {
+  row_id: string
+  row_ordinal: number
+  height_millipoints: number
+  cells: NativeDocxTableCellGeometryV1[]
+}
+
+const MAX_SAFE_TWIPS = Math.floor(DOCX_TABLE_PAGE_PAINT_LIMITS.maxCoordinateMilliPoints / 50)
+
+function checked(...values: number[]): number | undefined {
+  let result = 0
+  for (const value of values) {
+    result += value
+    if (!Number.isSafeInteger(result) || Math.abs(result) > DOCX_TABLE_PAGE_PAINT_LIMITS.maxCoordinateMilliPoints) return undefined
+  }
+  return result
+}
+
+function twips(value: number): number | undefined {
+  return Number.isSafeInteger(value) && value >= 0 && value <= MAX_SAFE_TWIPS ? checked(value * 50) : undefined
+}
+
+function canonical(value: unknown, active = new WeakSet<object>(), depth = 0, state = { nodes: 0 }): unknown {
+  state.nodes += 1
+  if (state.nodes > 1_000_000 || depth > 64) throw new RangeError('table hash input exceeds the bounded canonicalization budget')
+  if (typeof value === 'number' && (!Number.isFinite(value) || Object.is(value, -0))) throw new TypeError('table hash input contains a non-canonical number')
+  if (value === null || typeof value !== 'object') return value
+  if (active.has(value)) throw new TypeError('table hash input must be acyclic JSON wire data')
+  active.add(value)
+  const output = Array.isArray(value)
+    ? value.map((entry) => canonical(entry, active, depth + 1, state))
+    : Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical((value as Record<string, unknown>)[key], active, depth + 1, state)]))
+  active.delete(value)
+  return output
+}
+
+function projection(tables: readonly NativeDocxQualifiedTableV1[]): unknown {
+  return tables.map((entry) => ({
+    ...(entry.origin_policy ? {origin_policy:entry.origin_policy} : {}),
+    ...(entry.border_reservation_policy ? {border_reservation_policy:entry.border_reservation_policy} : {}),
+    ...(entry.cell_border_policy ? {cell_border_policy:entry.cell_border_policy} : {}),
+    ...(entry.width_policy ? { width_policy: entry.width_policy } : {}),
+    table_id: entry.table.id,
+    width_twips: entry.table.width_twips,
+    layout: entry.table.layout,
+    alignment: entry.table.alignment,
+    indent_twips: entry.table.indent_twips,
+    grid_widths_twips: entry.table.grid_widths_twips,
+    cell_margins: entry.table.cell_margins,
+    borders: entry.table.borders,
+    rows: entry.table.rows.map((row) => ({
+      row_id: row.id, height_twips: row.height_twips, height_rule: row.height_rule, repeat_header: row.repeat_header, cant_split: row.cant_split,
+      cells: row.cells.map((cell) => ({
+        cell_id: cell.id, width_twips: cell.width_twips, grid_span: cell.grid_span, vertical_merge: cell.vertical_merge,
+        borders: cell.borders, shading_rgb: cell.shading_rgb, paragraph_ids: cell.paragraphs.map((paragraph) => paragraph.id),
+      })),
+    })),
+  }))
+}
+
+/** Hashes the exact already-qualified table projection; object-key order is irrelevant and source-array order is authoritative. */
+export function nativeDocxTableProjectionSha256V1(tables: readonly NativeDocxQualifiedTableV1[]): string {
+  try {
+    if (!Array.isArray(tables) || tables.length > DOCX_TABLE_PAGE_PAINT_LIMITS.maxTables) throw new TypeError('table hash input must be a bounded array')
+    let rows = 0
+    let cells = 0
+    for (const table of tables) {
+      if (!table || !Array.isArray(table.table?.rows) || !Array.isArray(table.table.grid_widths_twips) || table.table.grid_widths_twips.length > DOCX_TABLE_PAGE_PAINT_LIMITS.maxGridColumns) throw new TypeError('table hash input is not a qualified projection')
+      rows += table.table.rows.length
+      if (rows > DOCX_TABLE_PAGE_PAINT_LIMITS.maxRows) throw new RangeError('table hash rows exceed the bounded canonicalization budget')
+      for (const row of table.table.rows) {
+        if (!Array.isArray(row.cells)) throw new TypeError('table hash row cells are malformed')
+        cells += row.cells.length
+        if (cells > DOCX_TABLE_PAGE_PAINT_LIMITS.maxCells) throw new RangeError('table hash cells exceed the bounded canonicalization budget')
+      }
+    }
+    return `sha256:${bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(canonical(projection(tables))))))}`
+  } catch (error) {
+    if (error instanceof RangeError) throw error
+    throw new TypeError('table hash input must be bounded cloneable canonical wire data')
+  }
+}
+
+function borderValid(border: NativeDocxTableBorderV1 | undefined): boolean {
+  if (!border) return true
+  if (border.style === 'none') return border.size_eighth_points === 0 && border.color_rgb === undefined
+  return border.style === 'single' && Number.isSafeInteger(border.size_eighth_points) && border.size_eighth_points > 0 && border.size_eighth_points <= 768 && /^[0-9A-F]{6}$/.test(border.color_rgb ?? '')
+}
+
+function bordersValid(borders: NativeDocxTableBordersV1 | undefined): boolean {
+  return !borders || Object.values(borders).every(borderValid)
+}
+
+function cellRunsSupported(cell: NativeDocxTableCellV1): boolean {
+  return cell.paragraphs.length > 0 && cell.paragraphs.every((paragraph) => paragraph.runs.every((run) => run.kind === 'text' || run.kind === 'control' && (run.control === 'tab' || run.control === 'line-break')))
+}
+
+function cellHasVisibleContent(cell: NativeDocxTableCellV1): boolean {
+  return cell.paragraphs.some((paragraph) => paragraph.runs.some((run) => (run.kind === 'text' && (run.text ?? '') !== '') || run.kind === 'drawing' || (run.kind === 'control' && run.control !== 'tab' && run.control !== 'line-break')))
+}
+
+function diagnosticIdentity(code: string, scopeID: string, partName = '', path = ''): string {
+  return JSON.stringify([code, scopeID, partName, path])
+}
+
+/** A table style that blocks paint is one whose effects this tier cannot
+ * reproduce. `MISSING_TABLE_STYLE` is the opposite case: ECMA-376 17.7.2 binds
+ * a w:tblStyle to the w:style whose w:styleId it names, and a reference that
+ * names no such style therefore selects nothing. The resolver already treats it
+ * that way -- it records the absence and returns a resolved table with no
+ * borders, no cell shading and no geometry -- so there is no hidden formatting
+ * to lose, and blocking on it refused a table the source states in full. */
+function tableStyleBlocksPaint(resolved: NativeDocxResolvedLayoutInputV1, tableID: string, covered?: ReadonlySet<string>): boolean {
+  return resolved.diagnostics.some((diagnostic) => {
+    if (diagnostic.scope_id !== tableID) return false
+    if (diagnostic.code === 'MISSING_TABLE_STYLE') return !nativeDocxUnresolvableTableStyleV1(diagnostic, resolved)
+    if (diagnostic.code === 'CONDITIONAL_TABLE_STYLE_PRESERVED') return true
+    return diagnostic.code === 'TABLE_STYLE_EFFECTS_PRESERVED' && !covered?.has(diagnosticIdentity(diagnostic.code, diagnostic.scope_id, diagnostic.part_name ?? '', diagnostic.path ?? ''))
+  })
+}
+
+/** Paint-only join of independently attested automatic-border evidence.
+ * Source table borders stay absent; this does not implement Word auto color. */
+function qualifiedAutomaticBorderPaint(table: NativeDocxTableV1, resolvedTable: NativeDocxResolvedTableV1, document: NativeDocxDocumentV1, resolved: NativeDocxResolvedLayoutInputV1): { borders: NativeDocxTableBordersV1; covered: Set<string> } | undefined {
+  const evidence = resolvedTable.automatic_border_preview
+  if (!evidence || table.borders || resolvedTable.borders || evidence.package_sha256 !== document.source.package_sha256 || !validNativeDocxAutomaticBorderEvidenceV1(evidence)) return undefined
+  const cells = table.rows.flatMap((row) => row.cells)
+  if (JSON.stringify(cells.map((cell) => cell.id)) !== JSON.stringify(evidence.cell_ids)) return undefined
+  if (cells.some((cell) => cell.borders || cell.grid_span !== 1 || cell.vertical_merge !== 'none' || cell.shading_rgb !== undefined && cell.shading_rgb !== 'FFFFFF')) return undefined
+  const resolvedKeys = new Set(resolved.diagnostics.map((diagnostic) => diagnosticIdentity(diagnostic.code, diagnostic.scope_id, diagnostic.part_name ?? '', diagnostic.path ?? '')))
+  const covered = new Set<string>()
+  for (const diagnostic of evidence.source_diagnostics) {
+    if (diagnostic.scope_id !== table.id || diagnostic.part_name !== evidence.source_part) return undefined
+    if (diagnostic.code === 'TABLE_STYLE_EFFECTS_PRESERVED') {
+      if (evidence.source_path !== `${diagnostic.path}/w:tblBorders[1]` || !resolvedKeys.has(diagnosticIdentity(diagnostic.code, diagnostic.scope_id, diagnostic.part_name, diagnostic.path))) return undefined
+    } else if (diagnostic.code !== 'UNMODELED_TABLE_PROPERTY' || diagnostic.path !== evidence.source_path) return undefined
+    covered.add(diagnosticIdentity(diagnostic.code, diagnostic.scope_id, diagnostic.part_name, diagnostic.path))
+  }
+  return { borders: structuredClone(evidence.borders), covered }
+}
+
+/** Resolve an explicit percentage against its section, preserving authored grid
+ * proportions. This is not content autofit; non-integral twip results refuse. */
+function percentTable(table: NativeDocxTableV1, width: number, sectionID: string): { table: NativeDocxTableV1; policy: NonNullable<NativeDocxQualifiedTableV1['width_policy']> } | undefined {
+  const percent = table.width_percent_fiftieths, grid = table.grid_widths_twips
+  if (table.width_twips !== undefined || !Number.isSafeInteger(percent) || percent! < 1 || percent! > 5000 || !Number.isSafeInteger(width) || width <= 0 || width > MAX_SAFE_TWIPS || !grid?.length || grid.length > DOCX_TABLE_PAGE_PAINT_LIMITS.maxGridColumns || grid.some((value) => !Number.isSafeInteger(value) || value <= 0 || value > MAX_SAFE_TWIPS) || table.rows.length > DOCX_TABLE_PAGE_PAINT_LIMITS.maxRows) return undefined
+  const total = grid.reduce((sum, value) => sum + value, 0)
+  if (!Number.isSafeInteger(total) || total > MAX_SAFE_TWIPS) return undefined
+  const numerator = BigInt(width) * BigInt(percent!)
+  if (numerator % 5000n !== 0n) return undefined
+  const target = numerator / 5000n
+  const scaled: number[] = []
+  for (const value of grid) {
+    const numerator = target * BigInt(value)
+    if (numerator % BigInt(total) !== 0n) return undefined
+    const projected = Number(numerator / BigInt(total))
+    if (projected <= 0 || !Number.isSafeInteger(projected)) return undefined
+    scaled.push(projected)
+  }
+  const rows: NativeDocxTableV1['rows'] = []
+  let cells = 0
+  for (const row of table.rows) {
+    let column = 0
+    const projected: typeof row.cells = []
+    for (const cell of row.cells) {
+      cells += 1
+      if (cells > DOCX_TABLE_PAGE_PAINT_LIMITS.maxCells || !Number.isSafeInteger(cell.grid_span) || cell.grid_span < 1 || column + cell.grid_span > grid.length) return undefined
+      const end = column + cell.grid_span
+      if (!nativeDocxCellWidthAgreesWithGridV1(cell, grid.slice(column, end).reduce((sum, value) => sum + value, 0))) return undefined
+      projected.push({ ...cell, width_twips: scaled.slice(column, end).reduce((sum, value) => sum + value, 0) })
+      column = end
+    }
+    if (column !== grid.length) return undefined
+    rows.push({ ...row, cells: projected })
+  }
+  return { table: { ...table, width_twips: Number(target), grid_widths_twips: scaled, rows }, policy: { name: 'fixed-grid-percent-exact-twips-v1', section_id: sectionID, container_width_twips: width, percent_fiftieths: percent!, source_grid_widths_twips: [...grid] } }
+}
+
+/**
+ * Qualifies a deliberately narrow exact subset. Any ambiguity refuses the
+ * entire table set before shaping or outline-provider work begins.
+ */
+/** @internal Source properties take precedence; this never mutates source bytes or objects. */
+export function nativeDocxTableGeometryV1(table: NativeDocxTableV1, resolved: NativeDocxResolvedLayoutInputV1): NativeDocxTableV1 {
+  const geometry = resolved.tables.find(entry => entry.table_id === table.id)?.geometry
+  if (!geometry) return table
+  const width = table.width_twips !== undefined || table.width_percent_fiftieths !== undefined ? {} : geometry.width_type === 'dxa' ? { width_twips: geometry.width_value } : geometry.width_type === 'pct' ? { width_percent_fiftieths: geometry.width_value } : {}
+  return { ...table, ...width, layout: table.layout ?? geometry.layout, alignment: table.alignment ?? geometry.alignment, indent_twips: table.indent_twips ?? geometry.indent_twips, cell_margins: table.cell_margins ?? { ...geometry.cell_margins } }
+}
+
+export function qualifyNativeDocxTablesV1(document: NativeDocxDocumentV1, resolved: NativeDocxResolvedLayoutInputV1, shaped?: NativeDocxShapedLinesV1, approximate?: boolean): NativeDocxQualifiedTablesV1 {
+  const sourceTables = document.body.blocks.flatMap((block) => block.kind === 'table' && block.table ? [nativeDocxTableGeometryV1(block.table, resolved)] : [])
+  if (sourceTables.length === 0) return { status: 'qualified', tables: [], paragraph_widths: new Map(), sha256: nativeDocxTableProjectionSha256V1([]) }
+  const fail = (scope_id: string, message: string): NativeDocxQualifiedTablesV1 => ({ status: 'refused', tables: [], paragraph_widths: new Map(), diagnostics: [{ code: 'unsupported-table-source', scope_id, message }] })
+  if (resolved.document_id !== document.document_id || resolved.revision !== document.revision) return fail(document.document_id, 'Resolved table geometry must exact-join the source document and revision')
+  // Content autofit may only read measurements that exact-join this source. The
+  // approximate lane may also be handed no measurements at all: its declared
+  // authored-grid policy sizes an auto-width table without them, so an absent
+  // measurement selects that policy instead of refusing the whole body.
+  if (sourceTables.some(table => table.layout === 'autofit') && (!shaped ? !approximate : shaped.document_id !== document.document_id || shaped.revision !== document.revision || resolved.document_id !== document.document_id || resolved.revision !== document.revision)) return fail(document.document_id, 'Autofit measurements must exact-join the source document and revision')
+  if (sourceTables.length > DOCX_TABLE_PAGE_PAINT_LIMITS.maxTables) return { status: 'refused', tables: [], paragraph_widths: new Map(), diagnostics: [{ code: 'table-resource-limit', scope_id: document.document_id, message: `Tables exceed ${DOCX_TABLE_PAGE_PAINT_LIMITS.maxTables}` }] }
+  const resolvedParagraphs = new Map(resolved.paragraphs.map((entry) => [entry.paragraph_id, entry]))
+  const autofitIndexes = shaped ? { paragraphs: new Map(shaped.paragraphs.map(entry => [entry.paragraph_id, entry])), properties: resolvedParagraphs } : undefined
+  const resolvedTables = new Map(resolved.tables.map((entry) => [entry.table_id, entry]))
+  const tables: NativeDocxQualifiedTableV1[] = []
+  const paragraphWidths = new Map<string, number>()
+  const coveredStyleDiagnostics = new Set<string>()
+  let rows = 0
+  let cells = 0
+  const tableContainers = new Map<string, { width: number; sectionID: string }>()
+  const sectionsByStart = new Map(document.sections.map((section) => [section.starts_at_block_id, section]))
+  let activeSection: NativeDocxDocumentV1['sections'][number] | undefined
+  for (const block of document.body.blocks) {
+    activeSection = sectionsByStart.get(block.id) ?? activeSection
+    const table = block.table ? nativeDocxTableGeometryV1(block.table, resolved) : undefined
+    // A table with no w:tblLayout is autofit by cascade default (ECMA-376
+    // 17.4.53), so the approximate lane needs its container too: its authored
+    // grid is a preference that has to be fitted to the text column, not a
+    // fixed width that may run past it.
+    const cascadeAutofit = approximate === true && table !== undefined && table.layout === undefined && table.width_twips === undefined && table.width_percent_fiftieths === undefined
+    if ((table?.width_percent_fiftieths !== undefined || table?.layout === 'autofit' || cascadeAutofit) && activeSection) {
+      const geometry = qualifyNativeDocxSectionColumnsV1(activeSection)
+      if (geometry.ok && geometry.value.columns.length === 1) tableContainers.set(table!.id, { width: geometry.value.columns[0]!.width_millipoints / 50, sectionID: activeSection.id })
+    }
+  }
+  // Strict pagination still starts a table at the bare cursor, so it refuses
+  // rather than silently drop a neighbouring paragraph's spacing. The
+  // approximate lane no longer has to: it seats a table below the preceding
+  // space-after the way Word does (measured in #242), and a table clears
+  // previousAfter, so the following paragraph's own space-before is the gap
+  // Word leaves under the table. Both spacings are modelled, not guessed.
+  if (!approximate) for (const [blockIndex, block] of document.body.blocks.entries()) if (block.table) {
+    const previous = document.body.blocks[blockIndex - 1]?.paragraph
+    const next = document.body.blocks[blockIndex + 1]?.paragraph
+    if (previous && (resolvedParagraphs.get(previous.id)?.properties.spacing_after_twips ?? 0) !== 0) return fail(block.table.id, 'Paragraph spacing adjacent to a table must be explicit zero in v1')
+    if (next && (resolvedParagraphs.get(next.id)?.properties.spacing_before_twips ?? 0) !== 0) return fail(block.table.id, 'Paragraph spacing adjacent to a table must be explicit zero in v1')
+  }
+  for (const sourceTable of sourceTables) {
+    const resolvedTable = resolvedTables.get(sourceTable.id)
+    if (!resolvedTable) return fail(sourceTable.id, 'Table does not exact-join the resolved layout')
+    const automaticBorders = qualifiedAutomaticBorderPaint(sourceTable, resolvedTable, document, resolved)
+    if (automaticBorders) for (const key of automaticBorders.covered) coveredStyleDiagnostics.add(key)
+    if (tableStyleBlocksPaint(resolved, sourceTable.id, automaticBorders?.covered)) return fail(sourceTable.id, 'Table styles and conditional style effects are outside the bounded page-paint subset')
+    const paintBorders = sourceTable.borders ?? resolvedTable.borders ?? automaticBorders?.borders
+    if ((sourceTable.table_style_id || resolvedTable.style_id) && !bordersValid(paintBorders)) return fail(sourceTable.id, 'Simple table style did not project exact table-level border commands')
+    let table = paintBorders === sourceTable.borders ? sourceTable : { ...sourceTable, borders: paintBorders }
+    let widthPolicy: NativeDocxQualifiedTableV1['width_policy']
+    // Strict paint refuses any w:tcBorders below. The approximate lane has a
+    // declared policy for the one shape that states no conflict to resolve:
+    // every cell states the same single border on all four edges and the table
+    // states none, so that value IS the unambiguous table-level border set.
+    let cellBorderPolicy: NativeDocxQualifiedTableV1['cell_border_policy']
+    if (approximate === true && !table.borders) {
+      const projected = projectNativeDocxApproximateUniformCellBordersV1(table)
+      if (projected) { table = projected.table; cellBorderPolicy = projected.policy }
+    }
+    if (approximate && table.layout === 'autofit') {
+      // Approximate preview only: consistent authored tcW/tblGrid preferences
+      // that exceed the text column (Word's grid includes the cell margins) are
+      // scaled proportionally to the column instead of collapsing to the shaped
+      // content width. Strict qualification never takes this branch.
+      const container = tableContainers.get(table.id)
+      const fitted = container ? fitNativeDocxApproximateTableGridV1(table, container.width, container.sectionID) : undefined
+      if (fitted) { table = fitted.table; widthPolicy = fitted.policy }
+    }
+    if (table.layout === 'autofit') {
+      const container = tableContainers.get(table.id)
+      const projected = container ? resolveNativeDocxTableAutofitV1(table, container.width, container.sectionID, resolved, shaped, autofitIndexes) : undefined
+      // Strict paint has only this one way to size an auto-width table, so an
+      // unmeasurable one refuses. The approximate lane already declares a
+      // second, coarser policy for exactly this shape -- the authored tblGrid,
+      // fitted to the text column -- and applies it to every auto-width table
+      // whose resolved geometry is absent. A table whose cells the intrinsic
+      // probe cannot measure is not a different document; when the source does
+      // state a usable grid it takes that same declared policy below rather
+      // than discarding the whole body. A table that states no grid either has
+      // no second policy to fall back on and keeps this exact refusal.
+      const authoredGridSum = table.grid_widths_twips?.reduce((total, width) => total + width, 0)
+      const authoredGridAvailable = approximate === true && (table.width_twips === undefined || table.width_twips === 0)
+        && table.grid_widths_twips !== undefined && table.grid_widths_twips.length > 0 && Number.isSafeInteger(authoredGridSum) && authoredGridSum! > 0
+      if (!projected && !authoredGridAvailable) return fail(table.id, 'Content autofit requires bounded source-joined natural text measurements, unmerged LTR cells and satisfiable min/max widths in one section column')
+      if (projected) { table = projected.table; widthPolicy = projected.policy }
+    }
+    if (table.width_percent_fiftieths !== undefined) {
+      const container = tableContainers.get(table.id)
+      const projected = container ? percentTable(table, container.width, container.sectionID) : undefined
+      // Strict paint has only the exact policy above. The approximate lane has
+      // a second, declared one for exactly this shape: paint the authored
+      // w:tblGrid and record that the percentage was not resolved, which is
+      // what Word itself paints (measured in nativeApproximatePercentTableV1).
+      const authored = !projected && approximate === true && container ? fitNativeDocxApproximatePercentTableV1(table, container.width, container.sectionID) : undefined
+      if (!projected && !authored) return fail(table.id, 'Percentage table width requires one exact section column, matching source grid/cell preferences and integral proportional twip geometry (no content autofit)')
+      if (projected) { table = projected.table; widthPolicy = projected.policy }
+      else if (authored) { table = authored.table; widthPolicy = authored.policy }
+    }
+    // A table states no preferred width when w:tblW is absent or auto. Its
+    // authored w:tblGrid is then the only width the source gives, whether
+    // w:tblLayout says fixed or the cascade default leaves it autofit
+    // (ECMA-376 17.4.53, 17.4.64): a fixed-layout table sizes its columns from
+    // the grid, and its width is their sum. The approximate lane takes that
+    // sum rather than refusing a table whose width the source does state.
+    if (approximate && (table.layout !== 'fixed' || table.width_twips === undefined || table.width_twips === 0)) {
+      const grid = table.grid_widths_twips
+      const sum = grid?.reduce((total, width) => total + width, 0)
+      if (grid?.length && Number.isSafeInteger(sum) && sum! > 0 && (table.width_twips === undefined || table.width_twips === 0)) {
+        const { width_twips: _authoredWidth, ...rest } = table
+        const authored = {
+          ...rest,
+          alignment: table.alignment ?? 'left' as const,
+          indent_twips: table.indent_twips ?? 0,
+          cell_margins: table.cell_margins ?? { top_twips: 0, right_twips: 115, bottom_twips: 0, left_twips: 115 },
+        }
+        // An auto-width table whose authored grid is wider than the text column
+        // is fitted to that column by the declared grid policy rather than
+        // painted at the authored sum: an authored grid is a preference, and a
+        // fixed table wider than its column has no lawful placement, so
+        // pagination would otherwise refuse the whole document over it.
+        const container = tableContainers.get(table.id)
+        const fitted = container ? fitNativeDocxApproximateTableGridV1(authored, container.width, container.sectionID) : undefined
+        if (fitted) { table = fitted.table; widthPolicy = fitted.policy }
+        else table = { ...authored, layout: 'fixed', width_twips: sum }
+      }
+    }
+    // A table that states an explicit fixed dxa width still states nothing
+    // about w:jc, w:tblInd or w:tblCellMar unless the source writes them, and
+    // ECMA-376 17.4 gives each of the three a cascade default: no w:jc is left
+    // alignment (17.4.29), no w:tblInd is a zero indent (17.4.51), and no
+    // w:tblCellMar anywhere in the style chain is Word's own default cell
+    // margin. Refusing over their absence is an over-refusal, not a missing
+    // measurement: the two approximate policies directly above already default
+    // exactly these three for an auto-width table, and #377's percentage policy
+    // does the same, so a stated width was the one shape whose silence still
+    // discarded the whole document body. The same three defaults are applied
+    // here, and they are visible in the hashed paint projection, which records
+    // the painted alignment, indent and cell margins per table.
+    //
+    // The v1 extractor models only w:jc="left", so a table that states a
+    // non-left alignment reaches this point indistinguishable from one that
+    // states none, and is painted left-aligned. That is a declared
+    // approximation of this read-only lane, on the same terms as the policies
+    // above; strict paint never takes this branch and keeps the refusal below.
+    if (approximate === true && table.layout === 'fixed' && table.width_twips !== undefined && table.width_twips > 0) {
+      table = {
+        ...table,
+        alignment: table.alignment ?? 'left' as const,
+        indent_twips: table.indent_twips ?? 0,
+        cell_margins: table.cell_margins ?? { top_twips: 0, right_twips: 115, bottom_twips: 0, left_twips: 115 },
+      }
+    }
+    if (table.layout !== 'fixed' || table.alignment !== 'left' || table.indent_twips === undefined || table.width_twips === undefined || !table.cell_margins) return fail(table.id, 'Table requires explicit fixed dxa width, left alignment, indent, and all four cell margins')
+    const grid = table.grid_widths_twips
+    if (!grid || grid.length === 0 || grid.length > DOCX_TABLE_PAGE_PAINT_LIMITS.maxGridColumns || grid.some((width) => !Number.isSafeInteger(width) || width <= 0 || width > MAX_SAFE_TWIPS)) return fail(table.id, 'Table requires a bounded non-empty positive tblGrid')
+    const gridSum = grid.reduce((sum, width) => sum + width, 0)
+    if (!Number.isSafeInteger(gridSum) || gridSum !== table.width_twips) return fail(table.id, 'Table width must exactly equal the sum of fixed grid columns')
+    if (!bordersValid(table.borders)) return fail(table.id, 'Table border style, width, or RGB color is outside the bounded subset')
+    const gridMP = grid.map((width) => twips(width)!)
+    const tableWidth = twips(table.width_twips)
+    const tableX = twips(table.indent_twips)
+    const leftMargin = twips(table.cell_margins.left_twips)
+    const rightMargin = twips(table.cell_margins.right_twips)
+    if (tableWidth === undefined || tableX === undefined || checked(tableX, tableWidth) === undefined || leftMargin === undefined || rightMargin === undefined) return fail(table.id, 'Table geometry exceeds bounded integer milli-points')
+    if (table.rows.length === 0) return fail(table.id, 'Empty tables are outside the bounded page-paint subset')
+    const qualifiedRows: NativeDocxQualifiedTableRowV1[] = []
+    rows += table.rows.length
+    if (rows > DOCX_TABLE_PAGE_PAINT_LIMITS.maxRows) return { status: 'refused', tables: [], paragraph_widths: new Map(), diagnostics: [{ code: 'table-resource-limit', scope_id: table.id, message: `Rows exceed ${DOCX_TABLE_PAGE_PAINT_LIMITS.maxRows}` }] }
+    const openMerge: Array<{ cellID: string; span: number } | undefined> = Array.from({ length: grid.length })
+    // A cell's fill is its own w:shd, else what the conditional table-style
+    // cascade resolved for it, else the style's whole-table fill.
+    const conditionalShading = new Map((resolvedTable.conditional_cell_shading ?? []).map((entry) => [entry.cell_id, entry.shading_rgb]))
+    let bodyStarted = false
+    const repeating = table.rows.some((row) => row.repeat_header)
+    const splitting = table.rows.some((row) => row.cant_split !== true)
+    if (splitting && document.notes.length > 0 && !approximate) return fail(table.id, 'Split table rows with footnote/endnote reservation require a separate layout contract')
+    for (const [rowOrdinal, row] of table.rows.entries()) {
+      if (row.repeat_header && bodyStarted) return fail(row.id, 'Repeated headers must be a contiguous leading row prefix')
+      if (!row.repeat_header) bodyStarted = true
+      if ((repeating || splitting) && row.cells.some((cell) => cell.vertical_merge !== 'none')) return fail(row.id, 'Vertical merges with repeated headers or split rows require a separate pagination contract')
+      if (row.repeat_header && row.cant_split !== true) return fail(row.id, 'Repeated header rows must explicitly prohibit splitting')
+      if (row.cant_split !== true && (row.height_twips !== undefined || row.height_rule !== undefined)) return fail(row.id, 'Split rows currently require natural height without exact or minimum row-height overrides')
+      if ((row.height_twips === undefined) !== (row.height_rule === undefined)) return fail(row.id, 'Row height requires both height_twips and height_rule')
+      if (row.height_twips !== undefined && (row.height_rule !== 'atLeast' && row.height_rule !== 'exact' || !Number.isSafeInteger(row.height_twips) || row.height_twips < 0 || row.height_twips > MAX_SAFE_TWIPS)) return fail(row.id, 'Row height rule is outside the exact atLeast/exact subset')
+      cells += row.cells.length
+      if (cells > DOCX_TABLE_PAGE_PAINT_LIMITS.maxCells) return { status: 'refused', tables: [], paragraph_widths: new Map(), diagnostics: [{ code: 'table-resource-limit', scope_id: table.id, message: `Cells exceed ${DOCX_TABLE_PAGE_PAINT_LIMITS.maxCells}` }] }
+      let x = tableX
+      let column = 0
+      const qualifiedCells: NativeDocxQualifiedTableCellV1[] = []
+      const consumed = new Array<boolean>(grid.length).fill(false)
+      for (const cell of row.cells) {
+        const span = cell.grid_span
+        if (!Number.isSafeInteger(span) || span < 1 || column + span > grid.length) return fail(cell.id, 'Horizontal merge must consume a contiguous in-range tblGrid slice')
+        let widthTwips = 0
+        const widthParts: number[] = []
+        for (let offset = 0; offset < span; offset += 1) {
+          if (consumed[column + offset]) return fail(cell.id, 'Merged cells overlap on the fixed tblGrid')
+          consumed[column + offset] = true
+          widthTwips += grid[column + offset]!
+          widthParts.push(gridMP[column + offset]!)
+        }
+        if (!nativeDocxCellWidthAgreesWithGridV1(cell, widthTwips)) return fail(cell.id, 'Cell width must exactly equal the sum of its fixed grid columns, or state no absolute preference')
+        if (cell.borders) return fail(cell.id, 'Cell border conflict resolution is outside v1; use unambiguous table-level borders')
+        const shading = cell.shading_rgb ?? conditionalShading.get(cell.id) ?? resolvedTable.cell_shading_rgb
+        if (shading !== undefined && !/^[0-9A-F]{6}$/.test(shading)) return fail(cell.id, 'Cell shading must be an explicit RGB clear fill')
+        if (!cellRunsSupported(cell)) return fail(cell.id, 'Cells must contain direct paragraphs with text, tab, or line-break runs only')
+        if (cell.vertical_merge === 'continue' && cellHasVisibleContent(cell)) return fail(cell.id, 'Vertical-merge continue cells cannot carry independent visible content')
+        for (let offset = 0; offset < span; offset += 1) {
+          const open = openMerge[column + offset]
+          if (cell.vertical_merge === 'continue') {
+            if (!open || open.span !== span || (offset > 0 && openMerge[column] !== open)) return fail(cell.id, 'Vertical-merge continue does not exact-join a restart covering the same grid columns')
+          }
+        }
+        if (cell.vertical_merge !== 'continue') {
+          const marker = cell.vertical_merge === 'restart' ? { cellID: cell.id, span } : undefined
+          for (let offset = 0; offset < span; offset += 1) openMerge[column + offset] = marker
+        }
+        const width = span === 1 ? widthParts[0]! : checked(...widthParts)
+        const contentX = checked(x, leftMargin)
+        const contentWidth = width === undefined ? undefined : checked(width, -leftMargin, -rightMargin)
+        if (width === undefined || contentX === undefined || contentWidth === undefined || contentWidth <= 0) return fail(cell.id, 'Cell margins leave a non-positive or unbounded paragraph width')
+        const paintCell = shading === cell.shading_rgb ? cell : { ...cell, shading_rgb: shading }
+        for (const paragraph of cell.paragraphs) {
+          if (!resolvedParagraphs.has(paragraph.id)) return fail(paragraph.id, 'Cell paragraph does not exact-join the resolved layout')
+          if (resolvedParagraphs.get(paragraph.id)?.numbering && !approximate) return fail(paragraph.id, 'Numbering inside tables is refused because list-counter state is not guessed')
+          if (row.cant_split !== true && (resolvedParagraphs.get(paragraph.id)?.properties.keep_next || resolvedParagraphs.get(paragraph.id)?.properties.page_break_before)) return fail(paragraph.id, 'Split rows cannot guess paragraph keep-next chains or forced page breaks')
+          paragraphWidths.set(paragraph.id, contentWidth)
+        }
+        qualifiedCells.push({ cell: paintCell, column_ordinal: column, grid_span: span, vertical_merge: cell.vertical_merge, x_millipoints: x, width_millipoints: width, content_x_millipoints: contentX, content_width_millipoints: contentWidth })
+        const nextX = checked(x, width)
+        if (nextX === undefined) return fail(cell.id, 'Cell geometry exceeds bounded integer milli-points')
+        x = nextX
+        column += span
+      }
+      if (column !== grid.length || consumed.some((value) => !value)) return fail(row.id, 'Every row must consume the exact fixed grid without omitted cells')
+      qualifiedRows.push({ row_id: row.id, row_ordinal: rowOrdinal, cells: qualifiedCells })
+    }
+    tables.push({ ...(widthPolicy ? { width_policy: widthPolicy } : {}), ...(cellBorderPolicy ? { cell_border_policy: cellBorderPolicy } : {}), table, width_millipoints: tableWidth, x_millipoints: tableX, grid_widths_millipoints: gridMP, rows: qualifiedRows })
+  }
+  if (!approximate && resolved.diagnostics.some((diagnostic) => !coveredStyleDiagnostics.has(diagnosticIdentity(diagnostic.code, diagnostic.scope_id, diagnostic.part_name ?? '', diagnostic.path ?? '')) && sourceTables.some((table) => diagnostic.scope_id === table.id || table.rows.some((row) => row.cells.some((cell) => cell.id === diagnostic.scope_id || cell.paragraphs.some((paragraph) => paragraph.id === diagnostic.scope_id || paragraph.runs.some((run) => run.id === diagnostic.scope_id))))))) return fail(document.document_id, 'Resolved-layout diagnostics touch a table or descendant and exact table paint is unavailable')
+  return { status: 'qualified', tables, paragraph_widths: paragraphWidths, sha256: nativeDocxTableProjectionSha256V1(tables) }
+}
+
+function cellContentHeight(cell: NativeDocxQualifiedTableCellV1, paragraphs: Map<string, NativeDocxShapedParagraphV1>): number | undefined {
+  let contentHeight = 0
+  let previousAfter = 0
+  for (const [paragraphIndex, source] of cell.cell.paragraphs.entries()) {
+    const paragraph = paragraphs.get(source.id)
+    if (!paragraph) return undefined
+    const lines = paragraph.lines.reduce((sum, line) => sum + line.line_height_millipoints, 0)
+    const gap = paragraphIndex === 0 ? paragraph.spacing_before_millipoints : Math.max(previousAfter, paragraph.spacing_before_millipoints)
+    contentHeight = checked(contentHeight, gap, lines) ?? -1
+    previousAfter = paragraph.spacing_after_millipoints
+  }
+  contentHeight = checked(contentHeight, previousAfter) ?? -1
+  return contentHeight < 0 ? undefined : contentHeight
+}
+
+function mergeRowSpan(table: NativeDocxQualifiedTableV1, rowIndex: number, cell: NativeDocxQualifiedTableCellV1): number {
+  if (cell.vertical_merge !== 'restart') return 1
+  let span = 1
+  while (rowIndex + span < table.rows.length) {
+    const below = table.rows[rowIndex + span]!.cells.find((candidate) => candidate.column_ordinal === cell.column_ordinal && candidate.grid_span === cell.grid_span && candidate.vertical_merge === 'continue')
+    if (!below) break
+    span += 1
+  }
+  return span
+}
+
+export function nativeDocxTableRowGroupSizeV1(table: NativeDocxQualifiedTableV1, rowIndex: number): number {
+  let span = 1
+  for (const cell of table.rows[rowIndex]?.cells ?? []) span = Math.max(span, mergeRowSpan(table, rowIndex, cell))
+  return span
+}
+
+/** Derives deterministic row/cell boxes before page placement. */
+export function layoutNativeDocxTableRowsV1(table: NativeDocxQualifiedTableV1, shaped: NativeDocxShapedLinesV1): NativeDocxTableRowGeometryV1[] | undefined {
+  const paragraphs = new Map(shaped.paragraphs.map((entry) => [entry.paragraph_id, entry]))
+  const margins = table.table.cell_margins!
+  const top = checked(twips(margins.top_twips)!, table.border_reservation_policy?.above_content_millipoints ?? 0)!
+  const right = twips(margins.right_twips)!
+  const bottom = twips(margins.bottom_twips)!
+  const left = twips(margins.left_twips)!
+  const output: NativeDocxTableRowGeometryV1[] = []
+  for (const row of table.rows) {
+    const sourceRow = table.table.rows[row.row_ordinal]!
+    const contentHeights: number[] = []
+    const owners = row.cells.filter((cell) => cell.vertical_merge !== 'continue')
+    const heightSource = owners.length > 0 ? owners : row.cells
+    let rowHeight = 0
+    for (const cell of row.cells) {
+      const contentHeight = cellContentHeight(cell, paragraphs)
+      if (contentHeight === undefined) return undefined
+      contentHeights.push(contentHeight)
+    }
+    for (const cell of heightSource) {
+      const contentHeight = contentHeights[row.cells.indexOf(cell)]!
+      rowHeight = Math.max(rowHeight, checked(top, contentHeight, bottom) ?? Number.MAX_SAFE_INTEGER)
+    }
+    if (sourceRow.height_rule === 'atLeast' && sourceRow.height_twips !== undefined) {
+      const minimum = twips(sourceRow.height_twips)
+      if (minimum === undefined) return undefined
+      rowHeight = Math.max(rowHeight, minimum)
+    } else if (sourceRow.height_rule === 'exact' && sourceRow.height_twips !== undefined) {
+      const exactHeight = twips(sourceRow.height_twips)
+      if (exactHeight === undefined || exactHeight <= 0) return undefined
+      if (rowHeight > exactHeight) return undefined
+      rowHeight = exactHeight
+    }
+    if (!Number.isSafeInteger(rowHeight) || rowHeight <= 0 || rowHeight > DOCX_TABLE_PAGE_PAINT_LIMITS.maxCoordinateMilliPoints) return undefined
+    output.push({
+      row_id: row.row_id,
+      row_ordinal: row.row_ordinal,
+      height_millipoints: rowHeight,
+      cells: row.cells.map((cell, index) => ({
+        cell_id: cell.cell.id, column_ordinal: cell.column_ordinal, grid_span: cell.grid_span, row_span: 1, vertical_merge: cell.vertical_merge,
+        x_millipoints: cell.x_millipoints, y_millipoints: 0,
+        width_millipoints: cell.width_millipoints, height_millipoints: rowHeight,
+        content_x_millipoints: checked(cell.x_millipoints, left)!, content_y_millipoints: top,
+        content_width_millipoints: checked(cell.width_millipoints, -left, -right)!,
+        content_height_millipoints: contentHeights[index]!,
+        ...(cell.cell.shading_rgb ? { shading_rgb: cell.cell.shading_rgb } : {}),
+      })),
+    })
+  }
+  for (const [rowIndex, row] of table.rows.entries()) {
+    for (const [cellIndex, cell] of row.cells.entries()) {
+      if (cell.vertical_merge !== 'restart') continue
+      const span = mergeRowSpan(table, rowIndex, cell)
+      let height = 0
+      for (let offset = 0; offset < span; offset += 1) height = checked(height, output[rowIndex + offset]!.height_millipoints) ?? -1
+      if (height < 0) return undefined
+      const contentBox = checked(height, -top, -bottom)
+      if (contentBox === undefined || output[rowIndex]!.cells[cellIndex]!.content_height_millipoints > contentBox) return undefined
+      output[rowIndex]!.cells[cellIndex]!.row_span = span
+      output[rowIndex]!.cells[cellIndex]!.height_millipoints = height
+    }
+  }
+  return output
+}

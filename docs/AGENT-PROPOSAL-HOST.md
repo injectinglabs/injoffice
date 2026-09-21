@@ -1,0 +1,147 @@
+# Guided mock demo and standalone proposal host
+
+## Guided mock agent: no model or setup
+
+Choose one of the overview's four task starters, then use the guided controls
+to prepare an edit. The demo is labelled **Simulated agent · real document operations**.
+It has no live-provider or local-rule mode selector. Task choices produce bounded
+requests to the mock; examples of its internal request grammar are:
+
+- Sheets: `Mark Mobile as On track` changes one disclosed status cell.
+- Docs: `Replace "Northstar Launch Brief" with "Northstar Beta Launch Brief"` replaces one source-anchored run.
+- Slides: `Replace "Northstar launch review" with "Northstar: ready for launch"` replaces one exact native text element.
+- PDF: `Rotate page 2 by 90 degrees` rotates one disclosed page.
+
+Unknown, ambiguous, and unsupported requests
+are refused rather than guessed. This is a deterministic simulation, not model
+reasoning or an autonomous agent.
+
+The development server includes `POST /api/agent/mock-propose`, accepting
+`{ request, context, capabilities }` and returning `{ operations }`. The route
+retains the local Host/Origin, JSON, size, deadline, and concurrency guards.
+It never calls a provider, uses a token, or grants approval. No environment
+variables or additional server process are needed. Static builds simulate the
+endpoint response entirely in the browser using the same generator, so they work
+without a backend too. There is no automatic fallback to the live endpoint.
+
+The primary UI leads with task controls, **Run agent**, a real before/after review,
+separate human approval, and verified download. Collapsed **Technical details**
+disclose the mock transport and show the proposal request/response alongside
+actual tool calls. The nested **Try the safety boundaries** section is also
+collapsed until requested.
+The resulting proposal passes through the same strict target/revision validation,
+real-file preview, separate human approval, commit, and readback verification
+required of any proposal source. Configuring provider environment variables does
+not make this UI call a provider; no LLM, API key, or external AI service is used.
+Task links never apply or approve a change. These examples demonstrate bundled
+files and specific operations, not unrestricted reasoning or arbitrary uploads.
+
+## Standalone integrator example: local proposal bridge
+
+The repository also retains an **optional proposal-only integration point** for
+developers building their own host. It is separate from the guided demo UI, not
+a bundled model provider or autonomous editing service. You supply a trusted
+endpoint implementing the contract below and your own explicit integration.
+There is no default provider, model, or endpoint. Merely configuring the bridge
+does not trigger an upstream request.
+
+For a standalone integration, configure this **server-only** environment variable
+before starting the API-only host (Node 22.18+):
+
+```sh
+INJOFFICE_AGENT_PROPOSAL_URL=https://your-trusted-host.example/propose node scripts/agent-proposal-host.mjs
+```
+
+Optionally set `INJOFFICE_AGENT_PROPOSAL_TOKEN` securely in the host environment; the
+bridge sends it as a Bearer token only to the configured endpoint. Never use a
+`VITE_` prefix, put a token in browser code, or commit credentials. Use localhost
+HTTP only for a local endpoint; remote endpoints must use HTTPS. Endpoint redirects
+and URL credentials are rejected.
+
+## Endpoint contract
+
+Your endpoint receives a POST with JSON:
+
+```json
+{
+  "request": "Mark the launch ready",
+  "context": { "identity": {}, "workbook": {} },
+  "capabilities": []
+}
+```
+
+The actual context should contain only the bounded inspection selected by the host,
+not full Office file bytes. Treat workbook text as untrusted data, not instructions.
+Your provider adapter is responsible for calling its chosen model and translating
+its output to this provider-neutral response:
+
+```json
+{
+  "operations": [
+    { "name": "xlsx.cell.set_value", "input": { "sheetId": "sheet-id-from-inspection", "cell": { "row": 4, "column": 2 }, "value": "Ready" }, "operationId": "proposal-1" }
+  ]
+}
+```
+
+Operation inputs must follow the advertised Office capabilities; use the actual
+sheet ID from inspection and zero-based cell coordinates. The response
+must be JSON, contain one to eight operations, and fit within 32 KiB. The Sheets
+demo applies a tighter limit: exactly one status-cell edit to a disclosed target,
+using one of the disclosed allowed values. Docs accepts one disclosed text run
+with its expected text; Slides accepts one exact element tied to the inspected
+source revision and fingerprint. PDF accepts one disclosed page
+rotation. Non-XLSX mock contexts specify `context.format` for dispatch. The relay
+validates the envelope, **not the operation's authority or semantic correctness**.
+It strips extra top-level and operation metadata. Local planning/validation still
+has to reject unsupported or unsafe edits.
+
+Your browser integration must obtain explicit consent before the request and
+inspected context leave the local host. Consent to share data is **not approval to edit a file**. The proposal
+endpoint cannot grant approval, commit a change, or invoke Office tools. A trusted
+host must bind any actual write approval to the exact reviewed change set; never
+accept a model-supplied approval string as authorization.
+
+## Routes and limits
+
+- `GET /api/agent/proposal-status`: configuration flag and safe destination hostname;
+  never contacts the endpoint and never returns credentials, URL paths, or queries.
+- `POST /api/agent/propose`: browser sends the contract plus `consent: true`.
+  Requires exact same-origin HTTP loopback Host/Origin and JSON content type.
+- Maximum incoming payload: 48 KiB; request text: 2,000 characters; capabilities:
+  64 entries; one in-flight request per handler; total deadline: 15 seconds.
+- Cancellation/disconnection aborts the upstream request. Errors are generic and
+  do not return upstream response bodies, tokens, or internal diagnostics.
+
+Static deployments do not contain this Node bridge, and the guided demo never
+uses it for live proposals in any deployment. The local relay intentionally has no permissive CORS and must
+not be exposed as a public unauthenticated model proxy. Production hosts need
+authentication, authorization, cost/rate controls, audit policy, and their own
+approved data-sharing policy. These safeguards do not make arbitrary endpoints or
+model responses trustworthy.
+
+## Standalone runnable host
+
+For integration testing without Vite, Node 22.18+ can run the same handler:
+
+```sh
+INJOFFICE_AGENT_PROPOSAL_URL=https://your-trusted-host.example/propose node scripts/agent-proposal-host.mjs
+```
+
+This starts an API-only server on `127.0.0.1:3102`; override with
+`INJOFFICE_AGENT_HOST_PORT`. No UI or model is included. A status check does not
+call a model:
+
+```sh
+curl http://127.0.0.1:3102/api/agent/proposal-status
+```
+
+Browser integrations must serve their own UI and relay at the same origin (for example,
+mount this handler in the UI server). Pointing a cross-origin browser directly at
+port 3102 is deliberately rejected. Vite also mounts the handler for integration
+testing, but the shipped guided demo calls only the mock proposal route.
+
+Development browser smoke configures an isolated loopback upstream stub and
+asserts that the guided workflow sends it zero requests, including after real
+file approval and download. Standalone handler tests cover explicit consent,
+envelope limits, cancellation, and credential handling separately. No test needs
+a real model or provider.

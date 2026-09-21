@@ -1,0 +1,424 @@
+package officehttp
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/injectinglabs/injoffice/go/docxpatch"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestDOCXPreviewDisabledAndReadOnly(t *testing.T) {
+	handler := NewHandler(nil)
+	for _, test := range []struct {
+		method string
+		status int
+	}{{http.MethodGet, 405}, {http.MethodPost, 503}} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(test.method, DOCXPreviewPath, bytes.NewReader([]byte("invalid"))))
+		if response.Code != test.status {
+			t.Fatalf("status %d want %d", response.Code, test.status)
+		}
+	}
+}
+
+func TestDOCXApproximatePreviewDisabledAndSharedGate(t *testing.T) {
+	handler := NewHandler(nil)
+	for _, test := range []struct {
+		method string
+		status int
+	}{{http.MethodGet, 405}, {http.MethodPost, 503}} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(test.method, DOCXApproximatePreviewPath, strings.NewReader("invalid")))
+		if response.Code != test.status {
+			t.Fatalf("status %d want %d", response.Code, test.status)
+		}
+	}
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	probe := &previewReadProbe{}
+	response := httptest.NewRecorder()
+	handleDOCXApproximatePreview(response, httptest.NewRequest(http.MethodPost, DOCXApproximatePreviewPath, probe), DOCXPreviewOptions{WorkerPath: "/operator-worker.js"}, gate)
+	if response.Code != http.StatusServiceUnavailable || probe.reads != 0 || len(gate) != 1 {
+		t.Fatal("approximate route bypassed shared busy gate")
+	}
+	<-gate
+	request := httptest.NewRequest(http.MethodPost, DOCXApproximatePreviewPath, strings.NewReader("invalid"))
+	request.Header.Set("Content-Type", DOCXContentType)
+	response = httptest.NewRecorder()
+	handleDOCXApproximatePreview(response, request, DOCXPreviewOptions{WorkerPath: "/operator-worker.js"}, gate)
+	if response.Code != http.StatusUnprocessableEntity || len(gate) != 0 {
+		t.Fatal("approximate route accepted invalid package or leaked gate")
+	}
+}
+
+// This test only proves operation routing and framing, not rendered fidelity.
+func TestDOCXPreviewOperationIsSelectedByRoute(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("Node required")
+	}
+	worker := filepath.Join(t.TempDir(), "route-worker.cjs")
+	code := `const chunks=[];process.stdin.on('data',c=>chunks.push(c));process.stdin.on('end',()=>{const frame=Buffer.concat(chunks);const request=JSON.parse(frame.subarray(4));const data=Buffer.from(JSON.stringify({protocol:request.protocol,version:1,id:request.id,ok:true,result:{operation:request.op}}));const header=Buffer.alloc(4);header.writeUInt32BE(data.length);process.stdout.write(Buffer.concat([header,data]));});`
+	if err := os.WriteFile(worker, []byte(code), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range []string{"render", "render-approximate", "render-auto-borders"} {
+		result, err := compilePreviewWorkerOperation(context.Background(), worker, "injoffice.docx.page-paint-worker", operation, map[string]any{"op": "caller-cannot-override"}, 1024, 1024)
+		if err != nil || string(result) != fmt.Sprintf(`{"operation":%q}`, operation) {
+			t.Fatalf("wrong operation: %s %v", result, err)
+		}
+	}
+}
+
+func TestDOCXAutoBorderWorkerRoutingRetainsLegacySettingsGate(t *testing.T) {
+	eligibility := &docxpatch.NativeDocxApproximationEligibilityV1{Status: "ineligible"}
+	input := map[string]any{"resolved_layout": &docxpatch.NativeResolvedLayoutInputV1{Tables: []docxpatch.NativeResolvedTableV1{{AutomaticBorderPreview: &docxpatch.NativeAutomaticTableBorderPreviewV1{Policy: docxpatch.NativeAutomaticTableBorderPolicyV1}}}}, "pagination_settings": &docxpatch.NativePaginationSettingsV1{Profile: "word-modern-default"}}
+	operation, request := docxApproximateWorkerInput(input, eligibility)
+	if operation != "render-auto-borders" || request["legacy_eligibility"] != nil {
+		t.Fatal("modern border policy unexpectedly reclassified settings")
+	}
+	input["pagination_settings"] = &docxpatch.NativePaginationSettingsV1{Profile: "unsupported"}
+	operation, request = docxApproximateWorkerInput(input, eligibility)
+	if operation != "render-auto-borders" || request["legacy_eligibility"] != eligibility {
+		t.Fatal("ineligible settings must reach unchanged rejecting validator")
+	}
+	input["resolved_layout"] = &docxpatch.NativeResolvedLayoutInputV1{}
+	operation, request = docxApproximateWorkerInput(input, eligibility)
+	if operation != "render-approximate" || request["eligibility"] != eligibility {
+		t.Fatal("existing legacy path changed")
+	}
+}
+
+func TestDOCXPreviewInputRejectsInvalidPackage(t *testing.T) {
+	if _, err := docxPreviewInput(context.Background(), []byte("not a zip")); err == nil {
+		t.Fatal("accepted malformed package")
+	}
+}
+
+type previewReadProbe struct{ reads int }
+
+func (probe *previewReadProbe) Read([]byte) (int, error) {
+	probe.reads++
+	return 0, io.EOF
+}
+
+func TestDOCXPreviewBusyDoesNotReadRequestAndFailureReleasesGate(t *testing.T) {
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	probe := &previewReadProbe{}
+	response := httptest.NewRecorder()
+	options := DOCXPreviewOptions{WorkerPath: "/operator-configured-worker.js"}
+	handleDOCXPreview(response, httptest.NewRequest(http.MethodPost, DOCXPreviewPath, probe), options, gate)
+	if response.Code != http.StatusServiceUnavailable || probe.reads != 0 || len(gate) != 1 {
+		t.Fatalf("busy request consumed input or slot: status=%d reads=%d slots=%d", response.Code, probe.reads, len(gate))
+	}
+	<-gate
+	for attempt := 0; attempt < 2; attempt++ {
+		response = httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, DOCXPreviewPath, strings.NewReader("not a DOCX"))
+		request.Header.Set("Content-Type", DOCXContentType)
+		handleDOCXPreview(response, request, options, gate)
+		if response.Code != http.StatusUnprocessableEntity || len(gate) != 0 {
+			t.Fatalf("invalid document did not release slot: status=%d slots=%d", response.Code, len(gate))
+		}
+	}
+}
+
+func TestDOCXPreviewOversizeAndCancellation(t *testing.T) {
+	tooLarge := make([]byte, 8*1024*1024+1)
+	if _, err := docxPreviewInput(context.Background(), tooLarge); err == nil || !strings.Contains(err.Error(), "8 MiB") {
+		t.Fatalf("oversize input was not refused before extraction: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := docxPreviewInput(ctx, []byte("invalid")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled input was parsed instead of refused: %v", err)
+	}
+	gate := make(chan struct{}, 1)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, DOCXPreviewPath, bytes.NewReader(tooLarge))
+	request.Header.Set("Content-Type", DOCXContentType)
+	handleDOCXPreview(response, request, DOCXPreviewOptions{WorkerPath: "/operator-configured-worker.js"}, gate)
+	if response.Code != http.StatusRequestEntityTooLarge || len(gate) != 0 {
+		t.Fatalf("oversize HTTP request did not release slot: status=%d slots=%d", response.Code, len(gate))
+	}
+}
+
+// Workers here deliberately exercise only framing/lifecycle failures. They do
+// not produce document paint or replace the separate real-compiler test.
+func previewFixtureWorker(t *testing.T, javascript string) DOCXPreviewOptions {
+	t.Helper()
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("Node is required for preview subprocess lifecycle tests")
+	}
+	path := filepath.Join(t.TempDir(), "worker.cjs")
+	if err := os.WriteFile(path, []byte("process.stdin.resume(); process.stdin.on('end', () => {"+javascript+"});"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return DOCXPreviewOptions{WorkerPath: path}
+}
+
+func TestDOCXPreviewWorkerRejectsMalformedFramesAndEnvelopes(t *testing.T) {
+	for _, test := range []struct{ name, code, errorText string }{
+		{"empty", "", "invalid frame"},
+		{"short-header", "process.stdout.write(Buffer.from([0,0,0]));", "invalid frame"},
+		{"truncated-payload", "process.stdout.write(Buffer.from([0,0,0,10,123]));", "invalid frame"},
+		{"trailing-frame", "process.stdout.write(Buffer.from([0,0,0,0,0]));", "invalid frame"},
+		{"invalid-json", `const data=Buffer.from('{'); const header=Buffer.alloc(4); header.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([header,data]));`, "invalid envelope"},
+		{"wrong-identity", `const data=Buffer.from(JSON.stringify({protocol:'injoffice.docx.page-paint-worker',version:1,id:'other-request',ok:true,result:{}})); const header=Buffer.alloc(4); header.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([header,data]));`, "invalid envelope"},
+		{"nonzero-exit", "process.exitCode=1;", "invalid frame"},
+		{"worker-refusal", `const data=Buffer.from(JSON.stringify({protocol:'injoffice.docx.page-paint-worker',version:1,id:'preview',ok:false,error:{message:'qualified fixture refusal'}})); const header=Buffer.alloc(4); header.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([header,data]));`, "qualified fixture refusal"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := compileDOCXPreview(context.Background(), previewFixtureWorker(t, test.code), map[string]any{})
+			if err == nil || !strings.Contains(err.Error(), test.errorText) || result != nil {
+				t.Fatalf("bad worker output accepted: result=%s error=%v", result, err)
+			}
+		})
+	}
+}
+
+// A refusal the compiler named travels as a typed record, so the 422 body
+// states the cause and the scope it is about instead of only an English
+// sentence. An untyped compilation refusal keeps the body it always had.
+func TestDOCXPreviewSurfacesTypedRefusalRecord(t *testing.T) {
+	frame := func(payload string) string {
+		return `const data=Buffer.from(JSON.stringify(` + payload + `)); const header=Buffer.alloc(4); header.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([header,data]));`
+	}
+	typed := frame(`{protocol:'injoffice.docx.page-paint-worker',version:1,id:'preview',ok:false,error:{code:'SECTION_SHAPING_WIDTHS_UNSUPPORTED',scope_id:'section:2',message:'sections disagree on the shaping width'}}`)
+	_, err := compileDOCXPreview(context.Background(), previewFixtureWorker(t, typed), map[string]any{})
+	var refusal *docxPreviewRefusal
+	if !errors.As(err, &refusal) || refusal.Code != "SECTION_SHAPING_WIDTHS_UNSUPPORTED" || refusal.ScopeID != "section:2" || refusal.Message != "sections disagree on the shaping width" {
+		t.Fatalf("typed worker refusal did not reach the handler: %v", err)
+	}
+	recorder := httptest.NewRecorder()
+	writeDOCXPreviewError(recorder, err)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	var body struct {
+		Error   string `json:"error"`
+		Refusal struct {
+			Protocol string `json:"protocol"`
+			Version  int    `json:"version"`
+			Code     string `json:"code"`
+			ScopeID  string `json:"scope_id"`
+			Message  string `json:"message"`
+		} `json:"refusal"`
+	}
+	if jsonErr := json.Unmarshal(recorder.Body.Bytes(), &body); jsonErr != nil {
+		t.Fatal(jsonErr)
+	}
+	if body.Error != "sections disagree on the shaping width" || body.Refusal.Protocol != "injoffice.docx.preview-refusal" || body.Refusal.Version != 1 || body.Refusal.Code != "SECTION_SHAPING_WIDTHS_UNSUPPORTED" || body.Refusal.ScopeID != "section:2" || body.Refusal.Message != body.Error {
+		t.Fatalf("typed refusal body = %s", recorder.Body.String())
+	}
+
+	untyped := frame(`{protocol:'injoffice.docx.page-paint-worker',version:1,id:'preview',ok:false,error:{code:'COMPILATION_REFUSED',message:'qualified fixture refusal'}}`)
+	_, plainErr := compileDOCXPreview(context.Background(), previewFixtureWorker(t, untyped), map[string]any{})
+	if plainErr == nil || errors.As(plainErr, &refusal) || plainErr.Error() != "qualified fixture refusal" {
+		t.Fatalf("an untyped compilation refusal must stay untyped: %v", plainErr)
+	}
+	plain := httptest.NewRecorder()
+	writeDOCXPreviewError(plain, plainErr)
+	if plain.Code != http.StatusUnprocessableEntity || strings.Contains(plain.Body.String(), `"refusal"`) || !strings.Contains(plain.Body.String(), "qualified fixture refusal") {
+		t.Fatalf("untyped refusal body = %s", plain.Body.String())
+	}
+}
+
+func TestDOCXPreviewWorkerParentDeadlineStopsOpenPipe(t *testing.T) {
+	worker := previewFixtureWorker(t, "setInterval(() => {}, 1000);")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	started := time.Now()
+	result, err := compileDOCXPreview(ctx, worker, map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "time budget") || result != nil || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf("hung worker did not honor parent deadline: result=%s error=%v context=%v", result, err, ctx.Err())
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("worker stdout read outlived parent deadline: %s", elapsed)
+	}
+}
+
+// Opt-in integration test uses the real built compiler, never fabricated paths.
+func TestDOCXPreviewRealWorker(t *testing.T) {
+	worker := os.Getenv("INJOFFICE_TEST_DOCX_PREVIEW_WORKER")
+	fixture := os.Getenv("INJOFFICE_TEST_DOCX_PREVIEW_FIXTURE")
+	if worker == "" || fixture == "" {
+		t.Skip("set worker and qualified fixture paths to exercise real native compilation")
+	}
+	data, err := os.ReadFile(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("embedded", func(t *testing.T) { assertDOCXPreviewPainted(t, data, DOCXPreviewOptions{WorkerPath: worker}) })
+	fontPath := os.Getenv("INJOFFICE_TEST_DOCX_HOST_FONT")
+	if fontPath == "" {
+		return
+	}
+	t.Run("host", func(t *testing.T) {
+		font, err := os.ReadFile(fontPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest, err := json.Marshal(map[string]any{"version": 1, "faces": []any{map[string]any{"family": "DejaVu Sans", "weight": 400, "style": "normal", "path": fontPath, "sha256": fmt.Sprintf("sha256:%x", sha256.Sum256(font))}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifestPath := filepath.Join(t.TempDir(), "fonts.json")
+		if err := os.WriteFile(manifestPath, manifest, 0600); err != nil {
+			t.Fatal(err)
+		}
+		archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		writer := zip.NewWriter(&out)
+		for _, part := range archive.File {
+			if strings.HasPrefix(part.Name, "word/fonts/") || part.Name == "word/_rels/fontTable.xml.rels" {
+				continue
+			}
+			reader, err := part.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			content, err := io.ReadAll(reader)
+			reader.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if part.Name == "word/fontTable.xml" {
+				content = []byte(`<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="DejaVu Sans"/></w:fonts>`)
+			}
+			if part.Name == "[Content_Types].xml" {
+				content = bytes.ReplaceAll(content, []byte(`<Override PartName="/word/fonts/regular.odttf" ContentType="application/vnd.openxmlformats-officedocument.obfuscatedFont"/>`), nil)
+			}
+			entry, err := writer.Create(part.Name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := entry.Write(content); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		assertDOCXPreviewPainted(t, out.Bytes(), DOCXPreviewOptions{WorkerPath: worker, FontManifestPath: manifestPath})
+	})
+}
+
+func TestApproximateHostFontSizePolicyRequiresEligibleAbsence(t *testing.T) {
+	// The declared host size is selected by the proven source shape, because
+	// Microsoft Word 16.112 lays the two shapes out at different sizes: 12 pt
+	// for a package carrying no w:docDefaults record, 10 pt for one whose
+	// record states no w:sz. An unproven shape declares no policy at all.
+	for _, shape := range []struct {
+		name       string
+		halfPoints int
+	}{
+		{docxpatch.NativeDocxAbsentDocumentDefaultsV1, 24},
+		{docxpatch.NativeDocxSizelessDocumentDefaultsV1, 20},
+		{"", 0},
+	} {
+		for _, status := range []string{"eligible", "ineligible"} {
+			eligibility := &docxpatch.NativeDocxApproximationEligibilityV1{Status: status, AbsentFontSizes: []docxpatch.NativeDocxAbsentFontSizeV1{{ScopeKind: "paragraph-mark", ScopeID: "paragraph:one"}}, AbsentFontSizeShape: shape.name}
+			operation, input := docxApproximateWorkerInput(map[string]any{}, eligibility)
+			if operation != "render-approximate" {
+				t.Fatal(operation)
+			}
+			policy, exists := input["font_size_policy"]
+			if exists != (status == "eligible" && shape.name != "") {
+				t.Fatalf("unqualified host policy: %s %s %#v", shape.name, status, input)
+			}
+			if exists {
+				value := policy.(map[string]any)
+				if value["kind"] != "host-default-size-v1" || value["half_points"] != shape.halfPoints {
+					t.Fatalf("%s: %#v", shape.name, value)
+				}
+			}
+		}
+	}
+}
+
+func assertDOCXPreviewPainted(t *testing.T, data []byte, options DOCXPreviewOptions) {
+	t.Helper()
+	handler := NewHandlerWithDOCXPreview(nil, options)
+	request := httptest.NewRequest(http.MethodPost, DOCXPreviewPath, bytes.NewReader(data))
+	request.Header.Set("Content-Type", DOCXContentType)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != 200 || !bytes.Contains(result["page_paint_output"], []byte(`"status":"painted"`)) {
+		var request struct {
+			PaginationRequest struct {
+				Document struct {
+					UnsupportedCapabilities any `json:"unsupported_capabilities"`
+				} `json:"document"`
+			} `json:"pagination_request"`
+			PaginatedLayout struct {
+				Diagnostics any `json:"diagnostics"`
+			} `json:"paginated_layout"`
+		}
+		_ = json.Unmarshal(result["page_paint_request"], &request)
+		var output struct {
+			Diagnostics any `json:"diagnostics"`
+		}
+		_ = json.Unmarshal(result["page_paint_output"], &output)
+		t.Fatalf("native preview status=%d errors=%s diagnostics=%+v paint=%+v", response.Code, result["error"], request.PaginatedLayout.Diagnostics, output.Diagnostics)
+	}
+	var output struct {
+		Provenance struct {
+			PackageSHA256 string `json:"package_sha256"`
+		} `json:"provenance"`
+		Pages []struct {
+			GlyphOutlines []struct {
+				Path []any `json:"path"`
+			} `json:"glyph_outlines"`
+			Commands []struct {
+				Kind         string `json:"kind"`
+				OutlineIndex int    `json:"outline_index"`
+			} `json:"commands"`
+		} `json:"pages"`
+	}
+	if err := json.Unmarshal(result["page_paint_output"], &output); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Pages) != 2 {
+		t.Fatalf("native pages=%d want 2", len(output.Pages))
+	}
+	if output.Provenance.PackageSHA256 != fmt.Sprintf("sha256:%x", sha256.Sum256(data)) {
+		t.Fatal("paint does not bind exact input bytes")
+	}
+	for _, page := range output.Pages {
+		glyphs := 0
+		for _, command := range page.Commands {
+			if command.Kind != "fill_glyph_path" || command.OutlineIndex >= len(page.GlyphOutlines) {
+				continue
+			}
+			// Contours are shared per page; a glyph paints ink when the outline it
+			// references does.
+			if len(page.GlyphOutlines[command.OutlineIndex].Path) > 0 {
+				glyphs++
+			}
+		}
+		if glyphs == 0 {
+			t.Fatal("native page has no real glyph contours")
+		}
+	}
+}

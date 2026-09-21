@@ -1,0 +1,163 @@
+package xlsxpatch
+
+import "strings"
+
+// NativeSheetPrintAreaSetV1 is an ordered, read-only saved print-area projection.
+// It grants no mutation authority. Rectangles are inclusive and zero-based.
+type NativeSheetPrintAreaSetV1 struct {
+	SheetID   string                  `json:"sheet_id"`
+	SheetPart string                  `json:"sheet_part"`
+	Status    string                  `json:"status"`
+	Warnings  []string                `json:"warnings"`
+	Areas     []NativePrintAreaRectV1 `json:"areas,omitempty"`
+}
+
+func previewNativePrintAreaSets(raw []byte, sheets []NativeWorkbookSheetV2, extras ...*nativePrintCountaSourceContext) []NativeSheetPrintAreaSetV1 {
+	var countaSource *nativePrintCountaSourceContext
+	if len(extras) == 1 {
+		countaSource = extras[0]
+	}
+	count := len(sheets)
+	if count > 64 {
+		count = 64
+	}
+	result := make([]NativeSheetPrintAreaSetV1, count)
+	names, titles, valid := collectNativePrintNames(raw, sheets)
+	for i, sheet := range sheets[:count] {
+		result[i] = NativeSheetPrintAreaSetV1{SheetID: sheet.ID, SheetPart: sheet.PartName, Status: "unavailable", Warnings: []string{"Saved print areas unavailable: requires one worksheet-local name containing 1 to 16 non-overlapping absolute same-sheet rectangles or bounded OFFSET components, with at most four qualified saved-cell or finite saved-literal COUNTA argument occurrences, and supported saved print titles, if present."}}
+		defs := names[sheet.Order]
+		if !valid || len(defs) != 1 || !validNativePrintName(defs[0]) {
+			continue
+		}
+		if ts := titles[sheet.Order]; len(ts) > 0 {
+			if len(ts) != 1 || !validNativePrintName(ts[0]) {
+				continue
+			}
+			rows, columns := parseNativePrintTitles(ts[0].text, sheet.Name)
+			if rows == nil && columns == nil {
+				continue
+			}
+		}
+		areas := parseNativePrintAreaSet(defs[0].text, sheet.Name)
+		offset := parseNativePrintOffset(defs[0].text, sheet.Name)
+		var sourceArguments []string
+		if offset == nil {
+			offset, sourceArguments = parseNativePrintSourceCellOffset(defs[0].text, sheet)
+		}
+		if offset != nil {
+			areas = []NativePrintAreaRectV1{*offset}
+		}
+		formulaUnion := false
+		if areas == nil {
+			areas, sourceArguments = parseNativePrintFormulaUnion(defs[0].text, sheet)
+			formulaUnion = areas != nil
+		}
+		countaFormula := false
+		if areas == nil && countaSource != nil {
+			areas, sourceArguments = parseNativePrintCountaAreas(defs[0].text, &sheets[i], countaSource)
+			countaFormula = areas != nil
+		}
+		if areas == nil {
+			continue
+		}
+		result[i].Status, result[i].Areas = "available", areas
+		result[i].Warnings = []string{"Read-only saved print-area rectangles in source order. Each area starts a separate approximate preview sequence; no formula evaluation, printer fidelity or mutation authority. Saved print titles require explicit preview selection."}
+		if offset != nil {
+			result[i].Warnings = []string{"Read-only print area resolved from constant OFFSET arguments; no cell values, caches or other names were evaluated. Page geometry is approximate, not Excel printer calibration. Saved print titles require explicit preview selection.", "Source _xlnm.Print_Area formula: " + defs[0].text}
+			if len(sourceArguments) > 0 {
+				result[i].Warnings[0] = "Read-only print area resolved from OFFSET integer literals and saved numeric source cells. Formula cells, caches and other names are not evaluated. Page geometry is approximate, not Excel printer calibration. Saved print titles require explicit preview selection."
+				result[i].Warnings = append(result[i].Warnings, sourceArguments...)
+			}
+		}
+		if formulaUnion {
+			result[i].Warnings = append([]string{"Read-only print areas resolved from absolute rectangles and bounded OFFSET components in source order. Each area starts a separate approximate preview sequence; no Excel printer calibration. OFFSET inputs are integer literals or saved numeric cells; formula cells, caches and other names are not evaluated. Saved print titles require explicit preview selection.", "Source _xlnm.Print_Area formula: " + defs[0].text}, sourceArguments...)
+		}
+		if countaFormula {
+			result[i].Warnings = append([]string{"Read-only print areas resolved from absolute rectangles and bounded OFFSET inputs, including finite COUNTA ranges of qualified saved literals. Areas remain in source order. Formula cells and caches are not evaluated; page geometry is approximate, not Excel printer calibration. Saved print titles require explicit preview selection.", "Source _xlnm.Print_Area formula: " + defs[0].text}, sourceArguments...)
+		}
+	}
+	return result
+}
+
+func previewNativeDimensionPrintArea(sheetRaw []byte) []NativePrintAreaRectV1 {
+	root, err := parsePreviewXML(sheetRaw)
+	if err != nil || root.name.Local != "worksheet" || !isSpreadsheetMLNamespace(root.name.Space) {
+		return nil
+	}
+	dimension := root.child("dimension")
+	if dimension == nil || len(dimension.children) != 0 || strings.TrimSpace(dimension.text) != "" {
+		return nil
+	}
+	ref := dimension.attr("ref")
+	start, end, ok := strings.Cut(ref, ":")
+	if !ok {
+		end = start
+	}
+	row, column, err := parseCellReference(start)
+	endRow, endColumn, endErr := parseCellReference(end)
+	if err != nil || endErr != nil || row > endRow || column > endColumn || row < 0 || column < 0 {
+		return nil
+	}
+	if cellReference(row, column) != start || cellReference(endRow, endColumn) != end {
+		return nil
+	}
+	// With no _xlnm.Print_Area the printed range is the used range, and Excel's
+	// used range always begins at A1: leading empty rows and columns are printed,
+	// not skipped, so a cell at D6 prints five rows down and three columns across.
+	// Anchoring here keeps the dimension's authored end while refusing to move the
+	// origin onto the first stored cell. Excel 16.112.4 references for TextColor
+	// (dimension D6), tdf117287_comment (C9), sortconditionref (B2:B4),
+	// cond_parent (C6) and conditional_fmt_origin (B1:G5) all paint at the
+	// authored cell position rather than at the top-left of the page body.
+	return []NativePrintAreaRectV1{{Row: 0, Column: 0, EndRow: endRow, EndColumn: endColumn}}
+}
+
+func parseNativePrintAreaSet(text, sheetName string) []NativePrintAreaRectV1 {
+	parts := splitNativePrintUnion(text, 16)
+	if parts == nil {
+		return nil
+	}
+	areas := make([]NativePrintAreaRectV1, 0, len(parts))
+	for _, part := range parts {
+		area := parseNativePrintAreaRect(part, sheetName)
+		if area == nil {
+			return nil
+		}
+		for _, previous := range areas {
+			if area.Row <= previous.EndRow && previous.Row <= area.EndRow && area.Column <= previous.EndColumn && previous.Column <= area.EndColumn {
+				return nil
+			}
+		}
+		areas = append(areas, *area)
+	}
+	return areas
+}
+
+// Commas inside quoted sheet tokens are literals. Parsing each token remains
+// responsible for the closed absolute-reference grammar; no formula is evaluated.
+func splitNativePrintUnion(text string, limit int) []string {
+	if len(text) == 0 || len(text) > 4096 {
+		return nil
+	}
+	parts := []string{}
+	quoted, start := false, 0
+	for i := 0; i < len(text); i++ {
+		if text[i] == '\'' {
+			if quoted && i+1 < len(text) && text[i+1] == '\'' {
+				i++
+				continue
+			}
+			quoted = !quoted
+		} else if text[i] == ',' && !quoted {
+			if i == start || len(parts) >= limit-1 {
+				return nil
+			}
+			parts = append(parts, text[start:i])
+			start = i + 1
+		}
+	}
+	if quoted || start == len(text) {
+		return nil
+	}
+	return append(parts, text[start:])
+}

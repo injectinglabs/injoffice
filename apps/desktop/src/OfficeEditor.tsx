@@ -1,0 +1,659 @@
+import { EditorStatus } from './EditorStatus';
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createDocxWasmClient } from '@injoffice/docx-wasm'
+import type { NativeDocxDocumentV1 } from '../../../packages/docs/src/nativeContract'
+import { buildDocxRunMutation, editableDocxRuns, verifyDocxRoundTrip } from '../../playground/src/docxRoundTrip'
+import DocumentPreview from './DocumentPreview'
+import {loadSourceDocumentImages,type DocumentImageCache} from './document-media'
+import { replaceParagraphLines, insertDocumentImage, insertDocumentPageBreak, canInsertDocumentPageBreak, deleteDocumentImage, replaceDocumentImage, replaceEditableDocumentText, mergeWithPreviousParagraph, insertDocumentTable, changeDocumentTable, changeDocumentTableGrid, type TableGridOperation } from './document-authoring'
+import {canFormatParagraphRange, canFormatRun, paragraphStyleName, runAppearance} from './document-style'
+import {paragraphTextOffset, type DocumentTextRange} from './document-range'
+import {createHiddenApplyScheduler} from './hidden-apply'
+import {engineErrorMessage} from './engine-result'
+import HyperlinkControl from './HyperlinkControl'
+import {DocumentPageSetup, DocumentParagraphLayout} from './document-layout'
+import type {PagePatch} from './document-layout'
+import InsertTableControl from './InsertTableControl'
+import ParagraphToolbar, { type ParagraphPatch } from './ParagraphToolbar'
+import FormattingToolbar, { type FormattingPatch } from './FormattingToolbar'
+import Ribbon, { RibbonButton, visibleRibbonTabs, type RibbonTabSpec } from './Ribbon'
+import SelectionToolbar from './SelectionToolbar'
+import ContextMenu, { activateRunAt, documentContextMenu, useContextMenu } from './ContextMenu'
+import { documentRangeFormattingValues, formattingValues, documentFormatting, documentParagraphFormatting, documentParagraphs, docxSelection, documentTableSelection, paragraphOperations, documentStructure, type ParagraphOperation } from './formatting'
+import {documentStatistics,statisticsWithDraft} from './document-statistics'
+import './ribbon.css'
+import './office-editor.css'
+
+export interface OfficeEditorProps {
+  /** Undo/Redo for the shell's Quick Access Toolbar; `canUndo`/`canRedo` grey the buttons out. */
+  registerHistory?: (commands: { undo(): void; redo(): void; canUndo?: boolean; canRedo?: boolean }) => void
+  registerCommit?: (commit: () => Promise<boolean>) => void
+  initialRecoveryDraft?: unknown
+  onRecoveryDraftChange?: (draft: unknown | null) => void
+  name: string
+  bytes: Uint8Array
+  onInitialLoadError?: (reason: string) => void
+  onChange: (bytes: Uint8Array) => void
+  /** Actual loading/native operation state. Pending text is reported independently via onDraftChange. */
+  onBusyChange?: (busy: boolean) => void
+  onDraftChange?: (dirty: boolean) => void
+  viewOptions?: { zoom: number; navigation: boolean; focus: boolean }
+}
+
+interface TextTarget { key: string; label: string; value: string }
+type Preview = { kind: 'docx'; document: NativeDocxDocumentV1 }
+/**
+ * Preview media is held BESIDE the snapshot (WeakMap in the engine), never as a property of it. The
+ * snapshot is the return value of engine calls that take find/replace text, so static analysis treats
+ * every property read off it as DOM-derived (CodeQL js/xss-through-dom #48-#50). Image URLs must not be
+ * read through that object; they are minted from media bytes and looked up by snapshot identity.
+ */
+type PreviewMedia = { images: Record<string, string>; notice: string }
+const EMPTY_MEDIA: PreviewMedia = Object.freeze({ images: Object.freeze({}), notice: '' })
+type TextRange = DocumentTextRange
+interface Snapshot { bytes: Uint8Array; preview: Preview; targets: TextTarget[]; preferredSelection?:{key:string;range:TextRange} }
+interface LocalEngine {
+  media(snapshot: Snapshot): PreviewMedia
+  hyperlink(snapshot:Snapshot,key:string,url:string|null,range?:DocumentTextRange):Promise<Snapshot>
+  page(snapshot:Snapshot,patch:PagePatch):Promise<Snapshot>
+  replaceImage(snapshot:Snapshot,id:string,bytes:Uint8Array,name:string):Promise<Snapshot>
+  deleteImage(snapshot:Snapshot,id:string):Promise<{snapshot:Snapshot;key:string;text:string}>
+  pageBreak(snapshot:Snapshot,key:string,offset:number):Promise<{snapshot:Snapshot;key:string;text:string}>
+  image(snapshot:Snapshot,key:string,bytes:Uint8Array,name:string):Promise<{snapshot:Snapshot;key:string;text:string}>
+  read(bytes: Uint8Array): Promise<Snapshot>
+  edit(snapshot: Snapshot, key: string, value: string): Promise<Snapshot>
+  replaceAll?(snapshot: Snapshot, search: string, replacement: string): Promise<Snapshot>
+  tableGrid?(snapshot:Snapshot,key:string,operation:TableGridOperation):Promise<{snapshot:Snapshot;key:string;text:string}>
+  tableOperation?(snapshot:Snapshot,key:string,operation:ParagraphOperation):Promise<{snapshot:Snapshot;key:string;text:string}>
+  table?(snapshot: Snapshot, key: string, rows: number, columns: number): Promise<{snapshot: Snapshot; key: string; text: string}>
+  paragraphFormat?(snapshot: Snapshot, key: string, patch: ParagraphPatch): Promise<Snapshot>
+  format?(snapshot: Snapshot, key: string, patch: FormattingPatch, range?:TextRange): Promise<Snapshot>
+  join?(snapshot: Snapshot, key: string, text: string): Promise<{snapshot: Snapshot; key: string; text: string; caret: number} | null>
+  lines?(snapshot: Snapshot, key: string, text: string): Promise<{ snapshot: Snapshot; key: string; text: string }>
+  paragraph?(snapshot: Snapshot, key: string, operation: ParagraphOperation): Promise<Snapshot>
+  terminate(): void
+}
+
+/** Idle pause after which typed text is committed through the engine (Word commits as you type). */
+export const IDLE_COMMIT_MS = 1500
+/** How long a caret-side notice (an edit the engine cannot make here) stays on screen. */
+const NOTICE_MS = 2000
+function operationId() { return `desktop-${crypto.randomUUID()}` }
+function errorMessage(error: unknown) { return engineErrorMessage(error) }
+function captureDraftCaret(text: string) {
+  const fallback = paragraphTextOffset([text.length], 0, text.length) ?? 0
+  const selection = typeof window === 'undefined' ? undefined : window.getSelection?.()
+  if (!selection?.rangeCount) return fallback
+  const range = selection.getRangeAt(0)
+  const start = range.startContainer as { closest?: (selector: string) => Element | null; parentElement?: { closest?: (selector: string) => Element | null } | null }
+  const run = (typeof start.closest === 'function' ? start : start.parentElement)?.closest?.('[data-docx-run]')
+  if (!run || typeof range.cloneRange !== 'function') return fallback
+  try {
+    const prefix = range.cloneRange()
+    prefix.selectNodeContents(run)
+    prefix.setEnd(range.startContainer, range.startOffset)
+    return paragraphTextOffset([text.length], 0, prefix.toString().length) ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+function createEngine(extension: string): LocalEngine {
+  if (extension !== 'docx') throw new Error('Choose a DOCX document.')
+    const client = createDocxWasmClient()
+    const imageCache:DocumentImageCache=new Map()
+    const mediaFor = new WeakMap<Snapshot, PreviewMedia>()
+    const read = async (bytes: Uint8Array): Promise<Snapshot> => {
+      const document = await client.extract(bytes)
+      const media=await loadSourceDocumentImages(bytes,document,imageCache)
+      const value: Snapshot = { bytes, preview: { kind: 'docx', document }, targets: editableDocxRuns(document).map(target => ({ key: target.key, label: target.label, value: target.text })) }
+      mediaFor.set(value, { images: media.images, notice: media.notice })
+      return value
+    }
+    return { read, media(snapshot){ return mediaFor.get(snapshot) ?? EMPTY_MEDIA }, async hyperlink(snapshot,key,url,range){
+      const document=snapshot.preview.document,selection=docxSelection(document,key),run=selection?.run
+      if(!run?.can_edit_hyperlink||!selection)throw new Error('This text segment cannot be linked safely.')
+      const span=range&&range.start_utf16!==range.end_utf16?range:undefined
+      const paragraphRange=span?.paragraph_id===selection.paragraph.id
+      const target=paragraphRange?selection.paragraph:run
+      return read(await client.apply(snapshot.bytes,document,{protocol:'injoffice.office.mutations',version:1,format:'docx',mutation_id:operationId(),expected_revision:document.source.package_sha256,payload:{mutations:[{target_kind:paragraphRange?'paragraph':'run',target_id:target.id,expected_xml_sha256:target.anchor.xml_sha256,operation:'hyperlink.set',hyperlink:{url,...(!paragraphRange&&run.hyperlink?{expected_xml_sha256:run.hyperlink.anchor.xml_sha256}:{})},...(span?{range:{start_utf16:span.start_utf16,end_utf16:span.end_utf16}}:{})}]}}))
+    }, async page(snapshot,patch){
+      const document=snapshot.preview.document,section=document.sections[0]
+      if(document.sections.length!==1||!section?.edit_policy?.allowed_operations.includes('section.page.patch'))throw new Error('Page settings cannot be changed safely in this document.')
+      return read(await client.apply(snapshot.bytes,document,{protocol:'injoffice.office.mutations',version:1,format:'docx',mutation_id:operationId(),expected_revision:document.source.package_sha256,payload:{mutations:[{target_kind:'section',target_id:section.id,expected_xml_sha256:section.anchor.xml_sha256,operation:'section.page.patch',page:patch}]}}))
+    }, async replaceImage(snapshot,id,bytes,name){
+      const result=await replaceDocumentImage(client,snapshot.bytes,snapshot.preview.document,id,bytes,name,operationId)
+      return read(result.bytes)
+    }, async deleteImage(snapshot,id){
+      const result=await deleteDocumentImage(client,snapshot.bytes,snapshot.preview.document,id,operationId)
+      return {snapshot:await read(result.bytes),key:result.key,text:result.text}
+    }, async pageBreak(snapshot,key,offset){
+      const result=await insertDocumentPageBreak(client,snapshot.bytes,snapshot.preview.document,key,offset,operationId)
+      return {snapshot:await read(result.bytes),key:result.key,text:result.text}
+    }, async image(snapshot,key,bytes,name){
+      const result=await insertDocumentImage(client,snapshot.bytes,snapshot.preview.document,key,bytes,name,operationId)
+      return {snapshot:await read(result.bytes),key:result.key,text:result.text}
+    }, async tableGrid(snapshot,key,operation) {
+      const result=await changeDocumentTableGrid(client,snapshot.bytes,snapshot.preview.document,key,operation,operationId)
+      return {snapshot:await read(result.bytes),key:result.key,text:result.text}
+    }, async tableOperation(snapshot,key,operation) {
+      const result=await changeDocumentTable(client,snapshot.bytes,snapshot.preview.document,key,operation,operationId)
+      return {snapshot:await read(result.bytes),key:result.key,text:result.text}
+    }, async table(snapshot,key,rows,columns) {
+      const result=await insertDocumentTable(client,snapshot.bytes,snapshot.preview.document,key,rows,columns,operationId)
+      return {snapshot:await read(result.bytes),key:result.key,text:result.text}
+    }, async replaceAll(snapshot, search, replacement) {
+      const result = await replaceEditableDocumentText(client, snapshot.bytes, snapshot.preview.document, search, replacement, operationId)
+      return read(result.bytes)
+    }, async join(snapshot, key, text) {
+      const result = await mergeWithPreviousParagraph(client, snapshot.bytes, snapshot.preview.document, key, text, operationId)
+      return result ? {snapshot:await read(result.bytes),key:result.key,text:result.text,caret:result.caret} : null
+    }, terminate: () => client.terminate(), async lines(snapshot, key, text) {
+      if (snapshot.preview.kind !== 'docx') throw new Error('Invalid document session.')
+      const result = await replaceParagraphLines(client, snapshot.bytes, snapshot.preview.document, key, text, operationId)
+      return { snapshot: await read(result.bytes), key: result.key, text: result.text }
+    }, async paragraph(snapshot, key, operation) {
+      if (snapshot.preview.kind !== 'docx') throw new Error('Invalid document session.')
+      return read(await client.apply(snapshot.bytes, snapshot.preview.document, documentStructure(snapshot.preview.document, key, operation, operationId())))
+    }, async paragraphFormat(snapshot, key, patch) {
+      return read(await client.apply(snapshot.bytes, snapshot.preview.document, documentParagraphFormatting(snapshot.preview.document, key, patch, operationId())))
+    }, async format(snapshot, key, patch, range) {
+      if (snapshot.preview.kind !== 'docx') throw new Error('Invalid document session.')
+      const document = snapshot.preview.document
+      if(range?.unsupported && patch.alignment===undefined)throw new Error('This selection includes content that cannot be formatted safely.')
+      const selection=docxSelection(document,key)!
+      const envelope = documentFormatting(document, key, patch, operationId(),range)
+      const next=await read(await client.apply(snapshot.bytes, document, envelope))
+      if(range?.paragraph_id && patch.alignment===undefined){
+        // Formatting can split runs, but preserves the paragraph's source location.
+        // Search table cells and other stories too; a body-only lookup rejects valid edits.
+        const before=selection.paragraph,paragraph=documentParagraphs(next.preview.document).find(value=>value.anchor.part_name===before.anchor.part_name&&value.anchor.path===before.anchor.path)
+        if(!paragraph||paragraph.runs.map(run=>run.text??'').join('')!==before.runs.map(run=>run.text??'').join(''))throw new Error('Formatted paragraph text did not pass readback.')
+        let offset=0;const first=paragraph.runs.find(run=>{offset+=(run.text??'').length;return offset>range.start_utf16})
+        const focus=first&&next.targets.find(target=>target.key===`${encodeURIComponent(first.anchor.part_name)}:${first.id}`)
+        if(!focus)throw new Error('Formatted paragraph selection could not be restored.')
+        next.preferredSelection={key:focus.key,range:{...range,paragraph_id:paragraph.id}}
+      }else if(range && patch.alignment===undefined){
+        const source=selection.paragraph.anchor,model=next.preview.document
+        const paragraphs=documentParagraphs(model)
+        const paragraph=paragraphs.find(value=>value.anchor.part_name===source.part_name&&value.anchor.path===source.path)
+        const selectedIndex=selection.paragraph.runs.findIndex(run=>run.id===selection.run.id)+(range.start_utf16>0?1:0)
+        const run=paragraph?.runs[selectedIndex],focus=run&&editableDocxRuns(model).find(target=>target.runId===run.id&&target.partName===run.anchor.part_name)
+        if(!focus||focus.text!==selection.run.text?.slice(range.start_utf16,range.end_utf16))throw new Error('Formatted selection did not pass readback.')
+        next.preferredSelection={key:focus.key,range:{start_utf16:0,end_utf16:focus.text.length}}
+      }
+      return next
+    }, async edit(snapshot, key, value) {
+      if (snapshot.preview.kind !== 'docx') throw new Error('Invalid document session.')
+      const document = snapshot.preview.document
+      const target = editableDocxRuns(document).find(candidate => candidate.key === key)
+      if (!target) throw new Error('This text is not editable.')
+      const next = await read(await client.apply(snapshot.bytes, document, buildDocxRunMutation(document, target, value, operationId())))
+      if (next.preview.kind !== 'docx') throw new Error('Invalid document readback.')
+      verifyDocxRoundTrip(document, next.preview.document, target, value, undefined, undefined, '', undefined, true)
+      return next
+    } }
+}
+
+export default function OfficeEditor({ name, bytes, onInitialLoadError, onChange, onBusyChange, onDraftChange, viewOptions, initialRecoveryDraft, onRecoveryDraftChange, registerCommit, registerHistory }: OfficeEditorProps) {
+  const menu=useContextMenu()
+  const [ribbonTab,setRibbonTab]=useState('Home')
+  const [snapshot, setSnapshot] = useState<Snapshot>()
+  const [busy, setBusy] = useState(true)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [pageMetrics, setPageMetrics] = useState({ page: 1, pages: 1 })
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current) }, [])
+  const [selected, setSelected] = useState('')
+  const [textRange,setTextRange] = useState<TextRange>()
+  const [draft, setDraft] = useState('')
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const draftsRef = useRef<Record<string, string>>({})
+  const rejectedDrafts = useRef(new Map<string, string>())
+  const textInFlight = useRef(false)
+  const [textSettled, setTextSettled] = useState(0)
+  const queuedChoice = useRef<{ key: string; range?: TextRange } | undefined>(undefined)
+  function rememberDraft(key: string, text: string | undefined) {
+    const next = { ...draftsRef.current }
+    if (text === undefined) delete next[key]
+    else next[key] = text
+    draftsRef.current = next
+    setDrafts(next)
+    publishRecoveryDrafts()
+  }
+  function publishRecoveryDrafts() {
+    const first = Object.entries(draftsRef.current)[0]
+    callbacks.current.onRecoveryDraftChange?.(first ? { version: 1, format: 'docx', target: first[0], text: first[1], drafts: draftsRef.current } : null)
+  }
+  const [search, setSearch] = useState('')
+  const [replacement, setReplacement] = useState('')
+  const searchInput = useRef<HTMLInputElement>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [caretOffset, setCaretOffset] = useState<number>()
+  const [undo, setUndo] = useState<Snapshot[]>([])
+  const [redo, setRedo] = useState<Snapshot[]>([])
+  const [composing, setComposing] = useState(false)
+  const composingRef = useRef(false)
+  const applyHiddenRef = useRef<() => Promise<void>>(async () => {})
+  const hiddenApplyRef = useRef<ReturnType<typeof createHiddenApplyScheduler> | undefined>(undefined)
+  // Word has no apply step: typing commits itself. The idle delay keeps one native
+  // round trip per pause instead of one per keystroke; blur, Enter and save commit sooner.
+  if (!hiddenApplyRef.current) hiddenApplyRef.current = createHiddenApplyScheduler({
+    delayMs: IDLE_COMMIT_MS,
+    composing: () => composingRef.current,
+    apply: () => applyHiddenRef.current(),
+  })
+  const exportRequest=useRef<string|undefined>(undefined)
+  const [exportStage,setExportStage]=useState<string|undefined>(undefined)
+  const [exportNotice,setExportNotice]=useState('')
+  const [exportMode,setExportMode]=useState<'original'|'preview'>('preview')
+  useEffect(()=>typeof window!=='undefined'?window.injDesktop?.onPdfExportProgress?.(value=>{if(value.requestId===exportRequest.current)setExportStage(value.stage)}):undefined,[])
+  useEffect(()=>()=>{if(exportRequest.current)void window.injDesktop?.cancelDocxPdf(exportRequest.current).catch(()=>{})},[])
+  const draftPending = useRef(false)
+  const engine = useRef<LocalEngine | undefined>(undefined)
+  const mounted = useRef(false)
+  const callbacks = useRef({ onInitialLoadError, onChange, onBusyChange, onDraftChange, onRecoveryDraftChange })
+  callbacks.current = { onInitialLoadError, onChange, onBusyChange, onDraftChange, onRecoveryDraftChange }
+  const target = snapshot?.targets.find(candidate => candidate.key === selected)
+  const hasDraft = Object.keys(drafts).length > 0 || (!!target && draft !== target.value)
+  useEffect(() => { callbacks.current.onBusyChange?.(busy||composing) }, [busy,composing])
+  useEffect(() => { callbacks.current.onDraftChange?.(hasDraft) }, [hasDraft])
+  useEffect(() => {
+    let cancelled = false
+    mounted.current = true
+    let local: LocalEngine | undefined
+    setBusy(true)
+    try {
+      local = createEngine(name.split('.').pop()?.toLowerCase() ?? '')
+      engine.current = local
+      void local.read(bytes).then(value => {
+        if (cancelled) return
+        setSnapshot(value)
+        setBusy(false)
+        const recovery = initialRecoveryDraft as { version?: number; format?: string; target?: string; text?: string; drafts?: Record<string, string> } | null;
+        if (recovery?.version === 1 && recovery.format === 'docx' && typeof recovery.target === 'string' && typeof recovery.text === 'string' && recovery.text.length <= 256 * 1024 && value.targets.some(target => target.key === recovery.target && target.value !== recovery.text)) {
+          for (const [key, text] of Object.entries(recovery.drafts ?? { [recovery.target]: recovery.text })) {
+            if (typeof text === 'string' && text.length <= 256 * 1024 && value.targets.some(target => target.key === key && target.value !== text)) rememberDraft(key, text)
+          }
+          setSelected(recovery.target); setDraft(recovery.text); draftPending.current = true;
+          return;
+        }
+        if (value.targets.length === 1 && value.targets[0]?.value === '' && value.preview.kind === 'docx') {
+          setSelected(value.targets[0].key); setDraft('')
+        }
+      })
+        .catch(reason => { if (!cancelled) { setError(errorMessage(reason)); callbacks.current.onInitialLoadError?.(errorMessage(reason)) } })
+        .finally(() => { if (!cancelled) setBusy(false) })
+    } catch (reason) { setError(errorMessage(reason)); callbacks.current.onInitialLoadError?.(errorMessage(reason)); setBusy(false) }
+    return () => { cancelled = true; mounted.current = false; hiddenApplyRef.current?.cancel(); local?.terminate(); callbacks.current.onBusyChange?.(false) }
+    // A new open session must mount a fresh editor; save paths do not reinitialize it.
+  }, [])
+
+  async function choose(key: string, range?: TextRange) {
+    hiddenApplyRef.current?.cancel()
+    if (!snapshot) return
+    if (busy || textInFlight.current || composingRef.current) { queuedChoice.current = { key, range }; return }
+    if (key === selected) { if (range) setTextRange(range); return }
+    if (draftPending.current && rejectedDrafts.current.get(selected) !== draft) {
+      queuedChoice.current = { key, range }
+      await apply(true)
+      return
+    }
+    const next = snapshot.targets.find(candidate => candidate.key === key)
+    const text = next ? draftsRef.current[next.key] ?? next.value : ''
+    draftPending.current = !!next && text !== next.value
+    setCaretOffset(undefined); setTextRange(range)
+    setSelected(next?.key ?? '')
+    setDraft(text)
+  }
+  useEffect(() => {
+    if (busy || composing || !snapshot) return
+    const choice = queuedChoice.current
+    if (choice) { queuedChoice.current = undefined; void choose(choice.key, choice.range) }
+    else if (draftPending.current && rejectedDrafts.current.get(selected) !== draft) hiddenApplyRef.current?.schedule()
+  }, [busy, composing, snapshot, selected, draft, textSettled])
+  function updateDraft(value: string) {
+    if (!target) return
+    draftPending.current = value !== target.value
+    rejectedDrafts.current.delete(selected)
+    rememberDraft(selected, draftPending.current || textInFlight.current ? value : undefined)
+    setDraft(value); setTextRange(undefined)
+    callbacks.current.onBusyChange?.(busy || composing)
+    callbacks.current.onDraftChange?.(Object.keys(draftsRef.current).length > 0)
+    if (draftPending.current) hiddenApplyRef.current?.schedule()
+    else hiddenApplyRef.current?.cancel()
+  }
+  /** A caret-side, self-dismissing message. Edits the engine cannot make here never become chrome. */
+  function flashNotice(message: string) {
+    setNotice(message)
+    if (noticeTimer.current) clearTimeout(noticeTimer.current)
+    noticeTimer.current = setTimeout(() => { if (mounted.current) setNotice('') }, NOTICE_MS)
+  }
+  /** Leave the paragraph: commit pending text through the engine, then release the caret. */
+  function releaseDraft() {
+    if (busy || composingRef.current) return
+    if (draftPending.current) { void apply(); return }
+    hiddenApplyRef.current?.cancel()
+    setTextRange(undefined); setSelected(''); setError('')
+  }
+  function accept(next: Snapshot) {
+    if (!snapshot) return
+    // Keep history bounded by bytes as well as count for large local files.
+    let history = [...undo, snapshot].slice(-20)
+    while (history.length > 1 && history.reduce((sum, item) => sum + item.bytes.byteLength, 0) > 128 * 1024 * 1024) history = history.slice(1)
+    setUndo(history); setRedo([]); setSnapshot(next);setTextRange(undefined)
+    // Typing can continue while the worker runs. Only retire the submitted value.
+    const accepted = next.targets.find(candidate => candidate.key === selected)?.value ?? ''
+    if (draftsRef.current[selected] === draft || draftsRef.current[selected] === accepted) rememberDraft(selected, undefined)
+    rejectedDrafts.current.delete(selected)
+    const latest = draftsRef.current[selected] ?? accepted
+    draftPending.current = latest !== accepted
+    setDraft(latest)
+    callbacks.current.onChange(next.bytes)
+    // The host clears recovery on a successful byte update; republish drafts still pending.
+    publishRecoveryDrafts()
+  }
+  async function apply(restoreCaret = false) {
+    hiddenApplyRef.current?.cancel()
+    if (!snapshot || !engine.current || !target || !draftPending.current || busy || textInFlight.current || composingRef.current) return
+    if (rejectedDrafts.current.get(selected) === draft) return
+    const caret = captureDraftCaret(draft)
+    textInFlight.current = true
+    setBusy(true); callbacks.current.onBusyChange?.(true); setError('')
+    try {
+      const next = await engine.current.edit(snapshot, selected, draft)
+      if (mounted.current) {
+        accept(next)
+        if (restoreCaret && !draftPending.current && !queuedChoice.current) setCaretOffset(caret)
+        else if (!restoreCaret && !draftPending.current && !queuedChoice.current) setSelected('')
+      }
+    } catch (reason) {
+      rejectedDrafts.current.set(selected, draft)
+      if (mounted.current) {
+        if (draftsRef.current[selected] === target.value) rememberDraft(selected, undefined)
+        setError(errorMessage(reason))
+      }
+    } finally {
+      textInFlight.current = false
+      if (mounted.current) { setBusy(false); setTextSettled(value => value + 1) }
+    }
+  }
+  applyHiddenRef.current = () => apply(true)
+  async function changeFormatting(patch: FormattingPatch) {
+    if (patch.alignment === undefined && toolbarValues?.characterEditable === false) return
+    if (!snapshot || !engine.current?.format || !target || busy || composing) return
+    hiddenApplyRef.current?.cancel()
+    setBusy(true); callbacks.current.onBusyChange?.(true); setError('')
+    try {
+      const source = draftPending.current ? await engine.current.edit(snapshot, selected, draft) : snapshot
+      const next = await engine.current.format(source, selected, patch, textRange)
+      if (mounted.current) {accept(next);if(next.preferredSelection){setSelected(next.preferredSelection.key);setDraft(next.targets.find(target=>target.key===next.preferredSelection!.key)?.value??'');setTextRange(next.preferredSelection.range)}}
+    } catch (reason) { if (mounted.current) setError(errorMessage(reason)) }
+    finally { if (mounted.current) setBusy(false) }
+  }
+  async function changeParagraphFormatting(patch: ParagraphPatch) {
+    if (!snapshot || !engine.current?.paragraphFormat || !target || busy || composing) return
+    setBusy(true); callbacks.current.onBusyChange?.(true); setError('')
+    try { const source = draftPending.current ? await engine.current.edit(snapshot, selected, draft) : snapshot; const next = await engine.current.paragraphFormat(source, selected, patch); if (mounted.current) accept(next) }
+    catch (reason) { if (mounted.current) setError(errorMessage(reason)) }
+    finally { if (mounted.current) setBusy(false) }
+  }
+  async function changeTableGrid(operation:TableGridOperation) {
+    if(!snapshot||!engine.current?.tableGrid||!target||busy||composing)return
+    setBusy(true);callbacks.current.onBusyChange?.(true);setError('')
+    try {
+      const source=draftPending.current?await engine.current.edit(snapshot,selected,draft):snapshot
+      const result=await engine.current.tableGrid(source,selected,operation)
+      if(mounted.current){accept(result.snapshot);setSelected(result.key);setDraft(result.text);setCaretOffset(0)}
+    }catch(reason){if(mounted.current)setError(errorMessage(reason))}
+    finally{if(mounted.current)setBusy(false)}
+  }
+  async function changeTable(operation:ParagraphOperation) {
+    if(!snapshot||!engine.current?.tableOperation||!target||busy||composing)return
+    setBusy(true);callbacks.current.onBusyChange?.(true);setError('')
+    try {
+      const source=draftPending.current?await engine.current.edit(snapshot,selected,draft):snapshot
+      const result=await engine.current.tableOperation(source,selected,operation)
+      if(mounted.current){accept(result.snapshot);setSelected(result.key);setDraft(result.text);setCaretOffset(0)}
+    }catch(reason){if(mounted.current)setError(errorMessage(reason))}
+    finally{if(mounted.current)setBusy(false)}
+  }
+  async function exportPdf(){
+    const bridge=window.injDesktop
+    if(exportRequest.current||!snapshot||!engine.current||busy||composing||!bridge?.exportDocxPdf||!bridge.exportBytes)return
+    const requestId=crypto.randomUUID();exportRequest.current=requestId
+    setBusy(true);callbacks.current.onBusyChange?.(true);setError('');setExportNotice((exportMode==='preview'?'Preview uses Liberation Sans instead of source fonts; line and page breaks can change. ':'')+'PDF text is exported as vector outlines and cannot be searched or selected.');setExportStage('reading')
+    try{
+      const source=draftPending.current?await engine.current.edit(snapshot,selected,draft):snapshot
+      if(exportRequest.current!==requestId)return
+      const bytes=await bridge.exportDocxPdf({requestId,bytes:source.bytes,revision:source.preview.document.source.package_sha256,mode:exportMode})
+      if(!mounted.current||exportRequest.current!==requestId)return
+      setExportStage('saving')
+      const saved=await bridge.exportBytes({name:name.replace(/\.docx$/i,'')+'.pdf',bytes})
+      if(mounted.current)setExportNotice(saved?`Saved ${saved.name}${exportMode==='preview'?' with substituted fonts':''}. PDF text uses vector outlines and cannot be selected.`:'PDF export canceled.')
+    }catch(reason){if(mounted.current)setError(errorMessage(reason))}
+    finally{exportRequest.current=undefined;if(mounted.current){setExportStage(undefined);setBusy(false)}}
+  }
+  async function cancelPdfExport(){
+    const request=exportRequest.current;if(!request||exportStage==='saving')return
+    exportRequest.current=undefined
+    try{await window.injDesktop?.cancelDocxPdf(request)}catch(reason){if(mounted.current)setError(errorMessage(reason))}
+  }
+  async function changeLink(url:string|null){
+    if(!snapshot||!engine.current||!target||busy||composing||textRange?.unsupported)return
+    setBusy(true);callbacks.current.onBusyChange?.(true);setError('')
+    try{const source=draftPending.current?await engine.current.edit(snapshot,selected,draft):snapshot;const next=await engine.current.hyperlink(source,selected,url,textRange);if(mounted.current)accept(next)}
+    catch(reason){if(mounted.current)setError(errorMessage(reason))}
+    finally{if(mounted.current)setBusy(false)}
+  }
+  async function changePage(patch:PagePatch){
+    if(!snapshot||!engine.current||busy||composing)return
+    setBusy(true);callbacks.current.onBusyChange?.(true);setError('')
+    try{const source=draftPending.current?await engine.current.edit(snapshot,selected,draft):snapshot;const next=await engine.current.page(source,patch);if(mounted.current)accept(next)}
+    catch(reason){if(mounted.current)setError(errorMessage(reason))}
+    finally{if(mounted.current)setBusy(false)}
+  }
+  async function replaceImage(id:string){
+    const pick=typeof window!=='undefined'?window.injDesktop?.pickAsset:undefined
+    if(!snapshot||!engine.current||busy||composing||!pick)return
+    // Queue the native dialog before reporting the editing operation as busy.
+    const pending=pick('image')
+    setBusy(true);callbacks.current.onBusyChange?.(true);setError('')
+    try{
+      const asset=await pending;if(!asset||!mounted.current)return
+      const source=draftPending.current?await engine.current.edit(snapshot,selected,draft):snapshot
+      const next=await engine.current.replaceImage(source,id,asset.bytes,asset.name)
+      if(mounted.current)accept(next)
+    }catch(reason){if(mounted.current)setError(errorMessage(reason))}
+    finally{if(mounted.current)setBusy(false)}
+  }
+  async function deleteImage(id:string) {
+    if(!snapshot||!engine.current||busy||composing)return
+    setBusy(true);callbacks.current.onBusyChange?.(true);setError('')
+    try {
+      const source=draftPending.current?await engine.current.edit(snapshot,selected,draft):snapshot
+      const result=await engine.current.deleteImage(source,id)
+      if(mounted.current){accept(result.snapshot);setSelected(result.key);setDraft(result.text);setCaretOffset(0)}
+    }catch(reason){if(mounted.current)setError(errorMessage(reason))}
+    finally{if(mounted.current)setBusy(false)}
+  }
+  async function insertPageBreak() {
+    if (!snapshot || !engine.current || !target || busy || composing || textRange?.unsupported || (textRange && textRange.start_utf16 !== textRange.end_utf16)) return
+    const offset = captureDraftCaret(draft)
+    setBusy(true); callbacks.current.onBusyChange?.(true); setError('')
+    try {
+      const source = draftPending.current ? await engine.current.edit(snapshot, selected, draft) : snapshot
+      const result = await engine.current.pageBreak(source, selected, offset)
+      if (mounted.current) { accept(result.snapshot); setSelected(result.key); setDraft(result.text); setTextRange(undefined); setCaretOffset(0) }
+    } catch (reason) { if (mounted.current) setError(errorMessage(reason)) }
+    finally { if (mounted.current) setBusy(false) }
+  }
+  async function insertImage() {
+    const pick=typeof window!=='undefined'?window.injDesktop?.pickAsset:undefined
+    if(!snapshot||!engine.current||!target||busy||composing||!pick)return
+    setBusy(true);callbacks.current.onBusyChange?.(true);setError('')
+    try {
+      const asset=await pick('image');if(!asset||!mounted.current)return
+      const source=draftPending.current?await engine.current.edit(snapshot,selected,draft):snapshot
+      const result=await engine.current.image(source,selected,asset.bytes,asset.name)
+      if(mounted.current){accept(result.snapshot);setSelected(result.key);setDraft(result.text);setCaretOffset(0)}
+    }catch(reason){if(mounted.current)setError(errorMessage(reason))}
+    finally{if(mounted.current)setBusy(false)}
+  }
+  async function insertTable(rows:number,columns:number) {
+    if(!snapshot||!engine.current?.table||!target||busy||composing)return
+    setBusy(true);callbacks.current.onBusyChange?.(true);setError('')
+    try {
+      const source=draftPending.current?await engine.current.edit(snapshot,selected,draft):snapshot
+      const result=await engine.current.table(source,selected,rows,columns)
+      if(mounted.current){accept(result.snapshot);setSelected(result.key);setDraft(result.text);setCaretOffset(0)}
+    }catch(reason){if(mounted.current)setError(errorMessage(reason))}
+    finally{if(mounted.current)setBusy(false)}
+  }
+  async function changeParagraph(operation: ParagraphOperation) {
+    if (!snapshot || !engine.current?.paragraph || !target || busy || draftPending.current) return
+    setBusy(true); callbacks.current.onBusyChange?.(true); setError('')
+    try {
+      const next = await engine.current.paragraph(snapshot, selected, operation)
+      if (mounted.current) { accept(next); setSelected(''); setDraft('') }
+    } catch (reason) { if (mounted.current) setError(errorMessage(reason)) }
+    finally { if (mounted.current) setBusy(false) }
+  }
+  async function joinPrevious() {
+    if (!snapshot || !engine.current?.join || !target || busy || composing) return
+    setBusy(true); callbacks.current.onBusyChange?.(true); setError('')
+    try { const result = await engine.current.join(snapshot, selected, draft); if (mounted.current && result) { accept(result.snapshot); setSelected(result.key); setDraft(result.text); setCaretOffset(result.caret) } }
+    catch (reason) { if (mounted.current) setError(errorMessage(reason)) }
+    finally { if (mounted.current) setBusy(false) }
+  }
+  async function insertLines(text: string, caret: number) {
+    if (!snapshot || !engine.current?.lines || !target || busy || composing) return
+    setBusy(true); callbacks.current.onBusyChange?.(true); setError('')
+    try {
+      const result = await engine.current.lines(snapshot, selected, text)
+      if (mounted.current) { accept(result.snapshot); setSelected(result.key); setDraft(result.text); setCaretOffset(caret) }
+    } catch (reason) {
+      // A break this paragraph cannot take is not an error state: say so beside the caret and
+      // keep the typed text, which the idle commit still writes to the file.
+      if (mounted.current) { flashNotice(errorMessage(reason)); if (draftPending.current) hiddenApplyRef.current?.schedule() }
+    }
+    finally { if (mounted.current) setBusy(false) }
+  }
+  const commitLatest = useRef<() => Promise<boolean>>(async () => false)
+  commitLatest.current = async () => {
+    if (busy || composingRef.current) return false
+    if (!draftPending.current) return Object.keys(draftsRef.current).length === 0
+    await apply()
+    if (draftPending.current || Object.keys(draftsRef.current).length > 0) return false
+    callbacks.current.onDraftChange?.(false); callbacks.current.onBusyChange?.(false)
+    return true
+  }
+  useEffect(() => { registerCommit?.(() => commitLatest.current()) }, [registerCommit])
+  function travel(direction: 'undo' | 'redo') {
+    if (!snapshot || busy || hasDraft) return
+    const stack = direction === 'undo' ? undo : redo
+    const next = stack.at(-1)
+    if (!next) return
+    if (direction === 'undo') { setUndo(undo.slice(0, -1)); setRedo([...redo, snapshot]) }
+    else { setRedo(redo.slice(0, -1)); setUndo([...undo, snapshot]) }
+    draftPending.current = false
+    setSnapshot(next); setTextRange(undefined); setSelected(''); setDraft(''); setError(''); callbacks.current.onChange(next.bytes)
+  }
+  async function replaceAll() {
+    if (!snapshot || !engine.current?.replaceAll || busy || hasDraft || composing) return
+    setBusy(true); callbacks.current.onBusyChange?.(true); setError('')
+    try { const next = await engine.current.replaceAll(snapshot, search, replacement); if (mounted.current) { accept(next); setSelected(''); setDraft('') } }
+    catch (reason) { if (mounted.current) setError(errorMessage(reason)) }
+    finally { if (mounted.current) setBusy(false) }
+  }
+  const matches = search ? snapshot?.targets.filter(target => target.value.includes(search)) ?? [] : []
+  const historyCommands = useRef({ undo() {}, redo() {} })
+  historyCommands.current = { undo: () => travel('undo'), redo: () => travel('redo') }
+  const canUndo = !busy && !hasDraft && undo.length > 0, canRedo = !busy && !hasDraft && redo.length > 0
+  useEffect(() => { registerHistory?.({ undo: () => historyCommands.current.undo(), redo: () => historyCommands.current.redo(), canUndo, canRedo }) }, [registerHistory, canUndo, canRedo])
+  const zoom = Math.max(50, Math.min(200, viewOptions?.zoom ?? 100)) / 100
+  const toolbarValues=snapshot && (textRange?.paragraph_id?documentRangeFormattingValues(snapshot.preview.document,selected,textRange,hasDraft?draft:undefined):formattingValues(snapshot.preview,selected))
+  if(toolbarValues && textRange && (textRange.unsupported || (textRange.paragraph_id&&docxSelection(snapshot!.preview.document,selected)?.paragraph.runs.some(run=>runAppearance(snapshot!.preview.document,docxSelection(snapshot!.preview.document,selected)!.paragraph,run).hidden)) || (textRange.paragraph_id?!canFormatParagraphRange(docxSelection(snapshot!.preview.document,selected)!.paragraph):!canFormatRun(docxSelection(snapshot!.preview.document,selected)!.paragraph,docxSelection(snapshot!.preview.document,selected)!.run))))toolbarValues.characterEditable=false
+  const selectedTable=snapshot && documentTableSelection(snapshot.preview.document,selected)
+  const baseStatistics=useMemo(()=>snapshot?documentStatistics(snapshot.preview.document):undefined,[snapshot])
+  const statisticsTarget=snapshot&&hasDraft?docxSelection(snapshot.preview.document,selected):undefined
+  const statistics=baseStatistics&&statisticsWithDraft(baseStatistics,statisticsTarget?{paragraphId:statisticsTarget.paragraph.id,runId:statisticsTarget.run.id,text:draft}:undefined)
+  const isDocument = snapshot?.preview.kind === 'docx'
+  const blocked = busy || composing
+  const selection = snapshot ? docxSelection(snapshot.preview.document, selected) : undefined
+  const paragraphOps = snapshot ? paragraphOperations(snapshot.preview.document, selected) : []
+  const canInsertBlock = paragraphOps.includes('block.insert_after')
+  const isBulleted = snapshot?.preview.document.numbering_definitions?.find(list => list.num_id === selection?.paragraph.properties.numbering?.num_id)?.levels.some(level => level.level === (selection?.paragraph.properties.numbering?.level ?? 0) && level.format === 'bullet') ?? false
+  const canExportPdf = !!snapshot && typeof window !== 'undefined' && !!window.injDesktop?.exportDocxPdf
+  const canPickAsset = typeof window !== 'undefined' && !!window.injDesktop?.pickAsset
+  const hiddenRun = !!selection && !!snapshot && selection.paragraph.runs.some(run => runAppearance(snapshot.preview.document, selection.paragraph, run).hidden)
+  const paragraphToolbar = (section: 'styles' | 'list') => snapshot && <ParagraphToolbar section={section} properties={selection?.paragraph.properties} styles={snapshot.preview.document.paragraph_styles ?? []} numbering={snapshot.preview.document.numbering_definitions} disabled={blocked || !selection?.paragraph.edit_policy.allowed_operations.includes('properties.patch')} onChange={patch => void changeParagraphFormatting(patch)} />
+  const tableOps = selectedTable ? (['block.insert_after', 'block.delete'] as const).filter(operation => selectedTable.edit_policy.allowed_operations.includes(operation)) : []
+  const tableGridOps = selectedTable ? (['table.row.insert_after', 'table.row.delete', 'table.column.insert_after', 'table.column.delete'] as const).filter(operation => selectedTable.edit_policy.allowed_operations.includes(operation)) : []
+  const gridIcons = { 'table.row.insert_after': 'rowInsert', 'table.row.delete': 'rowDelete', 'table.column.insert_after': 'columnInsert', 'table.column.delete': 'columnDelete' } as const
+  const gridLabels = { 'table.row.insert_after': 'Add row below', 'table.row.delete': 'Delete row', 'table.column.insert_after': 'Add column right', 'table.column.delete': 'Delete column' } as const
+  // Office's Word ribbon, applied to the controls this editor already has. Tabs and
+  // groups with nothing to offer are dropped by the Ribbon rather than shown empty.
+  const ribbonTabs: RibbonTabSpec[] = snapshot ? [
+    { id: 'File', label: 'File', groups: [
+      { id: 'export', label: 'Export', children: canExportPdf && <><select aria-label="PDF font handling" title="PDF font handling" disabled={blocked} value={exportMode} onChange={event => setExportMode(event.target.value as 'original' | 'preview')}><option value="preview">Bundled fonts · preview</option><option value="original">Original embedded fonts</option></select><RibbonButton icon="pdf" label="Export PDF…" title="Export vector PDF; text will be outlined rather than selectable" disabled={blocked} onClick={() => void exportPdf()} /></> },
+    ] },
+    { id: 'Home', label: 'Home', groups: [
+      { id: 'font', label: 'Font', children: <FormattingToolbar section="font" scopeLabel={textRange ? 'Selected text range' : undefined} kind={snapshot.preview.kind} values={toolbarValues} disabled={blocked} onChange={patch => void changeFormatting(patch)} /> },
+      { id: 'paragraph', label: 'Paragraph', children: <><FormattingToolbar section="paragraph" scopeLabel={textRange ? 'Selected text range' : undefined} kind={snapshot.preview.kind} values={toolbarValues} disabled={blocked} onChange={patch => void changeFormatting(patch)} />{paragraphToolbar('list')}</> },
+      { id: 'styles', label: 'Styles', children: paragraphToolbar('styles') },
+      { id: 'editing', label: 'Editing', children: <>
+        <RibbonButton icon="replace" label="Find / replace" shortcut="find" aria-expanded={searchOpen} onClick={() => setSearchOpen(value => !value)} />
+        <RibbonButton icon="select" label="Select paragraph text" title="Select an editable paragraph and finish typing first." disabled={blocked || hasDraft || !selection||!canFormatParagraphRange(selection.paragraph) || hiddenRun || !selection.paragraph.runs.some(run => run.text?.length)} onClick={() => { const paragraph = selection!.paragraph; setTextRange({ paragraph_id: paragraph.id, start_utf16: 0, end_utf16: paragraph.runs.reduce((length, run) => length + (run.text ?? '').length, 0) }) }} />
+      </> },
+    ] },
+    { id: 'Insert', label: 'Insert', groups: [
+      { id: 'pages', label: 'Pages', children: <RibbonButton icon="pageBreak" label="Page break" title="Place the caret in supported body text without selecting a range." disabled={blocked || !canInsertDocumentPageBreak(snapshot.preview.document, selected) || !!textRange?.unsupported || !!(textRange && textRange.start_utf16 !== textRange.end_utf16)} onMouseDown={event => event.preventDefault()} onClick={() => void insertPageBreak()} /> },
+      { id: 'tables', label: 'Tables', children: <InsertTableControl disabled={true} onInsert={(rows, columns) => void insertTable(rows, columns)} /> },
+      { id: 'illustrations', label: 'Illustrations', children: canPickAsset && <RibbonButton icon="image" label="Insert image…" title={blocked ? "Wait for the current operation to finish." : !canInsertBlock ? "Select a body paragraph that allows content insertion." : "Insert a PNG or JPEG below the selected paragraph"} disabled={blocked || !canInsertBlock || snapshot.preview.document.source.main_part !== 'word/document.xml'} onClick={() => void insertImage()} /> },
+      { id: 'links', label: 'Links', children: <HyperlinkControl key={selected} url={selection?.run.hyperlink?.url} disabled={blocked || !selection?.run.can_edit_hyperlink || !(draft.length || selection?.run.text?.length) || !!textRange?.unsupported} onChange={url => void changeLink(url)} /> },
+      { id: 'text', label: 'Text', children: <>
+        <RibbonButton icon="paragraphInsert" label="Insert paragraph below" title="Select a body paragraph and finish typing first." disabled={blocked || hasDraft || !canInsertBlock} onClick={() => void changeParagraph('block.insert_after')} />
+        <RibbonButton icon="paragraphDelete" label="Delete paragraph" title="Select a paragraph that can be deleted and finish typing first." disabled={blocked || hasDraft || !paragraphOps.includes('block.delete')} onClick={() => void changeParagraph('block.delete')} />
+        {!target && <span className="ribbon-note">Select a body paragraph to insert content.</span>}
+      </> },
+    ] },
+    { id: 'Layout', label: 'Layout', groups: [
+      // Values are shown for any section structure; only a single patchable section can be changed.
+      { id: 'page', label: 'Page Setup', children: snapshot.preview.document.sections[0] && <DocumentPageSetup section={snapshot.preview.document.sections[0]} disabled={blocked || snapshot.preview.document.sections.length !== 1} onChange={patch => void changePage(patch)} /> },
+      { id: 'paragraph', label: 'Paragraph', children: snapshot && <DocumentParagraphLayout properties={selection?.paragraph.properties} disabled={blocked || !selection?.paragraph.edit_policy.allowed_operations.includes('properties.patch')} onChange={patch => void changeParagraphFormatting(patch)} /> },
+    ] },
+    { id: 'Table', label: 'Table', groups: [
+      { id: 'table', label: 'Table', children: tableOps.map(operation => <RibbonButton key={operation} icon={operation === 'block.insert_after' ? 'tableContinue' : 'tableDelete'} label={operation === 'block.insert_after' ? 'Continue after table' : 'Delete table'} disabled={blocked} onClick={() => void changeTable(operation)} />) },
+      { id: 'rows', label: 'Rows & Columns', children: tableGridOps.map(operation => <RibbonButton key={operation} icon={gridIcons[operation]} label={gridLabels[operation]} disabled={blocked} onClick={() => void changeTableGrid(operation)} />) },
+    ] },
+  ] : []
+  const visibleTabs = visibleRibbonTabs(ribbonTabs).map(tab => tab.id)
+  const activeRibbonTab = visibleTabs.includes(ribbonTab) ? ribbonTab : 'Home'
+  return <div className={`office-editor ${isDocument ? 'office-editor-document' : ''}`} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && !event.altKey && ['b','i','u'].includes(event.key.toLowerCase()) && !(event.target as HTMLElement).closest('input,select,textarea')) {event.preventDefault();const key=event.key.toLowerCase(),property=key==='b'?'bold':key==='i'?'italic':'underline';void changeFormatting({[property]:!toolbarValues?.[property]});return} if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') { event.preventDefault(); setSearchOpen(true); requestAnimationFrame(() => searchInput.current?.focus()) } }}>
+    {snapshot && <Ribbon label="Document tools" tabs={ribbonTabs} active={activeRibbonTab} onChange={setRibbonTab} />}
+    {!snapshot && busy && <div className="office-empty" role="status">Opening…</div>}
+    {exportNotice&&<p className="office-document-note" role="status">{exportNotice}</p>}
+    {exportStage&&<div className="office-document-note" role="status">{exportStage==='saving'?'Choose where to save the PDF…':`Exporting PDF · ${exportStage}…`}{exportStage!=='saving'&&<RibbonButton icon="close" label="Cancel PDF export" onClick={()=>void cancelPdfExport()} />}</div>}
+    {searchOpen && <section className="document-search" aria-label="Find and replace editable text"><input ref={searchInput} type="search" aria-label="Find editable document text" placeholder="Find editable text" maxLength={1000} value={search} onChange={event => setSearch(event.target.value)} /><span role="status">{matches.length} matching segments</span><RibbonButton icon="find" label="Next match" disabled={!matches.length || busy || hasDraft} onClick={() => { const index = matches.findIndex(match => match.key === selected); choose(matches[(index + 1) % matches.length].key) }} /><input aria-label="Replacement text" placeholder="Replace with" maxLength={10000} value={replacement} onChange={event => setReplacement(event.target.value)} /><RibbonButton icon="replace" label="Replace all" disabled={!matches.length || busy || hasDraft || search === replacement} onClick={() => void replaceAll()} /><RibbonButton icon="close" label="Close document search" labelHidden onClick={() => setSearchOpen(false)} /><small>Case-sensitive; searches each editable text segment independently.</small></section>}
+    {error && <div className="office-error" role="alert">{error}</div>}
+    {snapshot && <>
+      <div className={`office-preview ${isDocument ? 'office-document-preview' : ''}`} onContextMenu={event=>{activateRunAt(event);menu.open(event)}}>
+        <div className="office-preview-scale" style={isDocument ? undefined : { zoom }}>
+        {snapshot.preview.kind === 'docx' && <DocumentPreview replaceImage={typeof window!=='undefined'&&window.injDesktop?.pickAsset?id=>void replaceImage(id):undefined} deleteImage={id=>void deleteImage(id)} images={(engine.current?.media(snapshot) ?? EMPTY_MEDIA).images} imageNotice={(engine.current?.media(snapshot) ?? EMPTY_MEDIA).notice} document={snapshot.preview.document} choose={choose} selected={selected} draft={draft} drafts={drafts} textRange={textRange} onTextRangeChange={setTextRange} caretOffset={caretOffset} joinPrevious={() => void joinPrevious()} insertLines={(text, caret) => void insertLines(text, caret)} updateDraft={updateDraft} commit={releaseDraft} notice={notice} busy={busy} hasDraft={hasDraft} onPageMetrics={setPageMetrics} onCompositionChange={value=>{composingRef.current=value;setComposing(value);callbacks.current.onBusyChange?.(busy||value);if(!value&&draftPending.current)hiddenApplyRef.current?.schedule()}} zoom={zoom} navigation={(viewOptions?.navigation ?? true) && !viewOptions?.focus} />}
+        </div>
+      </div>
+      <SelectionToolbar values={toolbarValues} disabled={busy||composing} onChange={patch=>void changeFormatting(patch)} bullets={isBulleted} onBullets={selection?.paragraph.edit_policy.allowed_operations.includes('properties.patch') ? () => void changeParagraphFormatting(isBulleted ? { numbering_num_id: '0', numbering_level: 0 } : { numbering_kind: 'bullet', numbering_level: 0 }) : undefined} />
+      {menu.anchor&&<ContextMenu anchor={menu.anchor} label="Document" onClose={menu.close} items={documentContextMenu({anchor:menu.anchor,target:!!target,values:toolbarValues,disabled:busy||composing,link:!!docxSelection(snapshot.preview.document,selected)?.run.can_edit_hyperlink&&!!(draft.length||selection?.run.text?.length)&&!textRange?.unsupported,table:false,onFormat:patch=>void changeFormatting(patch),onFind:()=>{setSearchOpen(true);requestAnimationFrame(()=>searchInput.current?.focus())},onRibbonTab:setRibbonTab})} />}
+    </>}
+    {statistics&&snapshot&&<EditorStatus label="Document status">
+      <span>Page {pageMetrics.page.toLocaleString()} of {pageMetrics.pages.toLocaleString()} · {statistics.words.toLocaleString()} {statistics.words===1?'word':'words'}</span>
+      <span className="office-status-info" tabIndex={0} role="note" aria-label="About these counts" title={`${statistics.characters.toLocaleString()} characters. Counts cover body text including tables; headers, footers, notes and hidden text are excluded. Pages are measured from the flowing preview — the original page layout is preserved in the file.`}>i</span>
+      {/* A page that ignores every click must say why, rather than look like a broken editor. */}
+      {!snapshot.targets.length && <span className="office-status-alert" role="status" title="No paragraph in this document can be edited yet, so clicking the page cannot place a caret.">No editable paragraphs</span>}
+      <span>{paragraphStyleName(snapshot.preview.document, selection?.paragraph ?? snapshot.preview.document.body.blocks.find(block=>block.paragraph)?.paragraph)}</span>
+    </EditorStatus>}
+    {!snapshot && !busy && <div className="office-empty">This file could not be opened. Choose another file to continue.</div>}
+  </div>
+}

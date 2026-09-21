@@ -1,0 +1,355 @@
+# @injoffice/pptx-render
+
+Deterministic, renderer-neutral PPTX preview compilation for InjOffice native
+decks. The package accepts only validated `NativePptxDeck` values from
+`@injoffice/pptx-native` and compiles one slide into an immutable
+`pptx-render-tree/v2` tree using integer EMU geometry. V2 adds authoritative
+multi-paragraph table-cell text bodies; hosts must branch on the version before
+reading table-cell text fields.
+
+The runtime has no UI framework, markup layout engine, browser global, device
+pixel input, or drawing-surface allocation. It is safe to run in a worker or on a
+server. Hosts may record paint commands or replay them through the generic
+Canvas2D command adapter using a context they created themselves.
+
+Pictures can retain `clip: 'roundRect'` for the exact default DrawingML preset
+(an empty `avLst`). Its radius is `min(width, height) * 16667 / 100000`, rounded
+once to integer EMU. The new `clipRoundRect` paint command clips the local shape
+frame after source cropping and composes with parent transforms. Host adapters
+must implement this command; unsupported presets and nonempty adjustment lists
+remain visible placeholders rather than unmasked images.
+
+Authored bullet fonts resolve only to an exact host-provided face, without a
+fallback override. A source `charset=2` bullet has a separate, narrowly qualified
+Windows symbol-byte policy: matching Macintosh-byte and Windows-symbol cmap
+entries select one glyph, and digest-bound hmtx/hhea metrics place that glyph.
+The original character and cluster remain unchanged. This is not Unicode
+substitution or general symbol-font shaping. Unsupported legacy encodings,
+shaping/variable fonts, ambiguous maps, and missing exact faces remain refused;
+no proprietary font bytes are bundled. The render run retains the encoding
+evidence, and diagnostics disclose that no GSUB/GPOS shaping is applied to the
+isolated symbol.
+
+Parsed default rounded rectangles, right arrows, hexagons, and pentagons use the DrawingML preset guide equations, rounded once
+to integer EMU, including shorter-side-dependent arrow/hexagon guides and the default 16667/100000 corner radius. Supported solid theme
+fill/outline references are resolved by the native extractor. These source-bound
+projections are read-only. Unsupported shape text is explicitly omitted while
+independently supported geometry remains visible; diagnostics must be shown by
+the host. These default presets use their DrawingML text rectangles followed
+by authored body insets; custom adjustments remain unsupported. Vertical text
+flow and autofit are not qualified by this geometry support. This is a partial preview, not a claim of
+complete slide or Microsoft Office fidelity.
+
+Geometry correction: callers of `presetPath` (including authored shapes) now get
+DrawingML defaults for these three presets. Rounded corners formerly used 1/8
+of the shorter side, arrows used a fixed 5/8-width shoulder, and hexagons used
+1/4-width corners. The corrected guides depend on the shorter side and change
+render-tree hashes. Sub-EMU corner radii round to zero, a valid square corner.
+Explicit `textBody` layout uses the corrected preset text rectangle; legacy
+paragraph placement without `textBody` retains its existing frame bounds.
+
+```ts
+import {
+  compileNativePptxSlide,
+  createRecordingPaintSurface,
+  paintSlideRenderTree,
+} from '@injoffice/pptx-render'
+import type { NativePptxTextLayout } from '@injoffice/pptx-render'
+import type { NativePptxDeck } from '@injoffice/pptx-native'
+
+declare const deck: NativePptxDeck
+declare const textLayout: NativePptxTextLayout
+
+const tree = await compileNativePptxSlide(deck, 'slide-id', { textLayout })
+const recording = createRecordingPaintSurface()
+paintSlideRenderTree(tree, recording)
+const commands = recording.finish()
+```
+
+## Text boundary
+
+`NativePptxTextLayout` requires the versioned font manifest, font resolver, and
+text shaper from `@injoffice/font-metrics/layout`. Every run is resolved, loaded,
+and shaped through that boundary. Glyph placement converts integer milli-points
+to integer EMU. The core never estimates width from character count or delegates
+measurement to a browser.
+
+The native run's optional `language` retains a bounded authored language tag and
+is passed to shaping ahead of host language defaults. An explicit host
+`resolveRun` language override still takes precedence. This does not qualify
+presentation-default cascade rules, autofit, vertical flow, or bullet font
+substitution; those remain separate rendering boundaries.
+
+The native run's optional `kerningThresholdHundredthPt` (0-400000) retains the
+authored DrawingML `kern` threshold from direct run properties or a shape-local
+list-style level. The compiler turns it into an explicit `kern` feature that is
+on when the run's font size reaches the threshold and off otherwise, replacing
+any host `kern` feature; other host `resolveRun` features pass through. Runs
+without a threshold keep the host feature list unchanged. Mutation requests that
+carry a threshold are refused rather than serialized. This does not qualify
+PowerPoint's kerning behaviour, autofit, or other inherited text defaults.
+
+Resolver, load, and shaper results are untrusted runtime inputs. The compiler
+normalizes exact known fields into fresh bounded objects, validates face identity,
+digests, decisions, attempted face IDs, metrics, glyphs, and clusters, and refuses
+unknown or malformed provider values before they can enter RenderTree.
+It snapshots the validated deck plus manifest/provider identities before the first
+call, requires an explicit manifest digest, hashes loaded bytes against the resolved face, derives line metrics from those exact bytes'
+design metrics, and caches one isolated authoritative plus one provider-facing
+resource per exact face. Resolve/load/shape calls, unique resources, individual
+and cumulative font bytes are all bounded (`64 MiB` per resource, `128 MiB`
+combined authoritative/provider-facing bytes, and at most `256` unique loads).
+
+PPTX native v1 carries exact integer text-body insets, square/no horizontal wrap,
+top/center/bottom vertical-anchor metadata, fixed no-autofit, and fixed overflow. The
+compiler projects that inner rectangle and wraps only at complete safe UTF-16
+clusters returned by the shaper and classified as allowed from their actual text
+by `@injoffice/font-metrics/layout`. The conservative v1 classifier handles
+NBSP/glue, word joiner, ZWSP, hyphen/slash, Han/Hangul boundaries, and common
+East-Asian opening/closing punctuation; Japanese kana/kinsoku and other
+unmodeled classes refuse. It ignores provider whitespace guesses and refuses an unmodeled
+line-break class. It never measures browser text or splits a surrogate pair,
+ligature, or unsafe cluster. An overfull unbreakable sequence is
+`text.wrapUnavailable` and paints as a visible placeholder. A single internal
+U+0020 is consumed only when its exact soft-wrap opportunity is used, so it cannot
+paint or skew center/right alignment at a line edge; `consumedSoftSeparators`
+retains its authored run and UTF-16 range. Ambiguous leading, trailing,
+consecutive/preserved spacing and U+3000 stay unchanged when they fit and refuse if
+a guessed break would be required. No-wrap remains one exact shaped line, may
+overflow, and bypasses cluster wrapping structures.
+
+Native line boxes require identical shaped ascent, descent, and line gap across all
+fragments. Mixed metrics visibly refuse as `text.metricsUnavailable`; center/bottom
+anchoring likewise refuses as `text.verticalAnchorUnavailable` until an
+Office-qualified leading and text-block-height rule exists. Top anchoring uses the
+validated natural metric box directly.
+Hosts may explicitly select `lineLayoutPolicy: 'max-run-natural-v1'` on
+`compileNativePptxSlide`. This measured, deterministic policy takes each line's
+maximum ascent, minimum descent, and maximum line gap from digest-bound shaped
+fragments, shares the resulting baseline across those fragments, and sums line
+boxes for vertical anchoring. Center offsets floor half-EMU remainders; bottom
+offsets use the full remainder, including negative offsets for overflowing text.
+Outputs carry `fidelity: 'deterministicNative'`, the policy identifier, and an
+explicit warning: these rules do not establish Office pixel equivalence.
+Omitting the option preserves the existing strict refusals. Unknown policies,
+unresolved fonts, unsupported bidi/wrapping, and malformed provider metrics still
+refuse; this option does not authorize font substitution or file mutation.
+Refused native bodies report `fidelity: nativeUnavailable`; only successfully
+qualified layout reports `fidelity: native`.
+
+Native bodies also require explicit alignment, list level zero, no bullet, and
+zero/absent paragraph margin and indent. The extractor now retains authored
+marker/indent metadata and resolves local list/paragraph/run style defaults,
+but marker shaping and indentation are not promoted to exact layout by that
+data extraction alone. The separately labeled approximate file preview uses
+the retained marker and paragraph offsets.
+The explicit `max-run-natural-v1` policy also supports source-defined margins,
+positive first-line indents and hanging character bullets. Markers are shaped
+from the first source run's exact face and rendered once, at `margin + indent`,
+on the first line's measured baseline. Content starts at `margin`; continuation
+lines retain that margin. Non-list first lines add their source indent to the
+text origin. Wrapping uses each line's resulting available width. Marker runs
+carry `sourceRole: 'paragraphBullet'`; their UTF-16 offsets refer to the authored
+marker, never to the content run. Explicit offsets are required for nonzero
+list levels. RTL/centered bullets, absent markers, or an indent too small for the
+measured marker still refuse. No numbering, tab stop, or indentation is invented.
+Self-contained resolved typeface/size runs layout while leftover
+layout/master/theme diagnostics stay preserve-only; missing fonts or unresolved
+`+mj-`/`+mn-` tokens become `text.inheritanceUnavailable` rather than host
+defaults. Those semantics refuse before any provider call instead of painting an
+unqualified paragraph. A provider failure in any run refuses the complete body;
+no successfully shaped sibling run is retained as a partial paragraph. Cluster
+offsets are fragment-relative while each fragment's `startUtf16`/`endUtf16` map
+it back to the authored source run.
+
+A native text body owns its inner rectangle and overflow semantics, so its
+enclosing text element/shape does not add a contradictory clip. Older additive-v1
+values without `textBody` remain valid but emit `text.layoutMetadataUnavailable`
+and use the explicitly non-faithful clipped compatibility preview.
+
+Exact extracted table cells use the same shaped native text-body boundary. Cell
+paragraphs and body metadata are an inseparable authority pair, while `text` is
+only a validator-bound newline-joined summary. Their explicit DrawingML margins
+define the inner text rectangle; exact overflow is not replaced by a fabricated
+cell clip. Legacy authored table cells without that pair keep their bounded,
+clipped compatibility preview. Table backgrounds and glyphs compile to ordinary
+renderer-neutral paint commands; neither table geometry nor text uses HTML or
+DOM layout.
+
+V1 still does not carry script, language, or direction; a host injects them in
+`resolveRun`. Native square wrapping currently requires one horizontal LTR
+direction. Mixed run directions or RTL square wrapping refuse native line layout
+instead of inventing paragraph bidi metadata. Legacy bodies without layout metadata
+retain the `text.bidiUnavailable` compatibility warning.
+Horizontal RTL shaping accepts the text shaper's complete descending cluster
+order while retaining returned glyph paint order. Vertical `ttb`/`btt` runs are
+explicitly refused as `text.verticalUnsupported` and paint as placeholders until
+the tree models vertical line progression.
+
+## Fail-closed rendering
+
+Pictures retain exact positive DrawingML source crop insets as optional `crop`
+on image nodes and image paint commands. Each inset uses 1/1000 percent
+(`100000` is the full source dimension); opposing sums are strictly below
+`100000`. Hosts must use the source rectangle
+`(width*left/100000, height*top/100000,
+width*(100000-left-right)/100000, height*(100000-top-bottom)/100000)`
+when drawing the original decoded image into the destination rectangle. Do not
+round to source pixels before sampling or ignore `crop`. Asset bytes, digests,
+destination geometry, transforms and z-order remain unchanged. Negative/outset
+and degenerate crops remain preserve-only and paint as visible placeholders.
+This additive v2 field requires crop-aware image adapters for cropped inputs;
+uncropped image commands are unchanged. The playground's native-file SVG preview
+uses the same normalized source viewport.
+
+- Refused elements become visible placeholder nodes.
+- Refused AutoShapes need no fabricated preset: element-scoped refusals compile
+  to durable-ID placeholders, while an independent slide-level refusal still
+  blocks the whole slide.
+- Preserve-only content always emits a diagnostic; opaque charts paint their
+  exact preview image (bytes + EMU) when present and refuse with a placeholder
+  when absent rather than inventing a chart renderer.
+- Text shaping refusal atomically refuses the body and becomes a recorded
+  placeholder command; partial sibling runs are never painted.
+- Asset references retain stable IDs, content digests, byte lengths, and a
+  truthful `resolutionSource`. Paint adapters resolve `assetId` plus digest from
+  the validated source deck when it says `sourceDeck`, or from a host store when
+  it says `host`; RenderTree never claims to contain the bytes. Host-backed assets
+  also produce a resolution diagnostic. Before decode or paint, the adapter must
+  verify resolved bytes against both `sha256` and `byteLength`.
+- Node, depth, glyph, paint-command, provider-call, unique-font-byte, coordinate, path, and referenced-asset
+  budgets prevent an accepted package from expanding without bound.
+
+Exact native shape outlines retain width, cap, join, solid dash, and miter limit
+in RenderTree and recording paint commands. Paint adapters must enact those
+properties; the core does not delegate line semantics to browser defaults. Outline
+and table-border widths are checked against the host coordinate budget before they
+enter the immutable tree, even after native-contract validation.
+
+Object arrays retain native z-order. Asset manifests are sorted by durable ID,
+map-like object keys are sorted by `stringifySlideRenderTree`, and canonical
+snapshots make drift visible in tests.
+
+See [PPTX-RENDER-TREE.md](../../docs/PPTX-RENDER-TREE.md) for the website migration
+boundary.
+
+`inheritedTextPreview: true` separately permits source-marked, read-only
+`source-latin-inheritance-approximate-v1` projections. Their text bodies remain
+`approximateInheritedText`, never exact. The renderer disables kerning for these
+text runs, including when the caller requests it; the isolated symbol-bullet
+metrics path remains unchanged. Source style ordering, omitted terminal metadata
+and possible wrapping/metrics differences must remain visible to users. This
+option does not enable source-frame autofit or grant editing permission.
+
+Every resolved text run records authored/selected font identity in
+`fontSelection`. A substituted/fallback face (including an explicit host family
+override) produces an independent diagnostic and `approximateFontSubstitution`
+text-body fidelity even if the resolver supplied no decisions. Existing
+source-frame and inherited-text diagnostics remain visible when policies combine.
+Digest-backed shaping is not a claim that substitute font metrics equal Office.
+
+`sourceFrameAutoFitPreview: true` separately opts into rendering explicitly
+marked `shape-source-frame` text bodies. Without it, those bodies remain refused
+even when `lineLayoutPolicy` is set. Opted-in bodies report
+`fidelity: 'approximateSourceFrame'` and a warning; they use the original frame
+without resizing and do not qualify Office-equivalent layout or editing rights.
+Under the same Go-side opt-in the extractor may also deliver run sizes already
+scaled by an authored `a:normAutofit` `fontScale`, plus the authored
+`lnSpcReduction` and `numCol`/`spcCol`; those elements arrive with
+`textBody.autoFit: 'none'` plus the
+`pptx.autofit-authored-scale-approximate` / `pptx.text-columns-approximate`
+compatibility warnings, which the renderer copies into its diagnostics and the
+preview worker gates behind `source_frame_autofit_preview`. For those elements
+only, an authored `textBody.lineSpacingReductionPercent1000` reduces the line
+pitch — the advance between consecutive baselines — by that percentage, per
+ECMA-376 21.1.2.1.3. Glyph sizes, measured line boxes and paragraph offsets are
+untouched (the authored `fontScale` already sized the runs). The leading a
+reduction removes comes off the **top** of each line box: the descent below the
+baseline is what the next line must clear, so it is preserved and the text rises
+inside its box by exactly the amount the box lost — the first baseline included.
+Measured against the PowerPoint 16.112.4 export of `font-scale.pptx`, whose
+first baseline sits one whole reduction above the natural ascent; leaving the
+first baseline pinned to the unreduced ascent pushed the whole block down.
+This is a declared read-only approximation of PowerPoint's saved autofit pass,
+not an Office-equivalent line-spacing model. For those elements an authored
+`textBody.columnCount` (2..16) with `textBody.columnSpacingEmu` flows the body
+through that many equal-width columns: column width is
+`(content width - (N-1)*spcCol) / N`, wrapping, alignment and indents are measured
+against one column, and lines fill a column top to bottom until the frame height
+is reached before continuing in the next one, left to right. `rtlCol` is not
+modeled, vertical and rotated-upright bodies refuse the projection with
+`text.textColumnsUnavailable`, vertical anchoring measures the tallest column,
+and overflow past the last column keeps the existing behaviour. Each such body
+reports one `text.authoredColumnsApproximate` warning; column balancing and line
+breaks are not Office-qualified.
+
+For elements the contract marked with `pptx.paragraph-spacing-approximate`, a
+paragraph's authored `lineSpacingEmu` replaces the measured line pitch and
+`lineSpacingPercent1000` scales the *single-spaced line height*, which is
+`1.2 x` the largest font size on the line rather than the face's own
+`ascent - descent + lineGap` box. An authored `lineSpacingReductionPercent1000`
+is *subtracted* from that percentage — 90% reduced by 20% is 70%, not 72% — and
+only scales the pitch when the authored spacing is absolute, which has no
+percentage to subtract from. The two readings agree whenever no `a:lnSpc` is
+authored, which is every element the reduction alone was measured on. The
+resulting pitch is taken out of the top of the line box, so a tighter authored
+spacing raises the baseline and an absolute spacing taller than the measured box
+adds its extra leading above the text. The reduction reaches the line spacing
+exactly once and never the paragraph gaps.
+
+The `1.2 x` base is read from the PowerPoint 16.112.4 PDF exports of
+`3columns.pptx` and `font-scale.pptx`, taken from their saved text matrices
+rather than from a raster. `3columns.pptx` (Calibri 15pt, `a:lnSpc` 90% less a
+20% `lnSpcReduction`) advances 188.88pt over 15 lines — 12.592pt per line
+against `1.2 x 15 x 70% = 12.6pt`, where Calibri's own 1.2207 em box predicts
+12.817pt. `font-scale.pptx` (Calibri 27pt after `fontScale`, `a:lnSpc` 100% less
+a 20% `lnSpcReduction`) advances 78.0pt over 3 lines against
+`1.2 x 27 x 80% = 25.92pt` per line, where the font box predicts 26.367pt. Both
+exports quantise baselines to 1/300in, which covers the whole residual on the
+`1.2` reading and none of it on the font-box reading. A body with no authored
+percentage and no reduction keeps the measured natural box, which is what
+ECMA-376 21.1.2.2.5 defines for an omitted `a:lnSpc`, and the face's box remains
+the line height used for overflow, column breaks and anchoring. PowerPoint's
+*omitted*-`a:lnSpc` line height is not 1.2 em either — the
+`bulletMarginAndIndent.pptx` export advances 21.12pt at Calibri 18pt, which is
+neither `1.2 x 18` nor the 1.2207 em box — so that path is left unmodeled.
+`spaceBeforeEmu` and `spaceAfterEmu` are added
+only between paragraphs — never above the first or below the last — so the
+measured block height and the vertical anchor are unchanged, and a column break
+resets the column origin so a gap never survives into the next column. Each such
+body reports one `text.authoredParagraphSpacingApproximate` warning. Under either
+approximate opt-in (`sourceFrameAutoFitPreview`, or `inheritedTextPreview` for a
+source-marked inherited element) a run wider than the text body with no Unicode
+break opportunity is broken at the last shaped cluster that fits, reported as
+the `text.emergencyBreakApproximate` warning; strict layout still refuses it,
+and a single overfull cluster is never split.
+
+Source-explicit unmerged table cells retain top, center, and bottom vertical
+anchors. Center/bottom painting requires the explicit `max-run-natural-v1`
+line policy, just like other native text bodies; the default compiler still
+refuses these placements. Insets bound the text area before the signed anchor
+offset is applied. Table styles, merges, distributed/justified vertical anchors,
+and horizontal `anchorCtr` remain outside this extraction subset. This does not
+qualify PowerPoint line metrics or style inheritance.
+
+`literalPiePreview: true` enables a bounded vector preview for extracted charts
+with `chart.literalPie.profile === 'literal-pie-v1'`. This is source **literal**
+data, not workbook/formula cache interpretation. The Go/WASM extractor accepts
+one 2D pie series with 1–64 positive integer values (maximum 1,000,000,000), an
+explicit first-slice angle, contiguous source point indices, explicit RGB fill
+and no line for every point, and explicit transparent chart/plot backgrounds.
+Unsupported markup leaves the complete chart opaque and the existing packaged
+image fallback unchanged. Charts remain read-only/preserve-only.
+
+The declared host policy uses an inscribed circle centered in the source frame,
+clockwise angles from up, polygon chords spanning at most two degrees, and one
+final integer-EMU rounding. It does not qualify PowerPoint plot fitting or arc
+fidelity. No title, legend, category/label, axis, cache, formula, theme paint,
+explosion, 3D, extension, or effect semantics are accepted. The preview emits
+`chart.literalPiePreview`; omission of the opt-in retains packaged-image behavior.
+`createNativeLiteralPiePaths(pie, cx, cy)` exposes the same bounded paths for
+standalone host views. The PPTX playground has an explicit source-literal chart
+preview checkbox and shows unsupported charts without inventing their values.
+
+Source model: [Microsoft's DrawingML first-slice angle documentation](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.charts.firstsliceangle?view=openxml-3.0.1).
+Independent PowerPoint exports and measured rendering fidelity are still pending.

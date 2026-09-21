@@ -1,0 +1,277 @@
+import {fixture as chartWorkbookFixture} from '../../pptx-native/test/chartWorkbookFixture.js'
+import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { describe, expect, it } from 'vitest'
+import {
+  NATIVE_WASM_WORKER_PROTOCOL,
+  NATIVE_WASM_WORKER_VERSION,
+  type NativeWasmMessageEvent,
+  type NativeWasmWorker,
+  type NativeWasmWorkerErrorEvent,
+  type NativeWasmWorkerRequest,
+  type NativeWasmWorkerResponse,
+} from '@injoffice/native-runtime'
+import type { NativeElement, NativePptxDeck } from '@injoffice/pptx-native'
+import {
+  PPTX_WASM_NATIVE_MAX_PACKAGE_BYTES,
+  PptxNativeContractError,
+  createPptxWasmClient,
+  resolvePptxWasmAssetUrls,
+  type PptxNativeExactParagraphV1,
+} from './index'
+
+const fixtureJson = readFileSync(new URL('../../../go/pptxpatch/testdata/native-contract/valid/parsed-full.json', import.meta.url), 'utf8').trim()
+const fixtureDeck = JSON.parse(fixtureJson) as NativePptxDeck
+fixtureDeck.sourceRevision = `rev-${'a'.repeat(64)}`
+const runtimeFixtureJson = JSON.stringify(fixtureDeck)
+
+class FakeWorker implements NativeWasmWorker {
+  readonly requests: NativeWasmWorkerRequest[] = []
+  terminated = false
+  private readonly messageListeners = new Set<(event: NativeWasmMessageEvent) => void>()
+  private readonly errorListeners = new Set<(event: NativeWasmWorkerErrorEvent) => void>()
+
+  constructor(private readonly extractJson = runtimeFixtureJson, private readonly inspectionJson?: string) {}
+
+  postMessage(value: unknown, _transfer: ArrayBuffer[]): void {
+    const request = value as NativeWasmWorkerRequest
+    this.requests.push(request)
+    if (request.op === 'init') this.respond(success(request))
+    else if (request.op === 'extract') this.respond(success(request, { contractJson: this.extractJson }))
+    else if (request.op === 'inspect' || request.op === 'chartWorkbooks') this.respond(success(request, { contractJson: this.inspectionJson ?? '{}' }))
+    else this.respond(success(request, { bytes: new Uint8Array([7, 8, 9]).buffer }))
+  }
+
+  terminate(): void { this.terminated = true }
+
+  addEventListener(type: 'message' | 'error', listener: ((event: NativeWasmMessageEvent) => void) | ((event: NativeWasmWorkerErrorEvent) => void)): void {
+    if (type === 'message') this.messageListeners.add(listener as (event: NativeWasmMessageEvent) => void)
+    else this.errorListeners.add(listener as (event: NativeWasmWorkerErrorEvent) => void)
+  }
+
+  removeEventListener(type: 'message' | 'error', listener: ((event: NativeWasmMessageEvent) => void) | ((event: NativeWasmWorkerErrorEvent) => void)): void {
+    if (type === 'message') this.messageListeners.delete(listener as (event: NativeWasmMessageEvent) => void)
+    else this.errorListeners.delete(listener as (event: NativeWasmWorkerErrorEvent) => void)
+  }
+
+  private respond(response: NativeWasmWorkerResponse): void {
+    queueMicrotask(() => this.messageListeners.forEach((listener) => listener({ data: response })))
+  }
+}
+
+describe('browser table inspection source ownership', () => {
+  const bytes = new Uint8Array([1, 2, 3])
+  const sha = createHash('sha256').update(bytes).digest('hex')
+  const deck = { ...fixtureDeck, sourceRevision: `rev-${sha}` }
+  const inspection = { protocol: 'pptx-table-content-inspection-v1', package_sha256: sha, source_revision: `rev-${sha}`, tables: [], omissions: [] }
+  it('binds its own bytes and returns no extraction capabilities', async () => {
+    const worker = new FakeWorker(JSON.stringify(deck), JSON.stringify(inspection))
+    const client = createPptxWasmClient({ workerFactory: () => worker })
+    const source = new Uint8Array(bytes)
+    const pending = client.inspectTables(source)
+    source.fill(9)
+    await expect(pending).resolves.toEqual(inspection)
+    expect(worker.requests.map(r => r.op)).toEqual(['init', 'extract', 'inspect'])
+    client.terminate()
+  })
+  it('terminates on a hash-mismatched or malformed inspection response', async () => {
+    for (const json of [JSON.stringify({ ...inspection, package_sha256: 'f'.repeat(64) }), '{}', 'invalid json']) {
+      const worker = new FakeWorker(JSON.stringify(deck), json)
+      const client = createPptxWasmClient({ workerFactory: () => worker })
+      await expect(client.inspectTables(bytes)).rejects.toThrow()
+      expect(worker.terminated).toBe(true)
+    }
+  })
+  it('refuses pre-aborted inspection before starting a worker', async () => {
+    let created = false
+    const client = createPptxWasmClient({ workerFactory: () => { created = true; return new FakeWorker() } })
+    const abort = new AbortController(); abort.abort()
+    await expect(client.inspectTables(bytes, { signal: abort.signal })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(created).toBe(false)
+  })
+})
+
+const success = (request: NativeWasmWorkerRequest, result?: unknown): NativeWasmWorkerResponse => ({
+  protocol: NATIVE_WASM_WORKER_PROTOCOL,
+  version: NATIVE_WASM_WORKER_VERSION,
+  id: request.id,
+  format: request.format,
+  op: request.op,
+  ok: true,
+  ...(request.op === 'init' ? {} : { result }),
+} as NativeWasmWorkerResponse)
+
+function visit(elements: ReadonlyArray<NativeElement>, predicate: (element: NativeElement) => boolean): NativeElement | undefined {
+  for (const element of elements) {
+    if (predicate(element)) return element
+    if (element.kind === 'group') {
+      const child = visit(element.children, predicate)
+      if (child) return child
+    }
+  }
+}
+
+function textMutation(deck = fixtureDeck) {
+  const target = deck.slides.flatMap((slide) => slide.elements).map((element) => visit([element], (item) => (item.kind === 'text' || item.kind === 'shape') && item.source !== undefined && item.paragraphs !== undefined)).find(Boolean)
+  if (!target || (target.kind !== 'text' && target.kind !== 'shape') || !target.source || !target.paragraphs) throw new Error('fixture has no editable exact text')
+  const paragraphs: PptxNativeExactParagraphV1[] = target.paragraphs.map((paragraph) => ({
+    align: paragraph.align ?? 'left',
+    level: paragraph.level ?? 0,
+    bullet: false,
+    runs: paragraph.runs.map((run) => ({
+      text: run.text,
+      bold: run.bold ?? false,
+      italic: run.italic ?? false,
+      fontSizeHundredthPt: run.fontSizeHundredthPt ?? 1800,
+      color: run.color ?? '000000',
+      fontFamily: run.fontFamily ?? 'Arial',
+    })),
+  }))
+  paragraphs[0]!.runs[0]!.text += ' edited'
+  return {
+    expectedSourceRevision: deck.sourceRevision!,
+    operations: [{
+      operationId: 'replace-title',
+      kind: 'text.replace' as const,
+      elementId: target.id,
+      expectedFingerprintSha256: target.source.fingerprintSha256,
+      paragraphs,
+    }],
+  }
+}
+
+describe('PPTX WASM package client', () => {
+  it('resolves package-relative defaults and exact overrides', () => {
+    expect(resolvePptxWasmAssetUrls()).toMatchObject({
+      workerUrl: expect.stringMatching(/\/pptxnative\.worker\.js$/),
+      wasmUrl: expect.stringMatching(/\/pptxnative\.wasm$/),
+      goRuntimeUrl: expect.stringMatching(/\/wasm_exec\.js$/),
+    })
+    expect(resolvePptxWasmAssetUrls({
+      workerUrl: new URL('https://cdn.example/worker.js'),
+      wasmUrl: 'https://cdn.example/engine.wasm',
+      goRuntimeUrl: 'https://cdn.example/go.js',
+    })).toEqual({ workerUrl: 'https://cdn.example/worker.js', wasmUrl: 'https://cdn.example/engine.wasm', goRuntimeUrl: 'https://cdn.example/go.js' })
+  })
+
+  it('is lazy, validates extraction, and sends a typed CAS-bound mutation', async () => {
+    const worker = new FakeWorker()
+    let calls = 0
+    const client = createPptxWasmClient({
+      workerUrl: '/worker.js', wasmUrl: '/engine.wasm', goRuntimeUrl: '/go.js',
+      workerFactory: (url) => { calls++; expect(url).toBe('/worker.js'); return worker },
+    })
+    expect(calls).toBe(0)
+    const deck = await client.extract(new Uint8Array([1, 2, 3]))
+    expect(deck.contractVersion).toBe('pptx-native/v1')
+    expect(calls).toBe(1)
+    await expect(client.apply(new Uint8Array([1]), deck, textMutation(deck))).resolves.toEqual(new Uint8Array([7, 8, 9]))
+    expect(worker.requests.map(({ op }) => op)).toEqual(['init', 'extract', 'apply'])
+    expect(worker.requests[2]).toMatchObject({
+      expectedRevision: `sha256:${deck.sourceRevision!.slice(4)}`,
+    })
+    const applyRequest = worker.requests[2]
+    if (applyRequest?.op !== 'apply' || typeof applyRequest.payload !== 'string') throw new Error('missing apply request')
+    expect(JSON.parse(applyRequest.payload)).toEqual(textMutation(deck))
+  })
+
+  it('terminates on malformed or schema-invalid extraction JSON', async () => {
+    for (const invalid of ['{', '{"contractVersion":"pptx-native/v1"}']) {
+      const worker = new FakeWorker(invalid)
+      const client = createPptxWasmClient({ workerFactory: () => worker })
+      await expect(client.extract(new Uint8Array([1]))).rejects.toBeInstanceOf(PptxNativeContractError)
+      expect(worker.terminated).toBe(true)
+    }
+  })
+
+  it('refuses unsupported, stale, and structurally invalid mutations before worker use', () => {
+    let calls = 0
+    const client = createPptxWasmClient({ workerFactory: () => { calls++; return new FakeWorker() } })
+    const mutation = textMutation()
+    expect(() => client.apply(new Uint8Array([1]), fixtureDeck, { ...mutation, expectedSourceRevision: `rev-${'0'.repeat(64)}` })).toThrow(/sourceRevision/)
+    expect(() => client.apply(new Uint8Array([1]), fixtureDeck, {
+      ...mutation,
+      operations: [{ ...mutation.operations[0], kind: 'slide.unsupported' } as never],
+    })).toThrow(/Unsupported PPTX native mutation kind/)
+    expect(() => client.apply(new Uint8Array([1]), fixtureDeck, {
+      ...mutation,
+      operations: [{ ...mutation.operations[0], unexpected: true } as never],
+    })).toThrow(/unknown field/)
+    expect(calls).toBe(0)
+  })
+
+  it('enforces package and UTF-8 payload limits synchronously', () => {
+    let calls = 0
+    const packageClient = createPptxWasmClient({ maxPackageBytes: 2, workerFactory: () => { calls++; return new FakeWorker() } })
+    expect(() => packageClient.extract(new Uint8Array([1, 2, 3]))).toThrow(/maxPackageBytes is 2/)
+    const payloadClient = createPptxWasmClient({ maxMutationPayloadBytes: 256, workerFactory: () => { calls++; return new FakeWorker() } })
+    const mutation = textMutation()
+    mutation.operations[0].paragraphs[0]!.runs[0]!.text = '🚀'.repeat(100)
+    expect(() => payloadClient.apply(new Uint8Array([1]), fixtureDeck, mutation)).toThrow(/UTF-8 bytes/)
+    expect(() => createPptxWasmClient({ maxPackageBytes: PPTX_WASM_NATIVE_MAX_PACKAGE_BYTES + 1 })).toThrow(/maxPackageBytes/)
+    expect(calls).toBe(0)
+  })
+
+  it('keeps construction SSR-safe and reports missing Worker on use', async () => {
+    const client = createPptxWasmClient()
+    await expect(client.extract(new Uint8Array([1]))).rejects.toMatchObject({ code: 'WORKER_UNAVAILABLE', fatal: true })
+  })
+})
+
+describe('browser workbook inspection source ownership',()=>{
+ const bytes=new Uint8Array([1,2,3]),sha=createHash('sha256').update(bytes).digest('hex')
+ function inputs(){const {deck,result}=chartWorkbookFixture();deck.sourceRevision=`rev-${sha}`;result.package_sha256=sha;result.source_revision=deck.sourceRevision;return {deck,result}}
+ it('snapshots bytes before asynchronous hashing and joins both native operations',async()=>{
+  const {deck,result}=inputs(),worker=new FakeWorker(JSON.stringify(deck),JSON.stringify(result)),client=createPptxWasmClient({workerFactory:()=>worker}),source=bytes.slice()
+  const pending=client.inspectChartWorkbooks(source);source.fill(9)
+  const inspection=await pending;expect(inspection).toEqual(result);expect(Object.isFrozen(inspection.charts[0])).toBe(true)
+  expect(worker.requests.map(r=>r.op)).toEqual(['init','extract','chartWorkbooks'])
+  for(const request of worker.requests)if(request.op==='extract'||request.op==='chartWorkbooks')expect([...new Uint8Array(request.bytes)]).toEqual([1,2,3])
+  client.terminate()
+ })
+ it('terminates malformed or mismatched engine responses',async()=>{
+  const {deck,result}=inputs()
+  for(const json of ['{}','invalid',JSON.stringify({...result,package_sha256:'f'.repeat(64)})]){
+   const worker=new FakeWorker(JSON.stringify(deck),json),client=createPptxWasmClient({workerFactory:()=>worker})
+   await expect(client.inspectChartWorkbooks(bytes)).rejects.toThrow();expect(worker.terminated).toBe(true)
+  }
+ })
+ it('refuses cancellation before creating the worker',async()=>{
+  let created=false;const client=createPptxWasmClient({workerFactory:()=>{created=true;return new FakeWorker()}}),abort=new AbortController();abort.abort()
+  await expect(client.inspectChartWorkbooks(bytes,{signal:abort.signal})).rejects.toMatchObject({name:'AbortError'});expect(created).toBe(false)
+ })
+})
+
+describe('source-bound slide mutations', () => {
+  const slide = fixtureDeck.slides[0]!
+  const base = { operationId: 'slide-edit', slideId: slide.id, expectedFingerprintSha256: slide.source!.fingerprintSha256 }
+  it.each(['slide.insert', 'slide.background.set'] as const)('sends %s without an element target and snapshots the payload', async kind => {
+    const worker = new FakeWorker()
+    const client = createPptxWasmClient({ workerFactory: () => worker })
+    const operation = kind === 'slide.insert' ? { ...base, kind } : { ...base, kind, fill: '2459AD' }
+    const request = { expectedSourceRevision: fixtureDeck.sourceRevision!, operations: [operation] }
+    const expected = structuredClone(request)
+    const pending = client.apply(new Uint8Array([1]), fixtureDeck, request)
+    operation.slideId = 'changed-after-apply'
+    await pending
+    const apply = worker.requests.find(request => request.op === 'apply')!
+    if (apply.op !== 'apply') throw new Error('missing mutation')
+    expect(JSON.parse(apply.payload as string)).toEqual(expected)
+    expect(apply.expectedRevision).toBe(`sha256:${fixtureDeck.sourceRevision!.slice(4)}`)
+    client.terminate()
+  })
+  it('refuses stale, missing, mixed and malformed slide targets before creating a worker', () => {
+    let calls = 0
+    const client = createPptxWasmClient({ workerFactory: () => { calls++; return new FakeWorker() } })
+    const valid = { ...base, kind: 'slide.background.set' as const, fill: '2459AD' }
+    for (const operations of [
+      [{ ...valid, expectedFingerprintSha256: '0'.repeat(64) }],
+      [{ ...valid, slideId: 'missing' }],
+      [{ ...valid, fill: '#2459AD' }],
+      [{ ...valid, elementId: 'bogus' }],
+      [valid, { ...valid, operationId: 'second' }],
+      [{ ...valid, kind: 'slide.insert' as const }],
+    ]) expect(() => client.apply(new Uint8Array([1]), fixtureDeck, { expectedSourceRevision: fixtureDeck.sourceRevision!, operations })).toThrow()
+    expect(calls).toBe(0)
+  })
+})

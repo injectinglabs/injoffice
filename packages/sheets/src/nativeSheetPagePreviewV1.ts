@@ -1,0 +1,197 @@
+import {compiledNativeSheetGeometrySourcePart,isCompiledNativeSheetGeometryV2,isCompiledNativeStoredRowSheetGeometryV1,type NativeSheetGeometryV2,type NativeSheetGeometryRectV2,type NativeSheetViewportV2,snapshotNativeSheetViewportV2} from './nativeSheetGeometryV2.js'
+import {decodeNativeWorkbookObjectsV1,type NativeWorkbookObjectsV1} from './nativeObjectsPreviewV1.js'
+import {decodeNativeSheetPageSettingsV1,type NativeSheetPageConfigV1} from './nativeSheetPageSettingsV1.js'
+import {snapshotNativePlainData} from './nativePlainData.js'
+
+export interface NativeSheetHostPagePolicyV1 extends NativeSheetPageConfigV1 {
+ kind:'explicit-host-page-policy-v1'
+}
+export interface NativeSheetPagePreviewOptionsV1 {repeat_print_titles:true;body_viewport?:NativeSheetViewportV2}
+export interface NativeSheetPreviewRegionV1 {
+ kind:'body'|'repeat-rows'|'repeat-columns'|'repeat-corner';
+ source_clip:NativeSheetGeometryRectV2;
+ translate_x_emu:number;translate_y_emu:number;
+ rows:{start:number;end:number};columns:{start:number;end:number};
+}
+export interface NativeSheetPreviewPageV1 {
+ number:number;
+ width_emu:number;height_emu:number;
+ content_clip:NativeSheetGeometryRectV2;
+ source_clip:NativeSheetGeometryRectV2;
+ /** Map viewport-local native paint into this page: x * scale + translate_x. */
+ scale:number;translate_x_emu:number;translate_y_emu:number;
+ rows:{start:number;end:number};columns:{start:number;end:number};
+ /** Explicit source-title repetition only. Paint each region once with this page's scale. */
+ regions?:NativeSheetPreviewRegionV1[];
+}
+export interface NativeSheetPagePreviewV1 {
+ protocol:'injoffice.xlsx.selected-range-pages';version:1;
+ fidelity:'approximate';read_only:true;
+ document_id:string;sheet_id:string;source_revision:string;source_package_sha256:string;
+ geometry_sha256:string;
+ /** The `-clipped-oversize-band-v1` policies additionally cut the painted extent of
+  * a single row or column that alone exceeds the printable area. Band ranges,
+  * merges and page counts stay whole-band; only `source_clip` is truncated. */
+ policy:'whole-bands-down-then-over-v1'|'whole-bands-over-then-down-v1'
+  |'whole-bands-down-then-over-clipped-oversize-band-v1'|'whole-bands-over-then-down-clipped-oversize-band-v1';
+ settings_origin:'source'|'explicit-host';settings:NativeSheetPageConfigV1;
+ warnings:string[];pages:NativeSheetPreviewPageV1[];
+}
+
+/** Read-only pagination of an explicitly selected viewport, not Excel's print engine.
+ * Geometry must originate from exact-font, source-bound native compilation.
+ * Host overrides are explicit choices and never treated as authored settings.
+ */
+export function compileNativeSheetPagePreviewV1(
+ geometry:NativeSheetGeometryV2,objects:NativeWorkbookObjectsV1,hostPolicy?:NativeSheetHostPagePolicyV1,
+ options?:NativeSheetPagePreviewOptionsV1,
+):NativeSheetPagePreviewV1 {
+ if(!isCompiledNativeSheetGeometryV2(geometry)&&!isCompiledNativeStoredRowSheetGeometryV1(geometry))throw new TypeError('Page preview requires compiled source-qualified sheet geometry')
+ const source=decodeNativeWorkbookObjectsV1(objects,geometry.source_package_sha256)
+ let bodyViewport=geometry.viewport
+ if(options!==undefined){
+  const value=snapshotNativePlainData(options,{maxDepth:3,maxNodes:12}) as Record<string,unknown>
+  if(!value||Array.isArray(value)||Object.keys(value).length!==1+Number(Object.hasOwn(value,'body_viewport'))||value.repeat_print_titles!==true)throw new TypeError('Repeated print titles require the explicit repeat_print_titles: true option')
+  if(Object.hasOwn(value,'body_viewport'))bodyViewport=snapshotNativeSheetViewportV2(value.body_viewport)
+  if(bodyViewport.row<geometry.viewport.row||bodyViewport.column<geometry.viewport.column||bodyViewport.end_row>geometry.viewport.end_row||bodyViewport.end_column>geometry.viewport.end_column)throw new RangeError('Body viewport must be fully contained in compiled geometry')
+ }
+ const titles=options===undefined?undefined:source.print_titles?.find(s=>s.sheet_id===geometry.sheet_id)
+ if(options!==undefined&&(!titles||titles.sheet_part!==compiledNativeSheetGeometrySourcePart(geometry)||titles.status!=='available'))throw new TypeError('Saved print titles unavailable or do not join the source worksheet part')
+ const candidates=source.page_settings?.filter(s=>s.sheet_id===geometry.sheet_id)??[]
+ if(candidates.length!==1)throw new TypeError('Page settings do not join the source worksheet')
+ const pageSettings=candidates[0]!
+ if(pageSettings.sheet_part!==compiledNativeSheetGeometrySourcePart(geometry))throw new TypeError('Page settings do not join the source worksheet part')
+ let settings:NativeSheetPageConfigV1
+ if(hostPolicy!==undefined){
+  hostPolicy=snapshotNativePlainData(hostPolicy,{maxDepth:4,maxNodes:64}) as NativeSheetHostPagePolicyV1
+  const copy=Object.getOwnPropertyDescriptors(hostPolicy)
+  if(!copy.kind||!('value'in copy.kind)||copy.kind.value!=='explicit-host-page-policy-v1'||Object.keys(copy).length!==8+['header_inches','footer_inches','page_order','fit_to_page'].filter(key=>Object.hasOwn(copy,key)).length||Object.values(copy).some(d=>!('value'in d)))throw new TypeError('Host page choices must be explicit plain data')
+  const {kind:_,...config}=hostPolicy
+  settings=decodeNativeSheetPageSettingsV1([{sheet_id:pageSettings.sheet_id,sheet_part:pageSettings.sheet_part,status:'available',settings:config,warnings:['Explicit host choices']}])[0]!.settings!
+ }else{
+  if(pageSettings.status!=='available'||!pageSettings.settings)throw new TypeError('Source page settings unavailable; an explicit host page policy is required')
+  settings=pageSettings.settings
+ }
+ // A4 is exactly 210 by 297 mm; Letter is exactly 8.5 by 11 inches.
+ const size=settings.paper==='A4'?[7560000,10692000]:[7772400,10058400]
+ const [width,height]=settings.orientation==='landscape'?[size[1]!,size[0]!]:[size[0]!,size[1]!]
+ const inch=(n:number)=>Math.round(n*914400)
+ // ECMA-376 §18.3.1.62 measures every margin from the paper edge, so the header
+ // and footer bands overlap the top and bottom margins rather than adding to
+ // them: Excel's body runs from max(top, header) to max(bottom, footer). A
+ // header margin deeper than the top margin therefore takes body height away,
+ // and ignoring it silently prints more rows per page than Excel does.
+ const left=inch(settings.left_inches),right=inch(settings.right_inches)
+ const top=Math.max(inch(settings.top_inches),inch(settings.header_inches??0))
+ const bottom=Math.max(inch(settings.bottom_inches),inch(settings.footer_inches??0))
+ const cw=width-left-right,ch=height-top-bottom
+ let scale=settings.scale/100
+ if(cw<=0||ch<=0)throw new RangeError('Page margins leave no printable area')
+ // Excel breaks pages on whole row and column boundaries and clips only the
+ // single band that alone exceeds the printable area, so a clipped group is
+ // still a whole band range: `length` stays logical for merges, band ranges and
+ // page counts, and `clipped` cuts the painted extent alone. Clipping is offered
+ // to the authored-scale pass only, so the fit-to-page search never reaches it.
+ const split=(bands:readonly {index:number;at:number;length:number}[],capacity:number,clip=false)=>{
+  const result:{start:number;end:number;at:number;length:number;clipped?:number}[]=[]
+  let current:typeof result[number]|undefined
+  for(const b of bands){
+   if(b.length===0)continue
+   if(b.length>capacity){
+    if(!clip)throw new RangeError('A source row or column exceeds one page; no silent clipping or rescaling')
+    result.push({start:b.index,end:b.index,at:b.at,length:b.length,clipped:capacity})
+    current=undefined
+    continue
+   }
+   if(!current||b.at>current.at+current.length||b.at+b.length-current.at>capacity){current={start:b.index,end:b.index,at:b.at,length:b.length};result.push(current)}
+   else {current.end=b.index;current.length=b.at+b.length-current.at}
+  }
+  return result
+ }
+ const allRows=geometry.rows.map(r=>({index:r.row,at:r.y_emu,length:r.height_emu}))
+ const allColumns=geometry.columns.map(c=>({index:c.column,at:c.x_emu,length:c.width_emu}))
+ const partition=(bands:typeof allRows,range:{start:number;end:number}|undefined,start:number,end:number)=>{
+  const selectedBody=bands.filter(b=>b.index>=start&&b.index<=end)
+  if(!range)return {body:selectedBody,title:undefined}
+  if(range.start<bands[0]!.index||range.end>bands[bands.length-1]!.index)throw new RangeError('Saved print titles must be fully contained in compiled geometry')
+  const selected=bands.filter(b=>b.index>=range.start&&b.index<=range.end)
+  const body=selectedBody.filter(b=>b.index<range.start||b.index>range.end)
+  if(!body.length)throw new RangeError('Saved print titles must leave body rows or columns')
+  const visible=selected.filter(b=>b.length>0)
+  if(!visible.length||!body.some(b=>b.length>0))throw new RangeError('Saved print titles and body must each include visible rows or columns')
+  const first=visible[0]!,last=visible[visible.length-1]!
+  return {body,title:{start:range.start,end:range.end,at:first.at,length:last.at+last.length-first.at}}
+ }
+ const rp=partition(allRows,titles?.rows,bodyViewport.row,bodyViewport.end_row),cp=partition(allColumns,titles?.columns,bodyViewport.column,bodyViewport.end_column)
+ const rowBands=rp.body,columnBands=cp.body,tr=rp.title,tc=cp.title
+ const titleHeight=tr?.length??0,titleWidth=tc?.length??0
+ const activeRows=[...split(rowBands,Infinity),...(tr?[tr]:[])],activeColumns=[...split(columnBands,Infinity),...(tc?[tc]:[])]
+ const intersects=(start:number,end:number,bands:typeof activeRows)=>bands.some(b=>start<=b.end&&end>=b.start)
+ const paintedMerges=geometry.merged_ranges.filter(m=>intersects(m.row,m.end_row,activeRows)&&intersects(m.column,m.end_column,activeColumns))
+ if(titles&&paintedMerges.some(({rect:r})=>!activeRows.some(b=>r.y_emu>=b.at&&r.y_emu+r.height_emu<=b.at+b.length)||!activeColumns.some(b=>r.x_emu>=b.at&&r.x_emu+r.width_emu<=b.at+b.length)))throw new RangeError('A merged cell crosses a repeated-title region boundary')
+ const within=(bands:readonly {at:number;length:number}[],at:number,length:number)=>bands.some(b=>at>=b.at&&at+length<=b.at+b.length)
+ const mergeFits=(rows:ReturnType<typeof split>,columns:ReturnType<typeof split>,r:NativeSheetGeometryRectV2)=>
+  within([...rows,...(tr?[tr]:[])],r.y_emu,r.height_emu)&&within([...columns,...(tc?[tc]:[])],r.x_emu,r.width_emu)
+ const mergesFit=(rows:ReturnType<typeof split>,columns:ReturnType<typeof split>)=>paintedMerges.every(({rect})=>mergeFits(rows,columns,rect))
+ const fit=settings.fit_to_page
+ if(fit){
+  // Bounded, explicit approximation: greatest whole-percent shrink satisfying
+  // actual whole-band pagination. Source percentage is retained but not applied.
+  // This search still requires merged cells to stay whole, and says so when no
+  // scale meets the target: it chooses a scale rather than reproducing one, so
+  // there is no Excel output to tell it which split to prefer. The authored
+  // scale above has one, which is why only that path splits.
+  let found=false
+  for(let percent=100;percent>=10;percent--){
+   const candidate=percent/100,rc=Math.floor(ch/candidate)-titleHeight,cc=Math.floor(cw/candidate)-titleWidth
+   if(rowBands.some(b=>b.length>rc)||columnBands.some(b=>b.length>cc))continue
+   const r=split(rowBands,rc),c=split(columnBands,cc)
+   if((fit.height===0||r.length<=fit.height)&&(fit.width===0||c.length<=fit.width)&&r.length*c.length<=100&&mergesFit(r,c)){scale=candidate;found=true;break}
+  }
+  if(!found)throw new RangeError('Fit-to-page target cannot be met between 10% and 100% within the 100-page preview budget without splitting merged cells')
+ }
+ const rowCapacity=Math.floor(ch/scale)-titleHeight,columnCapacity=Math.floor(cw/scale)-titleWidth
+ // A repeated print-title band that alone fills the page would be truncated on
+ // every page it is repeated onto, so it refuses rather than clipping.
+ if(rowCapacity<=0||columnCapacity<=0)throw new RangeError(`${titles?'A repeated print-title row or column':'The page scale and margins leave no band capacity; a source row or column'} exceeds one page; no silent clipping or rescaling`)
+ const rows=split(rowBands,rowCapacity,!fit)
+ const columns=split(columnBands,columnCapacity,!fit)
+ if(rows.length*columns.length>100)throw new RangeError('Worksheet page preview exceeds 100 pages')
+ // Excel splits a merged cell that straddles a page break; it neither moves the
+ // merge nor drops the page. Its own export of the hard-v2 corpus workbook
+ // `cell-anchored-hidden-shapes` prints four pages whose cell-paint clips are
+ // 430.4 and 101.6 points at the authored 80% scale — 538 and 127 points of
+ // source, the same two whole-band columns this preview computes — and paints
+ // each full-width `A:H` merge on both column bands: the second band repeats
+ // the merge's fill from the page's own left edge and re-places its text at the
+ // merge origin, 538 source points off that edge, letting the page clip cut it.
+ // Hosts map viewport-local paint and clip it to each page's `source_clip`, so
+ // keeping the whole-band pages and naming the split reproduces exactly that.
+ // Refusing the worksheet did not: it produced no pages at all.
+ //
+ // A merge that no contiguous band run contains — one that leaves the compiled
+ // selection, or straddles a gap the repeated-title partition opens in the body
+ // — is not a page split: no page clip can place it, so it still refuses. For
+ // geometry this package compiled that is already unreachable (the compiler
+ // refuses `viewport clips merged range`, the validator refuses a rectangle
+ // that does not match its axis bands, and the repeated-title check above names
+ // the gap case first with its own message), so this is a retained invariant
+ // rather than a reachable refusal. Splitting merges must not widen it.
+ if(!mergesFit(split(rowBands,Infinity),split(columnBands,Infinity)))throw new RangeError('A merged cell leaves the compiled selection or crosses an omitted row or column gap')
+ const splitMerges=paintedMerges.filter(({rect})=>!mergeFits(rows,columns,rect))
+ const pages:NativeSheetPreviewPageV1[]=[]
+ const addPage=(c:typeof columns[number],r:typeof rows[number])=>{
+  const region=(kind:NativeSheetPreviewRegionV1['kind'],x:typeof c,y:typeof r,dx:number,dy:number):NativeSheetPreviewRegionV1=>({kind,source_clip:{x_emu:x.at,y_emu:y.at,width_emu:x.clipped??x.length,height_emu:y.clipped??y.length},translate_x_emu:left+(dx-x.at)*scale,translate_y_emu:top+(dy-y.at)*scale,rows:{start:y.start,end:y.end},columns:{start:x.start,end:x.end}})
+  const {kind:_,...body}=region('body',c,r,titleWidth,titleHeight)
+  pages.push({number:pages.length+1,width_emu:width,height_emu:height,content_clip:{x_emu:left,y_emu:top,width_emu:cw,height_emu:ch},source_clip:body.source_clip,scale,translate_x_emu:body.translate_x_emu,translate_y_emu:body.translate_y_emu,rows:body.rows,columns:body.columns,...(titles?{regions:[{kind:'body' as const,...body},...(tr?[region('repeat-rows',c,tr,titleWidth,0)]:[]),...(tc?[region('repeat-columns',tc,r,0,titleHeight)]:[]),...(tr&&tc?[region('repeat-corner',tc,tr,0,0)]:[])]}: {})})
+ }
+ if(settings.page_order==='overThenDown'){for(const r of rows)for(const c of columns)addPage(c,r)}
+ else {for(const c of columns)for(const r of rows)addPage(c,r)}
+ const clipped=[...columns.filter(b=>b.clipped!==undefined).map(b=>({axis:'Column',b})),...rows.filter(b=>b.clipped!==undefined).map(b=>({axis:'Row',b}))]
+ const order=settings.page_order==='overThenDown'?'whole-bands-over-then-down':'whole-bands-down-then-over'
+ const policy=(clipped.length?`${order}-clipped-oversize-band-v1`:`${order}-v1`) as NativeSheetPagePreviewV1['policy']
+ const splitRefs=splitMerges.map(m=>m.ref),shownRefs=splitRefs.slice(0,8)
+ const mergeDisclosure=splitRefs.length?[`Merged cells split by a page boundary: ${shownRefs.join(', ')}${splitRefs.length>shownRefs.length?` and ${splitRefs.length-shownRefs.length} more`:''} (${splitRefs.length} of ${paintedMerges.length} painted merged ranges). Excel breaks pages on whole row and column boundaries and paints the part of a straddling merged cell that falls in each page's band, so these pages keep whole bands and the merge keeps its one source rectangle: a host that clips viewport-local paint to each page's source_clip paints each part once. No merged cell is moved, repeated whole, or re-wrapped to fit a single page, and the split is not Excel print fidelity.`]:[]
+ const clipDisclosure=clipped.length?[`Oversize band clipping: ${clipped.map(({axis,b})=>`${axis} ${b.start+1} is ${b.length} EMU where this page allows ${b.clipped}, so ${b.length-b.clipped!} EMU are cut from its trailing edge`).join('; ')}. Excel breaks pages on whole row and column boundaries and clips the one band that alone exceeds the printable area; this preview clips at the authored printable size rather than Excel's printer-dependent one. Clipped content is not printed and is not recoverable from this preview.`]:[]
+ return {protocol:'injoffice.xlsx.selected-range-pages',version:1,fidelity:'approximate',read_only:true,document_id:geometry.document_id,sheet_id:geometry.sheet_id,source_revision:geometry.source_revision,source_package_sha256:geometry.source_package_sha256,geometry_sha256:geometry.geometry_sha256,policy,settings_origin:hostPolicy?'explicit-host':'source',settings,warnings:[...pageSettings.warnings,...(fit?[`Approximate fit-to-page: greatest whole-percent shrink from 100% to 10% meeting the selected-range whole-band targets. Effective scale is ${Math.round(scale*100)}%; stored percentage is not applied. This is not Excel's fit algorithm.`]:[]),...clipDisclosure,...mergeDisclosure,...(isCompiledNativeStoredRowSheetGeometryV1(geometry)?['Stored row-height approximation: source descender metadata does not alter row boxes. Automatic text fitting and baselines are not qualified.']:[]),...(titles?[...titles.warnings,'Explicit source-title repetition reserves saved row and column bands on every page. Hosts must paint each returned region once, including the corner. Hosts may intersect source-positioned drawings with these regions. Disconnected body bands start separate page sequences; gap cells are not printed. This is not Excel print fidelity.']:[]),(titles?'Only the supplied range is paginated. Saved print titles are repeated; headers and printer-specific layout are not reproduced. Chart and drawing paint is supplied separately by the host. Whole source rows/columns are kept together; this is not Excel pagination fidelity.':'Only the supplied range is paginated; saved print-area selection is a separate source-bound step. Chart and drawing paint is supplied separately by the host. Headers, repeated print titles and printer-specific layout are not reproduced. Whole source rows/columns are kept together; this is not Excel pagination fidelity.'),...(hostPolicy?['Paper, margins and scale are explicit host choices, not authored workbook settings.']:[])],pages}
+}

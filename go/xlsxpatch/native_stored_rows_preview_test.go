@@ -1,0 +1,98 @@
+package xlsxpatch
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestStoredRowPreviewQualification(t *testing.T) {
+	for _, ns := range []string{spreadsheetMLTransitional, spreadsheetMLStrict} {
+		original := `<worksheet xmlns="` + ns + `" xmlns:x14ac="` + nativeRowDescentNamespace + `"><sheetFormatPr defaultRowHeight="14.4" customHeight="false" x14ac:dyDescent="0.3"/><sheetData><row r="1" spans="1:3" x14ac:dyDescent="0.3"/><row r="2" ht="24" customHeight="true"/><row r="3" hidden="true"/></sheetData></worksheet>`
+		got := previewNativeStoredRows([]byte(original), "xl/worksheets/s.xml")
+		if len(got.Rows) != 32 || got.Rows[0].HeightPoints != 14.4 || got.Rows[1].HeightPoints != 24 || !got.Rows[2].Hidden || len(got.Warnings) != 2 {
+			t.Fatalf("wrong stored geometry: %+v", got)
+		}
+		for _, variant := range []string{"automatic-default", "automatic-override", "automatic-inherited", "foreign-descent", "invalid-descent", "hex-default", "hex-height", "hex-descent", "unknown-attribute", "invalid-spans", "duplicate-row", "zero-height", "text", "data-attrs"} {
+			source := original
+			switch variant {
+			case "automatic-default":
+				source = strings.Replace(source, ` x14ac:dyDescent="0.3"`, "", 1)
+			case "automatic-override":
+				source = strings.Replace(source, `ht="24" customHeight="true"`, `ht="24" customHeight="false"`, 1)
+			case "automatic-inherited":
+				source = strings.Replace(source, `r="3" hidden="true"`, `r="3" customHeight="false"`, 1)
+			case "foreign-descent":
+				source = strings.ReplaceAll(source, nativeRowDescentNamespace, "urn:foreign")
+			case "invalid-descent":
+				source = strings.Replace(source, `dyDescent="0.3"`, `dyDescent="NaN"`, 1)
+			case "hex-default":
+				source = strings.Replace(source, `defaultRowHeight="14.4"`, `defaultRowHeight="0x1p2"`, 1)
+			case "hex-height":
+				source = strings.Replace(source, `ht="24"`, `ht="0x1p2"`, 1)
+			case "hex-descent":
+				source = strings.Replace(source, `dyDescent="0.3"`, `dyDescent="0x1p2"`, 1)
+			case "unknown-attribute":
+				source = strings.Replace(source, `r="1"`, `r="1" thickBot="1"`, 1)
+			case "invalid-spans":
+				source = strings.Replace(source, `spans="1:3"`, `spans="3:1"`, 1)
+			case "duplicate-row":
+				source = strings.Replace(source, `r="2"`, `r="1"`, 1)
+			case "zero-height":
+				source = strings.Replace(source, `customHeight="false"`, `customHeight="true" zeroHeight="true"`, 1)
+			case "text":
+				source = strings.Replace(source, `<sheetData>`, `<sheetData>unknown`, 1)
+			case "data-attrs":
+				source = strings.Replace(source, `<sheetData>`, `<sheetData future="1">`, 1)
+			}
+			if result := previewNativeStoredRows([]byte(source), "xl/worksheets/s.xml"); len(result.Rows) != 0 || len(result.Warnings) == 0 {
+				t.Fatalf("%s falsely qualified: %+v", variant, result)
+			}
+		}
+	}
+}
+
+func TestStoredRowExactIgnorableDescentRoot(t *testing.T) {
+	for _, ns := range []string{spreadsheetMLTransitional, spreadsheetMLStrict} {
+		source := `<worksheet xmlns="` + ns + `" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:x14ac="` + nativeRowDescentNamespace + `" mc:Ignorable="x14ac"><sheetFormatPr defaultRowHeight="14.5" x14ac:dyDescent="0.35"/><sheetData><row r="1" x14ac:dyDescent="0.35"/></sheetData></worksheet>`
+		if got := previewNativeStoredRows([]byte(source), "s.xml"); got.RootPolicy != "x14ac-descent-only-v1" || len(got.Rows) != 32 {
+			t.Fatalf("missing exact root qualification %+v", got)
+		}
+		for _, bad := range []string{
+			strings.Replace(source, `Ignorable="x14ac"`, `Ignorable="x14ac other"`, 1),
+			strings.Replace(source, nativeRowDescentNamespace, "urn:foreign", 1),
+			strings.Replace(source, `<sheetData>`, `<sheetData><x14ac:foreign/>`, 1),
+			strings.Replace(source, `<worksheet `, `<worksheet unexpected="1" `, 1),
+			strings.Replace(source, `<row r="1"`, `<row x14ac:unexpected="1" r="1"`, 1),
+		} {
+			if got := previewNativeStoredRows([]byte(bad), "s.xml"); got.RootPolicy != "" {
+				t.Fatal("unexpected root qualification")
+			}
+		}
+	}
+}
+
+func TestStoredRowPreviewExplicitDefaultAndZeroOverride(t *testing.T) {
+	source := `<worksheet xmlns="` + spreadsheetMLTransitional + `"><sheetFormatPr defaultRowHeight="20" customHeight="1"/><sheetData><row r="1" ht="0" customHeight="1"/><row r="33" ht="40" customHeight="1"/></sheetData></worksheet>`
+	got := previewNativeStoredRows([]byte(source), "sheet.xml")
+	if len(got.Rows) != 32 || !got.Rows[0].Hidden || got.Rows[0].HeightPoints != 0 || got.Rows[31].HeightPoints != 20 {
+		t.Fatalf("bad bounds or zero: %+v", got)
+	}
+}
+
+func TestStoredRowsPrinterRelationshipDoesNotQualifyPageSettings(t *testing.T) {
+	for _, pair := range [][2]string{{spreadsheetMLTransitional, officeRelNamespaceTransitional}, {spreadsheetMLStrict, officeRelNamespaceStrict}} {
+		source := `<worksheet xmlns="` + pair[0] + `" xmlns:r="` + pair[1] + `" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:x14ac="` + nativeRowDescentNamespace + `" mc:Ignorable="x14ac"><sheetFormatPr defaultRowHeight="15" x14ac:dyDescent="0.25"/><sheetData/><pageSetup paperSize="9" orientation="portrait" r:id="printer1" horizontalDpi="4294967293"/></worksheet>`
+		got := previewNativeStoredRows([]byte(source), "s.xml")
+		if got.RootPolicy != "x14ac-descent-only-v1" || len(got.Rows) != 32 {
+			t.Fatalf("ordinary relationship blocked stored row profile: %+v", got)
+		}
+		if page := previewNativePageSettings([]byte(source), "s.xml", "1"); page.Status != "unavailable" {
+			t.Fatal("printer relationship invented page settings")
+		}
+		for _, bad := range []string{strings.Replace(source, pair[1], "urn:foreign", 1), strings.Replace(source, `r:id="printer1"`, `r:other="printer1"`, 1), strings.Replace(source, `<sheetData/>`, `<sheetData r:id="bad"/>`, 1)} {
+			if previewNativeStoredRows([]byte(bad), "s.xml").RootPolicy != "" {
+				t.Fatal("unqualified relationship scope admitted")
+			}
+		}
+	}
+}

@@ -1,0 +1,71 @@
+{
+  "name": "injoffice",
+  "version": "0.1.1",
+  "private": true,
+  "license": "Apache-2.0",
+  "author": "Injecting Inc.",
+  "description": "Open-source TypeScript and Go libraries for XLSX, DOCX, PPTX, and PDF editing, with agent APIs and browser-local processing.",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "dev": "npm run dev -w apps/playground",
+    "desktop:build": "npm run build -w @injoffice/desktop",
+    "desktop:start": "npm run start -w @injoffice/desktop",
+    "desktop:dist": "npm run dist -w @injoffice/desktop",
+    "docs:dev": "npm run dev -w apps/docs",
+    "docs:build": "npm run build -w apps/docs",
+    "docs:preview": "npm run preview -w apps/docs",
+    "test:docs-browser": "node scripts/smoke-docs-browser.mjs",
+    "build": "npm run build --workspaces --if-present",
+    "postbuild": "node scripts/fix-declaration-specifiers.mjs",
+    "generate:xlsx-contract": "node scripts/generate-xlsx-native-contract.mjs",
+    "check:xlsx-contract": "node scripts/generate-xlsx-native-contract.mjs --check",
+    "generate:pptx-contract": "node scripts/generate-pptx-native-contract.mjs",
+    "check:pptx-contract": "node scripts/generate-pptx-native-contract.mjs --check",
+    "generate:unicode13": "node scripts/generate-unicode13-tables.mjs",
+    "check:unicode13": "node scripts/generate-unicode13-tables.mjs --check",
+    "check:native-office-production-e2e": "node scripts/verify-native-office-production-e2e.mjs",
+    "record:native-office-production-e2e": "node scripts/record-native-office-production-e2e.mjs --write-requests",
+    "test:native-office-production-e2e": "node --test scripts/verify-native-office-production-e2e.test.mjs",
+    "check:native-office-completion": "node scripts/validate-native-office-completion.mjs",
+    "test:native-office-completion": "node --test scripts/validate-native-office-completion.test.mjs",
+    "test:office-browser-smoke": "npm run build -w apps/playground -- --base=/injoffice-smoke/ && node scripts/smoke-playground-xlsx-wasm-browser.mjs",
+    "test:office-browser-smoke:built": "npm run build:renderer -w apps/playground -- --base=/injoffice-smoke/ && node scripts/smoke-playground-xlsx-wasm-browser.mjs",
+    "test:wasm-tarball-browser": "node scripts/smoke-wasm-tarball-browser.mjs",
+    "test:chrome-cdp-startup": "node --test scripts/chrome-cdp-startup.test.mjs",
+    "test:showcase-browser": "node scripts/smoke-showcase-browser.mjs",
+    "test:pdf-embedded-font-browser": "node scripts/smoke-pdf-embedded-font-browser.mjs",
+    "test:scroll-showcase-browser": "node scripts/smoke-scroll-showcase-browser.mjs",
+    "check:packages": "node scripts/check-packages.mjs",
+    "check:office-architecture": "node scripts/check-office-architecture.mjs",
+    "check:office-provenance": "node scripts/check-office-provenance.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "check:dependency-integrity": "node scripts/check-dependency-integrity.mjs",
+    "generate:sbom": "node scripts/check-dependency-integrity.mjs --sbom",
+    "generate:docs-api": "node scripts/generate-docs-api-reference.mjs",
+    "check:docs-api": "node scripts/generate-docs-api-reference.mjs --check",
+    "test:dependency-integrity": "node --test scripts/check-dependency-integrity.test.mjs",
+    "test:release-packages": "node --test scripts/release-packages.test.mjs",
+    "test:declaration-specifiers": "node --test scripts/fix-declaration-specifiers.test.mjs",
+    "check:typescript-version": "node scripts/check-typescript-version.mjs",
+    "check:collab-consumer": "node scripts/smoke-collab-consumer.mjs",
+    "check:consumer": "node scripts/smoke-consumer.mjs",
+    "qualify:office-performance": "node scripts/qualify-office-performance.mjs",
+    "qualify:office-reproducibility": "node scripts/qualify-native-office-repro.mjs",
+    "release:packages": "node scripts/release-packages.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run check:unicode13 && npm run check:typescript-version && npm run test --workspaces --if-present && npm run test:native-office-completion && npm run test:dependency-integrity && npm run test:release-packages && npm run test:declaration-specifiers && npm run test:chrome-cdp-startup"
+  },
+  "overrides": {
+    "vitepress": {
+      "vite": "6.4.3"
+    },
+    "@univerjs/core": {
+      "nanoid": "5.1.16"
+    }
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  },
+  "engines": { "node": ">=22" },
+  "packageManager": "npm@10.9.8"
+}

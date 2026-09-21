@@ -1,0 +1,275 @@
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { paintLinkBorders } from './linkBorders.js';
+import { ensureType3SpaceAdvances } from './type3SpaceAdvance.js';
+
+export interface SearchMatch {
+  pageIndex: number;
+  /** Character offset of the match within that page's concatenated text. */
+  offset: number;
+  snippet: string;
+}
+
+export interface PdfOutlineItem {
+  title: string;
+  pageIndex: number | null;
+  children: PdfOutlineItem[];
+}
+
+export interface PdfRenderOptions {
+  signal?: AbortSignal;
+  /** Maximum backing-store pixels (default 16 million, about 64 MB RGBA). */
+  maxPixels?: number;
+}
+
+/** Host-owned, version-matched PDF.js resources. No CDN or upload is implied. */
+export interface PdfLoadOptions {
+  /** Directory containing PDF.js packed .bcmap files; include a trailing slash. */
+  cMapUrl?: string;
+  /** Directory containing PDF.js standard font data; include a trailing slash. */
+  standardFontDataUrl?: string;
+  /** Directory containing PDF.js image/color decoder resources; include a trailing slash. */
+  wasmUrl?: string;
+  /** Explicitly opt into/out of host system-font substitution; default is PDF.js's policy. */
+  useSystemFonts?: boolean;
+}
+
+function loadParameters(bytes: Uint8Array, options: PdfLoadOptions) {
+  const resources: PdfLoadOptions = {};
+  for (const key of ['cMapUrl', 'standardFontDataUrl', 'wasmUrl'] as const) {
+    const value = options[key];
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !value.trim() || value !== value.trim() || !value.endsWith('/')) {
+      throw new Error(`${key} must be a non-empty resource directory ending in /`);
+    }
+    resources[key] = value;
+  }
+  if (options.useSystemFonts !== undefined) {
+    if (typeof options.useSystemFonts !== 'boolean') throw new Error('useSystemFonts must be a boolean');
+    resources.useSystemFonts = options.useSystemFonts;
+  }
+  return { data: bytes.slice(), ...resources, ...(resources.cMapUrl ? { cMapPacked: true } : {}) };
+}
+
+function checkAbort(signal?: AbortSignal): void {
+  signal?.throwIfAborted();
+}
+
+export interface CanvasRenderMetrics {
+  /** Backing-store dimensions used for raster fidelity. */
+  pixelWidth: number;
+  pixelHeight: number;
+  /** CSS dimensions used to keep the requested document zoom. */
+  cssWidth: number;
+  cssHeight: number;
+  /** pdf.js canvas transform for the backing-store pixel ratio. */
+  transform?: [number, number, number, number, number, number];
+}
+
+/**
+ * Resolves CSS and backing-store sizes for a pdf.js viewport. Exported so
+ * browser hosts can qualify high-DPI behavior without requiring a DOM canvas.
+ */
+export function canvasRenderMetrics(width: number, height: number, pixelRatio = 1, maxPixels = 16_000_000): CanvasRenderMetrics {
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+    throw new Error('PDF viewport dimensions must be positive finite numbers');
+  }
+  if (!Number.isFinite(pixelRatio) || pixelRatio <= 0) {
+    throw new Error('PDF canvas pixel ratio must be a positive finite number');
+  }
+  if (!Number.isSafeInteger(maxPixels) || maxPixels < 1) throw new Error('PDF canvas pixel budget must be a positive safe integer');
+  // Limit both area and individual dimensions; keep CSS zoom unchanged.
+  const ratio = Math.min(pixelRatio, Math.sqrt(maxPixels) / Math.sqrt(width) / Math.sqrt(height), Math.min(16_384, maxPixels) / width, Math.min(16_384, maxPixels) / height);
+  const limited = ratio < pixelRatio || Math.ceil(width * ratio) * Math.ceil(height * ratio) > maxPixels;
+  return {
+    pixelWidth: Math.max(1, limited ? Math.floor(width * ratio) : Math.ceil(width * ratio)),
+    pixelHeight: Math.max(1, limited ? Math.floor(height * ratio) : Math.ceil(height * ratio)),
+    cssWidth: width,
+    cssHeight: height,
+    transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
+  };
+}
+
+/**
+ * Points pdf.js at a worker asset supplied by the browser host/bundler.
+ *
+ * Browser applications should call this once before loading a document. For
+ * example, Vite hosts can import `pdf.worker.min.mjs?url` and pass the emitted
+ * URL here. Keeping asset resolution in the host makes the worker work under a
+ * non-root deployment base (such as GitHub Pages) without baking a CDN into
+ * the library.
+ */
+export function configurePdfWorker(workerSrc: string | URL): void {
+  const resolved = workerSrc.toString().trim();
+  if (resolved.length === 0) throw new Error('pdf.js worker URL must not be empty');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = resolved;
+}
+
+/**
+ * A loaded PDF ready for viewing/search — the read-only counterpart to
+ * pageOps' mutating pdf-lib pipeline. Wraps pdfjs-dist so we can extract
+ * layout/text without owning a canvas; actual page rasterization happens
+ * host-side (DOM canvas in the browser), see `renderPageToCanvas`.
+ */
+export class PdfViewerDocument {
+  private readonly textCache = new Map<number, string>();
+  private cachedCharacters = 0;
+  private constructor(
+    private readonly proxy: PDFDocumentProxy,
+    private readonly task: ReturnType<typeof pdfjsLib.getDocument>,
+  ) {}
+
+  static async load(bytes: Uint8Array, options: PdfLoadOptions = {}): Promise<PdfViewerDocument> {
+    // pdfjs-dist transfers/detaches a `data` buffer it's handed — copy first so
+    // callers can safely keep using their own `bytes` afterward (e.g. locate a
+    // rect via the viewer, then pass the same bytes to applyTextEdits).
+    const task = pdfjsLib.getDocument(loadParameters(await ensureType3SpaceAdvances(bytes), options));
+    try {
+      const proxy = await task.promise;
+      return new PdfViewerDocument(proxy, task);
+    } catch (error) {
+      // Failed parsing must not retain a worker. Preserve the original error.
+      await task.destroy().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  get pageCount(): number {
+    return this.proxy.numPages;
+  }
+
+  async getPage(pageIndex: number): Promise<PDFPageProxy> {
+    if (!Number.isInteger(pageIndex) || pageIndex < 1 || pageIndex > this.pageCount) {
+      throw new Error(`page ${pageIndex} is out of range for a ${this.pageCount}-page document`);
+    }
+    return this.proxy.getPage(pageIndex);
+  }
+
+  async getPageSize(pageIndex: number): Promise<{ width: number; height: number }> {
+    const page = await this.getPage(pageIndex);
+    const viewport = page.getViewport({ scale: 1 });
+    return { width: viewport.width, height: viewport.height };
+  }
+
+  async getPageText(pageIndex: number): Promise<string> {
+    const cached = this.textCache.get(pageIndex);
+    if (cached !== undefined) return cached;
+    const page = await this.getPage(pageIndex);
+    const content = await page.getTextContent();
+    const text = content.items.map((item) => ('str' in item ? item.str : '')).join(' ');
+    // Bound retained text independently of document length. Larger pages remain searchable.
+    if (!this.textCache.has(pageIndex) && text.length <= 2_000_000) {
+      while (this.textCache.size >= 256 || this.cachedCharacters + text.length > 2_000_000) {
+        const oldest = this.textCache.keys().next().value!;
+        this.cachedCharacters -= this.textCache.get(oldest)!.length;
+        this.textCache.delete(oldest);
+      }
+      this.textCache.set(pageIndex, text);
+      this.cachedCharacters += text.length;
+    }
+    return text;
+  }
+
+  async getOutline(): Promise<Array<{ title: string; pageIndex: number | null }>> {
+    const flatten = (items: PdfOutlineItem[]): Array<{ title: string; pageIndex: number | null }> =>
+      items.flatMap(({ title, pageIndex, children }) => [{ title, pageIndex }, ...flatten(children)]);
+    return flatten(await this.getOutlineTree());
+  }
+
+  /** Hierarchical bookmarks; getOutline retains its flat compatibility API. */
+  async getOutlineTree(): Promise<PdfOutlineItem[]> {
+    const outline = await this.proxy.getOutline();
+    if (!outline) return [];
+    const visit = async (
+      items: Awaited<ReturnType<PDFDocumentProxy['getOutline']>>,
+    ): Promise<PdfOutlineItem[]> => {
+      const out: PdfOutlineItem[] = [];
+      for (const item of items ?? []) {
+        let pageIndex: number | null = null;
+        if (item.dest) {
+          try {
+            const dest = typeof item.dest === 'string' ? await this.proxy.getDestination(item.dest) : item.dest;
+            const ref = dest?.[0];
+            if (typeof ref === 'number') pageIndex = ref + 1;
+            else if (ref) pageIndex = (await this.proxy.getPageIndex(ref)) + 1;
+            if (pageIndex !== null && (!Number.isInteger(pageIndex) || pageIndex < 1 || pageIndex > this.pageCount)) pageIndex = null;
+          } catch {
+            pageIndex = null;
+          }
+        }
+        out.push({ title: item.title, pageIndex, children: await visit(item.items) });
+      }
+      return out;
+    };
+    return visit(outline);
+  }
+
+  /** Case-insensitive substring search across every page's extracted text. */
+  async search(query: string, options: { signal?: AbortSignal } = {}): Promise<SearchMatch[]> {
+    checkAbort(options.signal);
+    if (query.trim().length === 0) return [];
+    const needle = query.toLowerCase();
+    const matches: SearchMatch[] = [];
+    for (let pageIndex = 1; pageIndex <= this.pageCount; pageIndex++) {
+      // Cached reads resolve as microtasks; periodically let browser input abort us.
+      if (pageIndex % 16 === 0) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      checkAbort(options.signal);
+      const text = await this.getPageText(pageIndex);
+      checkAbort(options.signal);
+      const haystack = text.toLowerCase();
+      let from = 0;
+      while (true) {
+        const at = haystack.indexOf(needle, from);
+        if (at === -1) break;
+        matches.push({ pageIndex, offset: at, snippet: text.slice(Math.max(0, at - 20), at + needle.length + 20) });
+        from = at + needle.length;
+      }
+    }
+    return matches;
+  }
+
+  async destroy(): Promise<void> {
+    this.textCache.clear();
+    this.cachedCharacters = 0;
+    await this.task.destroy();
+  }
+}
+
+/**
+ * Renders one page into a caller-supplied canvas. Browser-only (needs a real
+ * CanvasRenderingContext2D) — Node test coverage stops at `PdfViewerDocument`'s
+ * text/metadata surface above; this is exercised in-browser once wired into
+ * a host app.
+ */
+export async function renderPageToCanvas(
+  doc: PdfViewerDocument,
+  pageIndex: number,
+  canvas: HTMLCanvasElement,
+  scale = 1,
+  pixelRatio = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
+  options: PdfRenderOptions = {},
+): Promise<void> {
+  checkAbort(options.signal);
+  const page = await doc.getPage(pageIndex);
+  checkAbort(options.signal);
+  const viewport = page.getViewport({ scale });
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('canvas 2d context unavailable');
+  const metrics = canvasRenderMetrics(viewport.width, viewport.height, pixelRatio, options.maxPixels);
+  canvas.width = metrics.pixelWidth;
+  canvas.height = metrics.pixelHeight;
+  canvas.style.width = `${metrics.cssWidth}px`;
+  canvas.style.height = `${metrics.cssHeight}px`;
+  const task = page.render({ canvas, canvasContext: context, viewport, transform: metrics.transform });
+  const cancel = () => task.cancel();
+  options.signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    await task.promise;
+    checkAbort(options.signal);
+    const annotations = await page.getAnnotations({ intent: 'display' });
+    checkAbort(options.signal);
+    paintLinkBorders(context, annotations, viewport.transform, metrics.transform?.[0] ?? 1);
+  } finally {
+    options.signal?.removeEventListener('abort', cancel);
+  }
+}
