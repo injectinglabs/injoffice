@@ -76,6 +76,12 @@ GitHub Actions → **Desktop builds** (`.github/workflows/desktop.yml`,
 These artifacts are unsigned. They must not set `injofficeRelease` and must not
 drive the in-app public updater. `CSC_IDENTITY_AUTO_DISCOVERY` is false.
 
+On macOS, preview packaging uses an **ad-hoc signature** to seal the complete app
+bundle. This is not Developer ID signing or notarization: Gatekeeper can still
+block a downloaded preview. The workflow verifies the signature and starts the
+packaged Electron executable in Node mode before uploading installers. These
+checks do not replace interactive install/open/edit/save testing.
+
 ### Signed public drafts
 
 Tag a commit `desktop-v*` (desktop versions are independent of npm package

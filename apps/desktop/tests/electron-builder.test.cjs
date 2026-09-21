@@ -10,7 +10,7 @@ test('electron-builder packages the Vite renderer and Electron host, not dist/',
   assert.equal(pkg.main, 'electron/main.cjs');
   assert.equal(pkg.scripts.build, 'vite build');
   assert.equal(pkg.scripts.start, 'electron .');
-  assert.equal(pkg.scripts.dist, 'npm run build && electron-builder');
+  assert.equal(pkg.scripts.dist, 'npm run build && electron-builder --config electron-builder.preview.cjs');
   assert.equal(pkg.devDependencies['electron-builder'], '^26.0.12');
   assert.equal(pkg.build.appId, 'com.injecting.injoffice');
   assert.equal(pkg.build.productName, 'InjOffice');
@@ -34,4 +34,18 @@ test('electron-builder packages the Vite renderer and Electron host, not dist/',
   assert.match(release, /tagNamePrefix:\s*'desktop-v'/);
   assert.match(release, /releaseType:\s*'draft'/);
   assert.match(release, /forceCodeSigning:\s*true/);
+});
+
+test('preview Mac signing seals the bundle without leaking into Developer ID releases', () => {
+  const preview = require('../electron-builder.preview.cjs');
+  const release = require('../electron-builder.release.cjs');
+  assert.equal(preview.mac.identity, '-');
+  assert.equal(preview.mac.hardenedRuntime, false);
+  assert.equal(preview.mac.notarize, false);
+  assert.equal(preview.publish, null);
+  assert.equal(preview.extraMetadata?.injofficeRelease, undefined);
+  assert.equal(release.mac.identity, undefined);
+  assert.equal(release.mac.forceCodeSigning, true);
+  assert.equal(release.mac.hardenedRuntime, true);
+  assert.equal(release.mac.notarize, true);
 });
