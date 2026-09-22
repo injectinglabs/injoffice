@@ -1,0 +1,79 @@
+name: Desktop installed upgrade
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  upgrade:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: windows-x64
+          - os: ubuntu-24.04
+            artifact: linux-x64
+          - os: ubuntu-24.04-arm
+            artifact: linux-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v8
+        with:
+          name: injoffice-${{ matrix.artifact }}
+          path: installer
+      - name: Verify source artifact checksums
+        shell: bash
+        working-directory: installer
+        run: sha256sum --ignore-missing --check SHA256SUMS
+      - name: Prepare and install the Linux baseline
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb policykit-1
+          node scripts/prepare-desktop-update-fixture.cjs deb installer/*.deb "$RUNNER_TEMP/baseline.deb"
+          sudo apt-get install -y "$RUNNER_TEMP/baseline.deb"
+          test "$(dpkg-query -W -f='${Version}' injoffice)" = 0.0.0
+          # Approve only the package manager on this disposable CI machine.
+          # User cancellation and failure are covered by the updater unit tests.
+          sudo tee /etc/polkit-1/rules.d/49-injoffice-upgrade-ci.rules >/dev/null <<'RULE'
+          polkit.addRule(function(action, subject) {
+            if (action.id == "org.freedesktop.policykit.exec" &&
+                action.lookup("program") == "/usr/bin/apt-get" && subject.isInGroup("sudo"))
+              return polkit.Result.YES;
+          });
+          RULE
+          sudo systemctl restart polkit
+          echo 'INJOFFICE_TEST_EXE=/opt/InjOffice/injoffice' >> "$GITHUB_ENV"
+      - name: Prepare and install the Windows baseline
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem installer/*.exe).FullName
+          $destination = Join-Path $env:RUNNER_TEMP 'InjOffice'
+          $process = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$destination") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $executable = Join-Path $destination 'InjOffice.exe'
+          if (!(Test-Path $executable)) { throw 'Installed executable is missing' }
+          node scripts/prepare-desktop-update-fixture.cjs windows (Join-Path $destination 'resources')
+          "INJOFFICE_TEST_EXE=$executable" >> $env:GITHUB_ENV
+      - name: Download, install and restart through the Linux app
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum node scripts/smoke-desktop-update.mjs
+      - name: Download, install and restart through the Windows app
+        if: runner.os == 'Windows'
+        run: node scripts/smoke-desktop-update.mjs
+      - name: Preserve upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-upgrade-${{ matrix.artifact }}
+          path: desktop-upgrade-output/
+          if-no-files-found: ignore

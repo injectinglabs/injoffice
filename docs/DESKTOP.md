@@ -203,3 +203,17 @@ Electron as native authority.
   signed builds exclude previews and all builds exclude npm releases and drafts.
 - External Office oracles and private fidelity corpora stay local; do not add
   them to CI.
+
+### Installed upgrade regression checks
+
+Updater/packaging pull requests run the desktop build matrix and installed-upgrade
+checks on Windows x64 and Ubuntu x64/ARM64, as does the manual desktop workflow.
+The check makes a CI-only 0.0.0 baseline from the candidate artifact, retaining
+its updater implementation, then drives the actual installed app through checking
+the public GitHub feed, downloading, installing, and automatically relaunching
+the latest published desktop release. The modified baseline is never published.
+CI checks both the installed application version and a newly launched process.
+An isolated CI polkit rule approves only apt-get; cancellation is covered by unit tests.
+Mac's Squirrel update requires signed baseline and target builds, so this unsigned
+CI check does not establish successful Mac installation. Sign and notarize both
+versions and perform that upgrade check before claiming Mac update support.
