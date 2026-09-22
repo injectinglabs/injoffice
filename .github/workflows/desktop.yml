@@ -1,8 +1,8 @@
 name: Desktop builds
 # Unsigned developer previews for every desktop platform (workflow_dispatch only).
 # The Go WASM engines are built once on Linux and shared with the packaging jobs,
-# so all four installers carry byte-identical engines and no job needs Go or Bash
-# beyond Node. Signed drafts are desktop-release.yml.
+# so all installers carry byte-identical engines and packaging jobs only need
+# Node. Signed drafts are desktop-release.yml.
 on:
   workflow_dispatch:
 permissions:
@@ -62,6 +62,9 @@ jobs:
           - os: ubuntu-latest
             platform: linux-x64
             args: --linux --x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+            args: --linux --arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
@@ -124,3 +127,6 @@ jobs:
             apps/desktop/release/manifest.json
             apps/desktop/release/SHA256SUMS
           if-no-files-found: error
+  linux-smoke:
+    needs: desktop
+    uses: ./.github/workflows/desktop-linux-smoke.yml

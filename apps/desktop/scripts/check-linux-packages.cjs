@@ -19,10 +19,12 @@ try {
       run('dpkg-deb', ['--extract', file, root]);
       assert.equal(run('dpkg-deb', ['--field', file, 'Homepage']).trim(), 'https://injoffice.com');
       assert.equal(run('dpkg-deb', ['--field', file, 'Vendor']).trim(), 'Injecting Inc.');
+      assert.equal(run('dpkg-deb', ['--field', file, 'Architecture']).trim(), process.arch === 'arm64' ? 'arm64' : 'amd64');
     } else {
       run('bsdtar', ['-xf', file, '-C', root]);
       assert.equal(run('rpm', ['-qp', '--queryformat', '%{URL}', file]).trim(), 'https://injoffice.com');
       assert.equal(run('rpm', ['-qp', '--queryformat', '%{VENDOR}', file]).trim(), 'Injecting Inc.');
+      assert.equal(run('rpm', ['-qp', '--queryformat', '%{ARCH}', file]).trim(), process.arch === 'arm64' ? 'aarch64' : 'x86_64');
     }
     const desktop = path.join(root, 'usr/share/applications/injoffice.desktop');
     run('desktop-file-validate', [desktop]);

@@ -73,6 +73,7 @@ GitHub Actions → **Desktop builds** (`.github/workflows/desktop.yml`,
 | mac-x64 | DMG + ZIP |
 | win-x64 | NSIS |
 | linux-x64 | AppImage, DEB, RPM |
+| linux-arm64 | AppImage, DEB, RPM |
 
 These artifacts are unsigned. They must not set `injofficeRelease` and must not
 drive the in-app public updater. `CSC_IDENTITY_AUTO_DISCOVERY` is false.
@@ -111,14 +112,17 @@ user-initiated. Restart must refuse unsaved documents and failed recovery
 writes.
 
 DEB/RPM users install a new package with their package manager. There is no
-APT/YUM repository and no in-app update for those packages. Linux ARM, Windows
-ARM, beta channels, staged rollouts, and store distribution are out of scope.
+APT/YUM repository and no in-app update for those packages. The unsigned preview
+matrix supports Linux ARM64; the signed-draft matrix currently supports Linux
+x64 only. Windows ARM, beta channels, staged rollouts, and store distribution
+are out of scope.
 
 ### Linux installation and app listings
 
-Use the x64 DEB on Ubuntu or Debian running on Intel/AMD 64-bit hardware. RPM is
-for RPM-based distributions, and AppImage is the portable alternative. There is
-no Linux ARM build in the current matrix.
+Use the x64 DEB on Ubuntu or Debian running on Intel/AMD 64-bit hardware. Use the
+ARM64 DEB on ARM Linux, including Ubuntu in Parallels on Apple Silicon. Run
+`dpkg --print-architecture`: `amd64` needs x64, while `arm64` needs ARM64. RPM is
+for RPM-based distributions, and AppImage is the portable alternative.
 
 DEB and RPM packages include the InjOffice launcher, a set of icon resolutions,
 and AppStream metadata naming Injecting Inc. with `https://injoffice.com` as the
@@ -132,12 +136,24 @@ or App Center. Traditional DEB/RPM packages do not expose Flatpak-style sandbox
 permission metadata, and this project currently has no trusted APT/YUM feed or
 store listing. Do not advertise metadata changes as removing those warnings.
 
-The **Ubuntu installer smoke** workflow accepts a published desktop release tag.
-On Ubuntu 22.04 and 24.04 it verifies the downloaded DEB checksum, installs through
+The **Ubuntu installer smoke** workflow runs automatically on build artifacts
+after every successful **Desktop builds** packaging matrix. It also accepts a
+published desktop release tag when run manually. On Ubuntu 22.04/24.04 x64 and
+Ubuntu 24.04/26.04 ARM64 it verifies the DEB checksum and architecture, installs through
 APT, launches the installed application under Xvfb with its sandbox enabled, and
 creates a blank spreadsheet through the real renderer and native engine. It saves
 startup logs and a screenshot for diagnosis. This checks installation/startup on
 the CI images; it does not certify every Linux distribution, desktop, or GPU.
+These desktop workflows are not ordinary PR checks or required merge checks.
+
+For a downloaded DEB, Ubuntu App Center's local-package page does not load the
+app icon or publisher and leaves the published date unset. Its PackageKit APT
+backend can return an unknown license even when the DEB contains a License field.
+Bundled icons and AppStream metadata therefore do not guarantee a complete
+pre-installation listing. See the upstream [local-DEB UI](https://github.com/ubuntu/app-center/blob/main/packages/app_center/lib/apps/app_title_bar.dart),
+[publisher UI](https://github.com/ubuntu/app-center/blob/main/packages/app_center/lib/widgets/app_title.dart),
+[metadata model](https://github.com/ubuntu/app-center/blob/main/packages/app_center/lib/deb/local_deb_model.dart),
+and [PackageKit backend](https://github.com/PackageKit/PackageKit/blob/main/backends/apt/apt-job.cpp).
 
 ## Tests and CI
 
