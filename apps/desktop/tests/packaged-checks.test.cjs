@@ -43,7 +43,7 @@ function fakeRelease({ release = false, feedConfig = true, electronUpdater = des
   const files = {
     'package.json': JSON.stringify(metadata),
     'electron/main.cjs': '', 'electron/updates.cjs': '', 'electron/desktop-update-provider.cjs': '',
-    'electron/desktop-releases.cjs': '', 'electron/installer-update.cjs': '',
+    'electron/desktop-releases.cjs': '', 'electron/installer-update.cjs': '', 'electron/linux-package-updater.cjs': '',
     'node_modules/electron-updater/package.json': JSON.stringify({ name: 'electron-updater', version: electronUpdater }),
     'node_modules/semver/package.json': JSON.stringify({ name: 'semver', version: desktop.dependencies.semver }),
     'renderer/index.html': '<script src="./assets/index-abc123.js"></script>',

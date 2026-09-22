@@ -26,6 +26,8 @@ try {
       assert.equal(run('rpm', ['-qp', '--queryformat', '%{VENDOR}', file]).trim(), 'Injecting Inc.');
       assert.equal(run('rpm', ['-qp', '--queryformat', '%{ARCH}', file]).trim(), process.arch === 'arm64' ? 'aarch64' : 'x86_64');
     }
+    assert.equal(fs.readFileSync(path.join(root, 'opt/InjOffice/resources/package-type'), 'utf8').trim(), extension,
+      'installed package must select its matching native updater');
     const desktop = path.join(root, 'usr/share/applications/injoffice.desktop');
     run('desktop-file-validate', [desktop]);
     const launcher = fs.readFileSync(desktop, 'utf8');

@@ -14,7 +14,7 @@ const { findPackagedApps, readAsar } = require('./packaged-app.cjs');
 
 const desktopManifest = require('../package.json');
 const UPDATER_MODULES = ['electron-updater', 'semver'];
-const HOST_MODULES = ['electron/updates.cjs', 'electron/desktop-update-provider.cjs', 'electron/desktop-releases.cjs', 'electron/installer-update.cjs'];
+const HOST_MODULES = ['electron/updates.cjs', 'electron/desktop-update-provider.cjs', 'electron/desktop-releases.cjs', 'electron/installer-update.cjs', 'electron/linux-package-updater.cjs'];
 const FEED_BY_PLATFORM = { mac: 'latest-mac.yml', win: 'latest.yml', linux: 'latest-linux.yml' };
 
 function yamlScalars(text, key) {

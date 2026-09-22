@@ -71,6 +71,7 @@ export default function UpdatesDialog({ onClose }: { onClose(): void }) {
       {state?.message && <p>{state.message}</p>}
       {status === 'idle' && <p>Check for the latest improvements and fixes.</p>}
       {state?.manualInstall && status === 'available' && <p>Download the installer for your computer, then close InjOffice and run it to finish updating.</p>}
+      {state?.requiresElevation && ['available', 'downloaded'].includes(status ?? '') && <p>Your system will ask for administrator approval when you restart to install the update.</p>}
       {status === 'downloaded' && <p>Your documents will be checked before restarting. You can keep working and update later.</p>}
       {status === 'downloading' && <div className="updates-progress"><progress max="100" value={Number.isFinite(progress) ? progress : undefined} aria-label="Update download progress" /><span>{Number.isFinite(progress) ? `${Math.round(progress)}%` : 'Downloading'}</span></div>}
     </div>
