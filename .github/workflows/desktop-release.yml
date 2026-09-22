@@ -15,6 +15,32 @@ concurrency:
   group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  # A job-level `if` cannot see the matrix context, so the platform set decides the matrix itself.
+  # A platform outside the input never becomes a leg and cannot contribute assets.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        shell: bash
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          legs = {
+            'mac': {'os': 'macos-latest', 'platform': 'mac', 'args': '--mac --arm64 --x64'},
+            'windows': {'os': 'windows-latest', 'platform': 'windows', 'args': '--win --x64'},
+            'linux': {'os': 'ubuntu-latest', 'platform': 'linux', 'args': '--linux --x64'},
+          }
+          wanted = [name.strip() for name in os.environ['PLATFORMS'].split(',') if name.strip()]
+          unknown = [name for name in wanted if name not in legs]
+          if unknown or not wanted:
+              raise SystemExit(f'refusing: unknown or empty platform set {os.environ["PLATFORMS"]!r}')
+          print('matrix=' + json.dumps({'include': [legs[name] for name in wanted]}))
+          PY
+
   # Windows runners cannot execute the engines' POSIX build scripts, so the wasm engines are
   # built once on Linux and shared, the same way .github/workflows/desktop.yml does it.
   engines:
@@ -50,24 +76,12 @@ jobs:
           retention-days: 1
 
   build:
-    needs: engines
+    needs: [plan, engines]
     environment: desktop-release
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # One invocation merges both Mac architectures into latest-mac.yml.
-          - os: macos-latest
-            platform: mac
-            args: --mac --arm64 --x64
-          - os: windows-latest
-            platform: windows
-            args: --win --x64
-          - os: ubuntu-latest
-            platform: linux
-            args: --linux --x64
-    # A platform left out of the input does not build at all, so it cannot contribute assets.
-    if: contains(format('{0},', inputs.platforms), format('{0},', matrix.platform))
+      # One Mac invocation merges both architectures into latest-mac.yml; see the plan job.
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     env:
       CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || '' }}
