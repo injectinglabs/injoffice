@@ -79,11 +79,21 @@ export default defineConfig(async ({ command }) => {
   }
   return {
     plugins,
-    // Lazy route modules are outside Vite's default index.html dependency
+    // Two entries share this deploy: the download page at the site root, and the
+    // library playground beside it.
+    build: {
+      rollupOptions: {
+        input: {
+          index: fileURLToPath(new URL('./index.html', import.meta.url)),
+          playground: fileURLToPath(new URL('./playground.html', import.meta.url)),
+        },
+      },
+    },
+    // Lazy route modules are outside Vite's default playground.html dependency
     // crawl. Discover them at startup so visiting a demo never triggers a
     // one-time dependency optimizer reload in the middle of navigation.
     optimizeDeps: command === 'serve' ? {
-      entries: ['index.html', 'src/**/*.{ts,tsx}'],
+      entries: ['playground.html', 'src/**/*.{ts,tsx}'],
     } : undefined,
     resolve: {
       alias: {

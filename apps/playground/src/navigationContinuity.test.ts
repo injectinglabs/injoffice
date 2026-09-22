@@ -73,7 +73,7 @@ describe('playground navigation continuity', () => {
   })
 
   it('pre-optimizes dependencies imported only by lazy routes in development', () => {
-    expect(viteConfig).toContain("entries: ['index.html', 'src/**/*.{ts,tsx}']")
+    expect(viteConfig).toContain("entries: ['playground.html', 'src/**/*.{ts,tsx}']")
   })
 
   it('updates the active location passively without stealing focus or adding history entries', () => {
