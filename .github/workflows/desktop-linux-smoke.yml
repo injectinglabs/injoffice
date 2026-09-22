@@ -1,11 +1,18 @@
 name: Ubuntu installer smoke
 on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Leave empty to test artifacts from the calling build
+        required: false
+        default: ''
+        type: string
   workflow_dispatch:
     inputs:
       release_tag:
         description: Published desktop release tag to install and test
         required: true
-        default: desktop-preview-v0.1.0-r2
+        default: desktop-preview-v0.1.0-r3
         type: string
 permissions:
   contents: read
@@ -14,7 +21,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
+        include:
+          - os: ubuntu-22.04
+            arch: x64
+          - os: ubuntu-24.04
+            arch: x64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+          - os: ubuntu-26.04-arm
+            arch: arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -23,14 +38,25 @@ jobs:
         with:
           node-version: 22
       - name: Download and verify the released Ubuntu installer
+        if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          ARCH: ${{ matrix.arch }}
         run: |
           mkdir installer
-          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*linux-x64.deb' --pattern SHA256SUMS --dir installer
-          cd installer
-          sha256sum --ignore-missing --check SHA256SUMS
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "*linux-$ARCH.deb" --pattern '*SHA256SUMS*' --dir installer
+      - name: Download the installer built in this workflow
+        if: inputs.release_tag == ''
+        uses: actions/download-artifact@v8
+        with:
+          name: injoffice-linux-${{ matrix.arch }}
+          path: installer
+      - name: Verify checksum and CPU architecture
+        working-directory: installer
+        run: |
+          cat *SHA256SUMS* | sha256sum --ignore-missing --check
+          test "$(dpkg-deb --field ./*.deb Architecture)" = "$(dpkg --print-architecture)"
       - name: Install the DEB through APT
         run: |
           sudo apt-get update
