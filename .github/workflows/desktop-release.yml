@@ -1,6 +1,14 @@
 name: Desktop release draft
 on:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Platforms to ship. Leaving one out is deliberate: its signing identity is not in place yet.'
+        type: choice
+        default: mac,windows,linux
+        options:
+          - mac,windows,linux
+          - windows,linux
 permissions:
   contents: read
 concurrency:
@@ -58,6 +66,8 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             args: --linux --x64
+    # A platform left out of the input does not build at all, so it cannot contribute assets.
+    if: contains(format('{0},', inputs.platforms), format('{0},', matrix.platform))
     runs-on: ${{ matrix.os }}
     env:
       CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || '' }}
@@ -163,10 +173,11 @@ jobs:
           path: release-assets
       - run: npm ci --ignore-scripts
       - name: Validate complete asset set and generate checksums
-        run: node apps/desktop/scripts/release-validation.mjs collect release-assets
+        run: node apps/desktop/scripts/release-validation.mjs collect release-assets '${{ inputs.platforms }}'
       - name: Create draft only
         env:
           GH_TOKEN: ${{ github.token }}
+          PLATFORMS: ${{ inputs.platforms }}
         shell: bash
         run: |
           # Refuse to replace existing releases or mutate a live update feed on reruns.
@@ -174,5 +185,8 @@ jobs:
             echo 'Release already exists. Review it manually; this workflow will not overwrite it.' >&2
             exit 1
           fi
-          gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "InjOffice ${GITHUB_REF_NAME#desktop-v}" --generate-notes
+          title="InjOffice ${GITHUB_REF_NAME#desktop-v}"
+          # A release shipping a subset says so in its title, so nobody infers it from missing files.
+          if [ "$PLATFORMS" != 'mac,windows,linux' ]; then title="$title ($PLATFORMS only)"; fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "$title" --generate-notes
           find release-assets -maxdepth 1 -type f -print0 | xargs -0 gh release upload "$GITHUB_REF_NAME"
