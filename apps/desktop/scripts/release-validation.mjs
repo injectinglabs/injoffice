@@ -35,7 +35,7 @@ export const SIGNING_ENV = {
 export const PLATFORM_ASSETS = {
   mac: [/-mac-arm64\.dmg$/, /-mac-x64\.dmg$/, /-mac-arm64\.zip$/, /-mac-x64\.zip$/, /^latest-mac\.yml$/],
   windows: [/-win-x64\.exe$/, /^latest\.yml$/],
-  linux: [/-linux-x64\.AppImage$/, /-linux-x64\.deb$/, /-linux-x64\.rpm$/, /^latest-linux\.yml$/],
+  linux: [/-linux-(x86_64|x64)\.AppImage$/, /-linux-(amd64|x64)\.deb$/, /-linux-(x86_64|x64)\.rpm$/, /^latest-linux\.yml$/],
 }
 export const ALL_PLATFORMS = Object.keys(PLATFORM_ASSETS)
 // A release may deliberately ship a subset of platforms (a platform whose signing identity is
