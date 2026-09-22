@@ -18,7 +18,17 @@ export const TAG = /^desktop-v(\d+\.\d+\.\d+)$/
 // Environment variables desktop-release.yml maps from repository secrets, per platform.
 export const SIGNING_ENV = {
   mac: { CSC_LINK: 'MAC_CSC_LINK', CSC_KEY_PASSWORD: 'MAC_CSC_KEY_PASSWORD', APPLE_ID: 'APPLE_ID', APPLE_APP_SPECIFIC_PASSWORD: 'APPLE_APP_SPECIFIC_PASSWORD', APPLE_TEAM_ID: 'APPLE_TEAM_ID' },
-  windows: { CSC_LINK: 'WINDOWS_CSC_LINK', CSC_KEY_PASSWORD: 'WINDOWS_CSC_KEY_PASSWORD' },
+  // Windows signs through Azure Artifact Signing: no certificate file, so the inputs are the
+  // account identifiers plus the Entra application electron-builder authenticates with.
+  windows: {
+    AZURE_SIGNING_ENDPOINT: 'AZURE_SIGNING_ENDPOINT',
+    AZURE_SIGNING_ACCOUNT: 'AZURE_SIGNING_ACCOUNT',
+    AZURE_SIGNING_CERT_PROFILE: 'AZURE_SIGNING_CERT_PROFILE',
+    AZURE_SIGNING_PUBLISHER_NAME: 'AZURE_SIGNING_PUBLISHER_NAME',
+    AZURE_TENANT_ID: 'AZURE_TENANT_ID',
+    AZURE_CLIENT_ID: 'AZURE_CLIENT_ID',
+    AZURE_CLIENT_SECRET: 'AZURE_CLIENT_SECRET',
+  },
   linux: {},
 }
 // artifactName in electron-builder.release.cjs: ${productName}-${version}-${os}-${arch}.${ext}

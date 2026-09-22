@@ -104,7 +104,24 @@ Required environment secrets (not supplied by this repository):
 | --- | --- |
 | `MAC_CSC_LINK` / `MAC_CSC_KEY_PASSWORD` | Developer ID Application P12 |
 | `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` | Notarization |
-| `WINDOWS_CSC_LINK` / `WINDOWS_CSC_KEY_PASSWORD` | Authenticode PFX |
+| `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | Entra application that signs Windows builds |
+
+Windows uses **Azure Artifact Signing** (formerly Trusted Signing), so there is no
+certificate file: electron-builder installs the `TrustedSigning` PowerShell module on the
+runner and signs through the account's certificate profile, authenticating with the Entra
+application above. The account identifiers are not secret and are repository *variables*:
+
+| Variable | Example |
+| --- | --- |
+| `AZURE_SIGNING_ENDPOINT` | `https://eus.codesigning.azure.net` (must match the account's region) |
+| `AZURE_SIGNING_ACCOUNT` | the Artifact Signing account name |
+| `AZURE_SIGNING_CERT_PROFILE` | the certificate profile name |
+| `AZURE_SIGNING_PUBLISHER_NAME` | the certificate subject, exactly as issued |
+
+The Entra application needs the **Trusted Signing Certificate Profile Signer** role on the
+account or profile. `release-validation.mjs preflight windows` refuses the run when any of
+these are missing, so a release cannot quietly produce an unsigned installer. Certificates
+are short-lived and issued per signing request; nothing needs renewing in this repository.
 
 Publish a draft only after install, open/edit/save, and upgrade checks on each
 shipped platform. If a release is broken, ship a higher patch version; do not
