@@ -85,7 +85,8 @@ try {
   const updateState = await evaluate('window.injDesktop.getUpdateState()');
   assert.notEqual(updateState.status, 'disabled', 'installed previews must expose update checks');
   assert.equal(updateState.autoCheck, true, 'update checks default to enabled');
-  assert.equal(updateState.manualInstall, true, 'DEB updates use the OS installer');
+  assert.equal(updateState.manualInstall, false, 'DEB updates download and install in-app');
+  assert.equal(updateState.requiresElevation, true, 'DEB installation requires system authorization');
   const checked = await evaluate('window.injDesktop.checkForUpdates()');
   assert.ok(['not-available', 'available'].includes(checked.status), `Live update check failed: ${JSON.stringify(checked)}`);
   await evaluate(`document.querySelector('.start-create-xlsx').click()`);

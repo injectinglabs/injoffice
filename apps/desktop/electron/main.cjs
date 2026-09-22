@@ -193,25 +193,32 @@ app.whenReady().then(async () => {
     await fs.access(path.join(process.resourcesPath, 'app-update.yml'));
     release = metadata.injofficeRelease === true;
   } catch { /* Source builds may have no native update configuration. */ }
-  const manualInstall = (process.platform === 'darwin' && !release) || (process.platform === 'linux' && !process.env.APPIMAGE);
-  let packageFormat = 'rpm';
+  const manualInstall = process.platform === 'darwin' && !release;
+  let packageType;
   if (process.platform === 'linux') {
-    try { await fs.access('/etc/debian_version'); packageFormat = 'deb'; } catch { /* RPM-based desktop. */ }
+    if (process.env.APPIMAGE) packageType = 'AppImage';
+    else {
+      // Use the installed package identity, not the distribution: a machine can
+      // have both package managers. electron-builder embeds this in DEB/RPM.
+      try { packageType = (await fs.readFile(path.join(process.resourcesPath, 'package-type'), 'utf8')).trim(); }
+      catch { /* An unpacked directory is not an installable Linux package. */ }
+    }
   }
   updates = await createUpdateService({
     appVersion: app.getVersion?.() ?? '0.1.0',
     settingsPath: path.join(app.getPath('userData'), 'updates.json'),
-    unavailable: updateAvailability({ packaged: app.isPackaged, release, platform: process.platform, appImage: Boolean(process.env.APPIMAGE) }),
+    unavailable: updateAvailability({ packaged: app.isPackaged, platform: process.platform, packageType }),
     manualInstall,
+    requiresElevation: process.platform === 'linux' && ['deb', 'rpm'].includes(packageType),
     loadUpdater: () => manualInstall ? new InstallerUpdate({
-      version: app.getVersion(), platform: process.platform, arch: process.arch, format: packageFormat, preview: !release,
+      version: app.getVersion(), platform: process.platform, arch: process.arch, preview: !release,
       request: async url => {
         const response = await session.fromPartition('injoffice-update-checks', {cache: false}).fetch(url.href, {headers: {Accept: 'application/vnd.github+json'}, signal: AbortSignal.timeout(20000)});
         if (!response.ok) throw new Error('Desktop release request failed');
         return response.json();
       },
       openExternal: url => shell.openExternal(url),
-    }) : loadReleaseUpdater(process.platform, {preview: !release}),
+    }) : loadReleaseUpdater(process.platform, {preview: !release, packageType}),
     notify: state => { if (window && !window.isDestroyed()) window.webContents.send('updates:state', state); },
     prepareInstall: install => {
       if (!window || window.isDestroyed() || !prepareUpdateInstall) throw new Error('Open the workspace before installing the update.');

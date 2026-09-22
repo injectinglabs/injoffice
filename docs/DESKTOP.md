@@ -110,7 +110,7 @@ Publish a draft only after install, open/edit/save, and upgrade checks on each
 shipped platform. If a release is broken, ship a higher patch version; do not
 replace published bytes.
 
-Windows and AppImage use `electron-updater` for download and restart, including
+Windows, AppImage, DEB and RPM use `electron-updater` for download and restart, including
 preview builds. Signed Mac builds also use that native updater. Ad-hoc signed Mac
 previews instead offer the matching DMG for installation by the user, because
 native Mac updates require proper signing. Checks run after 15 seconds and every
@@ -120,10 +120,13 @@ session. Downloads and restart are user-initiated. Restart must refuse unsaved
 documents and failed recovery writes. Publish native `latest*.yml` feeds and
 their referenced assets together, with filenames unchanged from the build.
 
-DEB/RPM users install a new package with their package manager. There is no
-APT/YUM repository. The app checks for new versions and offers a compatible
-DEB/RPM installer in the browser; it never claims that opening a download has
-installed the update. The unsigned preview
+DEB/RPM updates download inside InjOffice and verify the update feed's SHA-512
+hash before offering Restart and update. Installation invokes the system package
+manager with administrator authorization; canceling or failing installation keeps
+the app open and the downloaded update available to retry. Package-manager
+signature and dependency checks remain enabled. The installed `package-type`
+marker selects DEB or RPM, while `APPIMAGE` selects AppImage; distribution guesses
+are not used. There is no APT/YUM repository. The unsigned preview
 matrix supports Linux ARM64; the signed-draft matrix currently supports Linux
 x64 only. Windows ARM, beta channels, staged rollouts, and store distribution
 are out of scope.

@@ -2,13 +2,14 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { atomicWrite } = require('./file-store.cjs');
 
-function updateAvailability({ packaged, platform }) {
+function updateAvailability({ packaged, platform, packageType }) {
   if (!packaged) return 'Install InjOffice to check for app updates.';
   if (!['darwin', 'win32', 'linux'].includes(platform)) return 'In-app updates are unavailable on this platform.';
+  if (platform === 'linux' && !['AppImage', 'deb', 'rpm'].includes(packageType)) return 'Install InjOffice using an AppImage, DEB, or RPM package to enable in-app updates.';
   return null;
 }
 
-async function createUpdateService({ appVersion, settingsPath, unavailable, manualInstall = false, loadUpdater, notify = () => {}, prepareInstall, cancelInstall = () => {}, timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
+async function createUpdateService({ appVersion, settingsPath, unavailable, manualInstall = false, requiresElevation = false, loadUpdater, notify = () => {}, prepareInstall, cancelInstall = () => {}, timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
   let autoCheck = true, preferenceMessage;
   try {
     const info = await fs.stat(settingsPath);
@@ -19,7 +20,7 @@ async function createUpdateService({ appVersion, settingsPath, unavailable, manu
   } catch (error) {
     if (error.code !== 'ENOENT') { autoCheck = false; preferenceMessage = 'Update preferences could not be read. Automatic checks are off; choose your preference again to save it.'; }
   }
-  let state = { status: unavailable ? 'disabled' : 'idle', appVersion, autoCheck, manualInstall, ...(unavailable || preferenceMessage ? { message: unavailable || preferenceMessage } : {}) };
+  let state = { status: unavailable ? 'disabled' : 'idle', appVersion, autoCheck, manualInstall, requiresElevation, ...(unavailable || preferenceMessage ? { message: unavailable || preferenceMessage } : {}) };
   let updater, timer, interval, operation, disposed = false, preferenceQueue = Promise.resolve();
   let nativeInstallListeners = [];
   const snapshot = () => ({ ...state });
@@ -125,11 +126,14 @@ async function createUpdateService({ appVersion, settingsPath, unavailable, manu
     dispose() { disposed = true; clearSchedule(); } };
 }
 
-function loadReleaseUpdater(platform, {preview = false} = {}) {
-  const { MacUpdater, NsisUpdater, AppImageUpdater } = require('electron-updater');
+function loadReleaseUpdater(platform, {preview = false, packageType, app} = {}) {
+  const { MacUpdater, NsisUpdater, AppImageUpdater, DebUpdater, RpmUpdater } = require('electron-updater');
   const { DesktopGitHubProvider } = require('./desktop-update-provider.cjs');
-  const Updater = platform === 'darwin' ? MacUpdater : platform === 'win32' ? NsisUpdater : AppImageUpdater;
-  return new Updater({ provider: 'custom', updateProvider: DesktopGitHubProvider, preview, owner: 'injectinglabs', repo: 'injoffice' });
+  const { withLinuxInstaller } = require('./linux-package-updater.cjs');
+  const Updater = platform === 'darwin' ? MacUpdater : platform === 'win32' ? NsisUpdater :
+    platform === 'linux' ? {AppImage: AppImageUpdater, deb: withLinuxInstaller(DebUpdater, 'deb'), rpm: withLinuxInstaller(RpmUpdater, 'rpm')}[packageType] : undefined;
+  if (!Updater) throw new Error('Unsupported desktop update package');
+  return new Updater({ provider: 'custom', updateProvider: DesktopGitHubProvider, preview, owner: 'injectinglabs', repo: 'injoffice' }, app);
 }
 
 module.exports = { createUpdateService, updateAvailability, loadReleaseUpdater };

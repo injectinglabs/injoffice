@@ -6,6 +6,7 @@ declare global {
     appVersion: string;
     autoCheck: boolean;
     manualInstall?: boolean;
+    requiresElevation?: boolean;
     version?: string;
     releaseNotes?: string;
     percent?: number;

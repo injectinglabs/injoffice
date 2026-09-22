@@ -94,7 +94,7 @@ test('a checked build with nothing to install says it is up to date', async () =
   } finally { if (view) await act(async () => view.unmount()); delete global.window; }
 });
 
-test('package-manager and unsigned Mac updates offer an installer without promising a restart update', async () => {
+test('unsigned Mac updates offer an installer without promising a restart update', async () => {
   const Dialog = await loadDialog(); let downloads = 0;
   const state = {...initial, status: 'available', manualInstall: true, version: '0.1.11'};
   global.window = {injDesktop: {getUpdateState: async () => state, onUpdateState: () => () => {}, downloadUpdate: async () => { downloads++; return state; }}};
@@ -105,5 +105,22 @@ test('package-manager and unsigned Mac updates offer an installer without promis
     assert.equal(downloads, 1);
     assert.equal(view.root.findAllByType('button').some(button => button.children.join('') === 'Restart and update'), false);
     assert.match(JSON.stringify(view.toJSON()), /close InjOffice and run it/);
+  } finally { if (view) await act(async () => view.unmount()); delete global.window; }
+});
+
+
+test('Linux packages download in-app and explain the administrator prompt before restarting', async () => {
+  const Dialog = await loadDialog(); let downloads = 0;
+  const state = {...initial, status: 'available', manualInstall: false, requiresElevation: true, version: '0.1.11'};
+  global.window = {injDesktop: {getUpdateState: async () => state, onUpdateState: () => () => {},
+    downloadUpdate: async () => { downloads++; return {...state, status: 'downloaded'}; }}};
+  let view;
+  try {
+    await act(async () => { view = create(React.createElement(Dialog, {onClose() {}})); });
+    assert.match(JSON.stringify(view.toJSON()), /administrator approval/);
+    await act(async () => view.root.findAllByType('button').find(button => button.children.join('') === 'Download update').props.onClick());
+    assert.equal(downloads, 1);
+    assert.equal(view.root.findAllByType('button').some(button => button.children.join('') === 'Restart and update'), true);
+    assert.doesNotMatch(JSON.stringify(view.toJSON()), /Download installer|browser/);
   } finally { if (view) await act(async () => view.unmount()); delete global.window; }
 });
