@@ -1,7 +1,5 @@
 name: Desktop release draft
 on:
-  push:
-    tags: ['desktop-v*']
   workflow_dispatch:
 permissions:
   contents: read

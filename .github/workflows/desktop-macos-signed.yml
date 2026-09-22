@@ -1,0 +1,89 @@
+name: Signed macOS installers
+# Build Developer ID / notarized Mac artifacts independently of Windows signing.
+# Only manual dispatch can access the signing environment; never PR events.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Unpublished desktop-vX.Y.Z tag matching the desktop package version
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: desktop-macos-signed-${{ inputs.release_tag }}
+  cancel-in-progress: false
+jobs:
+  mac:
+    environment: desktop-release
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Validate source tag and required Apple credentials
+        run: GITHUB_REF_TYPE=tag GITHUB_REF_NAME="$RELEASE_TAG" node apps/desktop/scripts/release-validation.mjs preflight mac
+      - name: Refuse replacement of a published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/desktop-releases.json"
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const releases = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/desktop-releases.json"));
+            if (releases.flat().some(release => release.tag_name === process.env.RELEASE_TAG && !release.draft))
+              throw new Error("Use a new version; published installer bytes must not be replaced.");
+          '
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go/xlsxpatch/go.mod
+          cache: false
+      - run: npm ci
+      - run: npm run desktop:build
+      - run: npm run test -w @injoffice/desktop
+      - run: npm run test:native -w @injoffice/desktop
+      - run: npm run typecheck -w @injoffice/desktop
+      - name: Build both signed and notarized Mac architectures
+        working-directory: apps/desktop
+        run: npx electron-builder --config electron-builder.release.cjs --mac --arm64 --x64 --publish never
+      - run: npm run test:packaged -w @injoffice/desktop
+      - name: Verify Apple identity, notarization, and packaged startup
+        shell: bash
+        run: |
+          apps=(apps/desktop/release/mac*/InjOffice.app)
+          test "${#apps[@]}" -eq 2
+          for app in "${apps[@]}"; do
+            codesign --verify --deep --strict "$app"
+            codesign -dv --verbose=4 "$app" 2> "$RUNNER_TEMP/signature.txt"
+            grep -q '^Authority=Developer ID Application:' "$RUNNER_TEMP/signature.txt"
+            grep -qFx "TeamIdentifier=$APPLE_TEAM_ID" "$RUNNER_TEMP/signature.txt"
+            xcrun stapler validate "$app"
+            ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/InjOffice" -e 'console.log("Packaged Electron started:", process.arch)'
+          done
+      - name: Verify the native Mac updater and feed
+        run: node apps/desktop/scripts/check-packaged-updater.cjs apps/desktop/release --release
+      - name: Record signed artifact provenance and checksums
+        run: GITHUB_REF_NAME="$RELEASE_TAG" npm run manifest -w @injoffice/desktop
+      - uses: actions/upload-artifact@v7
+        with:
+          name: injoffice-signed-macos-${{ inputs.release_tag }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest-mac.yml
+            apps/desktop/release/manifest.json
+            apps/desktop/release/SHA256SUMS
+          if-no-files-found: error
