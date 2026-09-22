@@ -36,11 +36,12 @@ test('preflight names each missing secret by its environment variable and reposi
   for (const variable of Object.keys(SIGNING_ENV.windows)) assert.match(missingWindows, new RegExp(variable))
 })
 
-function assets(dir, { version: feedVersion = version, drop = [] } = {}) {
+function assets(dir, { version: feedVersion = version, drop = [], only = ['mac', 'windows', 'linux'] } = {}) {
   const names = [`InjOffice-${version}-mac-arm64.dmg`, `InjOffice-${version}-mac-x64.dmg`, `InjOffice-${version}-mac-arm64.zip`, `InjOffice-${version}-mac-x64.zip`,
     `InjOffice-${version}-win-x64.exe`, `InjOffice-${version}-linux-x64.AppImage`, `InjOffice-${version}-linux-x64.deb`, `InjOffice-${version}-linux-x64.rpm`]
   const platform = { mac: names.slice(0, 4), windows: names.slice(4, 5), linux: names.slice(5) }
   for (const [name, files] of Object.entries(platform)) {
+    if (!only.includes(name)) continue
     const sub = path.join(dir, `desktop-release-${name}`)
     fs.mkdirSync(sub, { recursive: true })
     for (const file of files) if (!drop.includes(file)) fs.writeFileSync(path.join(sub, file), file)
@@ -70,4 +71,24 @@ test('collect refuses a missing installer, a feed pointing at an absent file and
   assert.equal(mismatch.length, 3)
   for (const problem of mismatch) assert.match(problem, /version 0\.0\.1 !=/)
   assert.deepEqual(collect(path.join(os.tmpdir(), 'injoffice-absent')).problems.length, 1)
+})
+
+// A release may deliberately ship a subset while a platform waits for its signing identity. The
+// named set is what makes that a decision rather than a leg that quietly failed, so collect()
+// must accept exactly those platforms and refuse anything else in either direction.
+test('a subset release requires its own platforms and refuses strays', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'injoffice-subset-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  assets(dir, { only: ['windows', 'linux'] })
+  assert.deepEqual(collect(dir, { platforms: ['windows', 'linux'] }).problems, [], 'windows+linux assets satisfy a windows+linux release')
+
+  const full = fs.mkdtempSync(path.join(os.tmpdir(), 'injoffice-subset-'))
+  t.after(() => fs.rmSync(full, { recursive: true, force: true }))
+  assets(full)
+  assert.match(collect(full, { platforms: ['windows', 'linux'] }).problems.join('\n'), /mac is not part of this release/)
+
+  const short = fs.mkdtempSync(path.join(os.tmpdir(), 'injoffice-subset-'))
+  t.after(() => fs.rmSync(short, { recursive: true, force: true }))
+  assets(short, { only: ['windows'] })
+  assert.ok(collect(short, { platforms: ['windows', 'linux'] }).problems.length > 0, 'a missing named platform still fails')
 })

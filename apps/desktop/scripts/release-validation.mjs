@@ -32,11 +32,17 @@ export const SIGNING_ENV = {
   linux: {},
 }
 // artifactName in electron-builder.release.cjs: ${productName}-${version}-${os}-${arch}.${ext}
-export const REQUIRED_ASSETS = [
-  /-mac-arm64\.dmg$/, /-mac-x64\.dmg$/, /-mac-arm64\.zip$/, /-mac-x64\.zip$/, /^latest-mac\.yml$/,
-  /-win-x64\.exe$/, /^latest\.yml$/,
-  /-linux-x64\.AppImage$/, /-linux-x64\.deb$/, /-linux-x64\.rpm$/, /^latest-linux\.yml$/,
-]
+export const PLATFORM_ASSETS = {
+  mac: [/-mac-arm64\.dmg$/, /-mac-x64\.dmg$/, /-mac-arm64\.zip$/, /-mac-x64\.zip$/, /^latest-mac\.yml$/],
+  windows: [/-win-x64\.exe$/, /^latest\.yml$/],
+  linux: [/-linux-x64\.AppImage$/, /-linux-x64\.deb$/, /-linux-x64\.rpm$/, /^latest-linux\.yml$/],
+}
+export const ALL_PLATFORMS = Object.keys(PLATFORM_ASSETS)
+// A release may deliberately ship a subset of platforms (a platform whose signing identity is
+// not in place yet). The set is named explicitly by the workflow, so a missing platform is a
+// choice rather than a leg that quietly failed.
+export const requiredAssets = (platforms = ALL_PLATFORMS) => platforms.flatMap(name => PLATFORM_ASSETS[name] ?? [])
+export const REQUIRED_ASSETS = requiredAssets()
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const readDesktopVersion = () => JSON.parse(fs.readFileSync(path.join(here, '../package.json'), 'utf8')).version
@@ -59,7 +65,7 @@ export function preflight(platform, env = process.env, { desktopVersion = readDe
 
 const yamlScalars = (text, key) => [...text.matchAll(new RegExp(`^\\s*-?\\s*${key}:\\s*(.+?)\\s*$`, 'gm'))].map(match => match[1].replace(/^['"]|['"]$/g, ''))
 
-export function collect(directory, { desktopVersion = readDesktopVersion() } = {}) {
+export function collect(directory, { desktopVersion = readDesktopVersion(), platforms = ALL_PLATFORMS } = {}) {
   const problems = []
   if (!fs.existsSync(directory)) return { problems: [`${directory} does not exist`], files: [] }
   // download-artifact places each platform in its own subdirectory; the draft step uploads top-level files.
@@ -73,7 +79,16 @@ export function collect(directory, { desktopVersion = readDesktopVersion() } = {
     fs.rmSync(path.join(directory, entry.name), { recursive: true, force: true })
   }
   const files = fs.readdirSync(directory).filter(name => name !== 'SHA256SUMS' && fs.statSync(path.join(directory, name)).isFile()).sort()
-  for (const pattern of REQUIRED_ASSETS) if (!files.some(name => pattern.test(name))) problems.push(`no file matches ${pattern}`)
+  const unknown = platforms.filter(name => !PLATFORM_ASSETS[name])
+  if (unknown.length) problems.push(`unknown platform(s) ${unknown.join(', ')}; expected ${ALL_PLATFORMS.join(', ')}`)
+  for (const pattern of requiredAssets(platforms.filter(name => PLATFORM_ASSETS[name]))) {
+    if (!files.some(name => pattern.test(name))) problems.push(`no file matches ${pattern}`)
+  }
+  // An asset for a platform this release does not ship means a leg ran that should not have.
+  for (const name of ALL_PLATFORMS.filter(candidate => !platforms.includes(candidate))) {
+    const stray = files.filter(file => PLATFORM_ASSETS[name].some(pattern => pattern.test(file)))
+    if (stray.length) problems.push(`${name} is not part of this release, but ${stray.join(', ')} was collected`)
+  }
   for (const feed of files.filter(name => /^latest.*\.yml$/.test(name))) {
     const text = fs.readFileSync(path.join(directory, feed), 'utf8')
     const version = yamlScalars(text, 'version')[0]
@@ -90,12 +105,14 @@ export function collect(directory, { desktopVersion = readDesktopVersion() } = {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [command, argument] = process.argv.slice(2)
+  const [command, argument, platformList] = process.argv.slice(2)
   let problems
+  // collect takes the platforms this release ships, comma separated; the default is all of them.
+  const platforms = platformList ? platformList.split(',').map(name => name.trim()).filter(Boolean) : ALL_PLATFORMS
   if (command === 'preflight' && argument) problems = preflight(argument)
-  else if (command === 'collect' && argument) problems = collect(path.resolve(argument)).problems
+  else if (command === 'collect' && argument) problems = collect(path.resolve(argument), { platforms }).problems
   else {
-    console.error('usage: release-validation.mjs preflight <mac|windows|linux> | collect <dir>')
+    console.error('usage: release-validation.mjs preflight <mac|windows|linux> | collect <dir> [platforms]')
     process.exit(2)
   }
   if (problems.length > 0) {
