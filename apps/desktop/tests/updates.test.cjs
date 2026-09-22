@@ -24,13 +24,29 @@ async function fixture(t, options = {}) {
   return { service, updater, tasks, settingsPath, count: () => ({ loads, checks, downloads, installs, cancellations }) };
 }
 
-test('preview and package-manager installations never load updater or schedule network', async t => {
-  assert.match(updateAvailability({ packaged: true, release: false, platform: 'darwin' }), /local preview/);
-  assert.match(updateAvailability({ packaged: true, release: true, platform: 'linux', appImage: false }), /DEB\/RPM/);
+test('all packaged desktop builds can check updates; source builds stay offline', async t => {
+  assert.equal(updateAvailability({ packaged: true, release: false, platform: 'darwin' }), null);
+  assert.equal(updateAvailability({ packaged: true, release: true, platform: 'linux', appImage: false }), null);
+  assert.equal(updateAvailability({ packaged: true, release: false, platform: 'win32' }), null);
+  assert.match(updateAvailability({ packaged: false, platform: 'darwin' }), /Install InjOffice/);
   assert.equal(updateAvailability({ packaged: true, release: true, platform: 'linux', appImage: true }), null);
   const f = await fixture(t, { unavailable: 'Local preview' });
   f.service.start(); await f.service.check(); await f.service.download(); await f.service.install();
   assert.equal(f.service.getState().status, 'disabled'); assert.equal(f.tasks.size, 0); assert.equal(f.count().loads, 0);
+});
+
+test('installer-based updates check automatically and never pretend a browser download is installed', async t => {
+  const f = await fixture(t, {manualInstall: true});
+  f.updater.downloadUpdate = async () => {};
+  f.service.start();
+  assert.equal(f.tasks.size, 2);
+  await f.service.check();
+  assert.equal(f.service.getState().manualInstall, true);
+  await f.service.download();
+  assert.equal(f.service.getState().status, 'available');
+  assert.match(f.service.getState().message, /browser/);
+  await f.service.install();
+  assert.equal(f.count().installs, 0);
 });
 
 test('automatic checks are delayed, periodic, persisted, and never automatically download/install', async t => {

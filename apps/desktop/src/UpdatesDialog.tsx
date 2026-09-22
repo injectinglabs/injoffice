@@ -70,6 +70,7 @@ export default function UpdatesDialog({ onClose }: { onClose(): void }) {
       {state?.version && ['available', 'downloading', 'downloaded', 'installing'].includes(state.status) && <p>Version {state.version}</p>}
       {state?.message && <p>{state.message}</p>}
       {status === 'idle' && <p>Check for the latest improvements and fixes.</p>}
+      {state?.manualInstall && status === 'available' && <p>Download the installer for your computer, then close InjOffice and run it to finish updating.</p>}
       {status === 'downloaded' && <p>Your documents will be checked before restarting. You can keep working and update later.</p>}
       {status === 'downloading' && <div className="updates-progress"><progress max="100" value={Number.isFinite(progress) ? progress : undefined} aria-label="Update download progress" /><span>{Number.isFinite(progress) ? `${Math.round(progress)}%` : 'Downloading'}</span></div>}
     </div>
@@ -77,7 +78,7 @@ export default function UpdatesDialog({ onClose }: { onClose(): void }) {
     {error && <p className="updates-error" role="alert">{error}</p>}
     {state && status !== 'disabled' && <label className="updates-automatic"><input type="checkbox" checked={state.autoCheck} disabled={busy} onChange={event => { const enabled = event.target.checked; if (bridge) void act(() => bridge.setAutomaticUpdates(enabled)); }} />Automatically check for updates</label>}
     <div className="updates-actions"><button onClick={onClose}>{status === 'downloaded' ? 'Later' : 'Close'}</button>
-      {bridge && state && status !== 'disabled' && status !== 'downloaded' && status !== 'downloading' && status !== 'installing' && <button className="primary-button" disabled={busy} onClick={() => void act(() => status === 'available' ? bridge.downloadUpdate() : bridge.checkForUpdates())}>{status === 'available' ? 'Download update' : status === 'checking' ? 'Checking…' : 'Check for updates'}</button>}
+      {bridge && state && status !== 'disabled' && status !== 'downloaded' && status !== 'downloading' && status !== 'installing' && <button className="primary-button" disabled={busy} onClick={() => void act(() => status === 'available' ? bridge.downloadUpdate() : bridge.checkForUpdates())}>{status === 'available' ? state.manualInstall ? 'Download installer' : 'Download update' : status === 'checking' ? 'Checking…' : 'Check for updates'}</button>}
       {bridge && status === 'downloaded' && <button className="primary-button" disabled={busy} onClick={() => void act(() => bridge.installUpdate())}>{pending ? 'Preparing restart…' : 'Restart and update'}</button>}
     </div>
   </dialog>;

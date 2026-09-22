@@ -82,12 +82,18 @@ try {
   await send('Page.enable');
   await until(`!!document.querySelector('.start-create-xlsx') && !document.querySelector('.start-create-xlsx').disabled`, 'enabled Home screen');
   assert.equal(await evaluate(`typeof window.injDesktop?.create`), 'function');
+  const updateState = await evaluate('window.injDesktop.getUpdateState()');
+  assert.notEqual(updateState.status, 'disabled', 'installed previews must expose update checks');
+  assert.equal(updateState.autoCheck, true, 'update checks default to enabled');
+  assert.equal(updateState.manualInstall, true, 'DEB updates use the OS installer');
+  const checked = await evaluate('window.injDesktop.checkForUpdates()');
+  assert.ok(['not-available', 'available'].includes(checked.status), `Live update check failed: ${JSON.stringify(checked)}`);
   await evaluate(`document.querySelector('.start-create-xlsx').click()`);
   await until(`!!document.querySelector('.editor-workspace:not([hidden]) [role="gridcell"]')`, 'new spreadsheet cells');
   assert.deepEqual(errors, []);
   const {data} = await send('Page.captureScreenshot', {format: 'png'});
   writeFileSync(resolve(output, 'spreadsheet.png'), Buffer.from(data, 'base64'));
-  console.log('PASS: installed DEB launched, Home loaded, native spreadsheet creation rendered cells; sandbox was not disabled.');
+  console.log('PASS: installed DEB launched, checked GitHub for updates, and created a native spreadsheet; sandbox was not disabled.');
 } finally {
   writeFileSync(resolve(output, 'electron.log'), logs);
   if (socket?.readyState === WebSocket.OPEN) {

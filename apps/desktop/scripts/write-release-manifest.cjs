@@ -19,8 +19,8 @@ function sourceRevision(env = process.env) {
 
 function writeReleaseManifest(releaseDir, { env = process.env, revision = sourceRevision(env) } = {}) {
   if (!fs.existsSync(releaseDir)) throw new Error(`${releaseDir} does not exist`);
-  const names = fs.readdirSync(releaseDir).filter(name => INSTALLER.test(name) && fs.statSync(path.join(releaseDir, name)).isFile()).sort();
-  if (names.length === 0) throw new Error(`no installers (${INSTALLER}) in ${releaseDir}: ${fs.readdirSync(releaseDir).join(', ') || '(empty)'}`);
+  const names = fs.readdirSync(releaseDir).filter(name => (INSTALLER.test(name) || /^latest.*\.yml$/.test(name) || name.endsWith('.blockmap')) && fs.statSync(path.join(releaseDir, name)).isFile()).sort();
+  if (!names.some(name => INSTALLER.test(name))) throw new Error(`no installers (${INSTALLER}) in ${releaseDir}: ${fs.readdirSync(releaseDir).join(', ') || '(empty)'}`);
   const artifacts = names.map(name => {
     const bytes = fs.readFileSync(path.join(releaseDir, name));
     return { name, bytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex') };

@@ -2,16 +2,13 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { atomicWrite } = require('./file-store.cjs');
 
-// Local previews never contact the release service. Only the signed-release
-// configuration embeds this marker; DEB/RPM installs remain package-managed.
-function updateAvailability({ packaged, release, platform, appImage }) {
-  if (!packaged || !release) return 'Updates are available in official release builds. This is a local preview.';
-  if (platform === 'linux' && !appImage) return 'Install newer DEB/RPM packages from InjOffice releases, or use your configured package repository. In-app updates are available for AppImage installations.';
+function updateAvailability({ packaged, platform }) {
+  if (!packaged) return 'Install InjOffice to check for app updates.';
   if (!['darwin', 'win32', 'linux'].includes(platform)) return 'In-app updates are unavailable on this platform.';
   return null;
 }
 
-async function createUpdateService({ appVersion, settingsPath, unavailable, loadUpdater, notify = () => {}, prepareInstall, cancelInstall = () => {}, timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
+async function createUpdateService({ appVersion, settingsPath, unavailable, manualInstall = false, loadUpdater, notify = () => {}, prepareInstall, cancelInstall = () => {}, timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
   let autoCheck = true, preferenceMessage;
   try {
     const info = await fs.stat(settingsPath);
@@ -22,7 +19,7 @@ async function createUpdateService({ appVersion, settingsPath, unavailable, load
   } catch (error) {
     if (error.code !== 'ENOENT') { autoCheck = false; preferenceMessage = 'Update preferences could not be read. Automatic checks are off; choose your preference again to save it.'; }
   }
-  let state = { status: unavailable ? 'disabled' : 'idle', appVersion, autoCheck, ...(unavailable || preferenceMessage ? { message: unavailable || preferenceMessage } : {}) };
+  let state = { status: unavailable ? 'disabled' : 'idle', appVersion, autoCheck, manualInstall, ...(unavailable || preferenceMessage ? { message: unavailable || preferenceMessage } : {}) };
   let updater, timer, interval, operation, disposed = false, preferenceQueue = Promise.resolve();
   let nativeInstallListeners = [];
   const snapshot = () => ({ ...state });
@@ -76,13 +73,16 @@ async function createUpdateService({ appVersion, settingsPath, unavailable, load
     if (unavailable || disposed || operation || state.status !== 'available') return snapshot();
     operation = 'download';
     emit({ status: 'downloading', percent: 0, message: undefined });
-    try { await getUpdater().downloadUpdate(); }
+    try {
+      await getUpdater().downloadUpdate();
+      if (manualInstall) emit({status: 'available', percent: undefined, message: 'The installer download opened in your browser. Save your work, close InjOffice, and run the downloaded installer to finish updating.'});
+    }
     catch { if (state.status !== 'error') failure(); }
     finally { operation = undefined; }
     return snapshot();
   }
   async function install() {
-    if (unavailable || disposed || operation || state.status !== 'downloaded') return snapshot();
+    if (unavailable || manualInstall || disposed || operation || state.status !== 'downloaded') return snapshot();
     operation = 'install';
     let started = false;
     try {
@@ -125,11 +125,11 @@ async function createUpdateService({ appVersion, settingsPath, unavailable, load
     dispose() { disposed = true; clearSchedule(); } };
 }
 
-function loadReleaseUpdater(platform) {
+function loadReleaseUpdater(platform, {preview = false} = {}) {
   const { MacUpdater, NsisUpdater, AppImageUpdater } = require('electron-updater');
   const { DesktopGitHubProvider } = require('./desktop-update-provider.cjs');
   const Updater = platform === 'darwin' ? MacUpdater : platform === 'win32' ? NsisUpdater : AppImageUpdater;
-  return new Updater({ provider: 'custom', updateProvider: DesktopGitHubProvider, owner: 'injectinglabs', repo: 'injoffice' });
+  return new Updater({ provider: 'custom', updateProvider: DesktopGitHubProvider, preview, owner: 'injectinglabs', repo: 'injoffice' });
 }
 
 module.exports = { createUpdateService, updateAvailability, loadReleaseUpdater };

@@ -5,6 +5,7 @@ declare global {
     status: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'not-available' | 'error';
     appVersion: string;
     autoCheck: boolean;
+    manualInstall?: boolean;
     version?: string;
     releaseNotes?: string;
     percent?: number;

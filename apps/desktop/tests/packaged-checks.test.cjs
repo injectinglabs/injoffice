@@ -37,12 +37,13 @@ function writeAsar(file, files) {
   fs.writeFileSync(file, Buffer.concat([head, json, Buffer.alloc(padding), ...chunks]));
 }
 
-function fakeRelease({ release = false, feedConfig = release, electronUpdater = desktop.dependencies['electron-updater'] } = {}) {
+function fakeRelease({ release = false, feedConfig = true, electronUpdater = desktop.dependencies['electron-updater'] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'injoffice-release-'));
   const metadata = { name: '@injoffice/desktop', version: desktop.version, main: 'electron/main.cjs', dependencies: desktop.dependencies, ...(release ? { injofficeRelease: true } : {}) };
   const files = {
     'package.json': JSON.stringify(metadata),
     'electron/main.cjs': '', 'electron/updates.cjs': '', 'electron/desktop-update-provider.cjs': '',
+    'electron/desktop-releases.cjs': '', 'electron/installer-update.cjs': '',
     'node_modules/electron-updater/package.json': JSON.stringify({ name: 'electron-updater', version: electronUpdater }),
     'node_modules/semver/package.json': JSON.stringify({ name: 'semver', version: desktop.dependencies.semver }),
     'renderer/index.html': '<script src="./assets/index-abc123.js"></script>',
@@ -53,12 +54,13 @@ function fakeRelease({ release = false, feedConfig = release, electronUpdater = 
   if (feedConfig) {
     for (const resources of ['mac-arm64/InjOffice.app/Contents/Resources', 'linux-unpacked/resources']) fs.writeFileSync(path.join(dir, resources, 'app-update.yml'), 'provider: github\nowner: injectinglabs\nrepo: injoffice\n');
   }
-  if (release) {
+  {
     fs.writeFileSync(path.join(dir, 'InjOffice-0.1.0-mac-arm64.zip'), 'zip');
     fs.writeFileSync(path.join(dir, 'InjOffice-0.1.0-linux-x64.AppImage'), 'appimage');
     fs.writeFileSync(path.join(dir, 'latest-mac.yml'), `version: ${desktop.version}\nfiles:\n  - url: InjOffice-0.1.0-mac-arm64.zip\n`);
     fs.writeFileSync(path.join(dir, 'latest-linux.yml'), `version: ${desktop.version}\nfiles:\n  - url: InjOffice-0.1.0-linux-x64.AppImage\n`);
-  } else {
+  }
+  if (!release) {
     fs.writeFileSync(path.join(dir, 'InjOffice-0.1.0-arm64.dmg'), 'dmg bytes');
     fs.writeFileSync(path.join(dir, 'InjOffice-0.1.0-arm64-mac.zip'), 'zip bytes');
     fs.writeFileSync(path.join(dir, 'builder-debug.yml'), 'ignored');
@@ -79,17 +81,16 @@ test('findPackagedApps recognises the per-OS unpacked layouts and reads app.asar
   assert.deepEqual(findPackagedApps(path.join(dir, 'absent')), []);
 });
 
-test('unsigned previews bundle the updater modules but carry no update channel', () => {
+test('unsigned previews bundle update discovery and feeds without claiming signed-release status', () => {
   const ok = checkPackagedUpdater(fakeRelease());
   assert.deepEqual(ok.problems, []);
   assert.equal(ok.notes.length, 2);
-  assert.match(ok.notes[0], /updater deliberately disabled/);
-  const leaking = checkPackagedUpdater(fakeRelease({ feedConfig: true }));
-  assert.ok(leaking.problems.every(problem => /must not ship .*app-update\.yml/.test(problem)), leaking.problems.join('\n'));
-  assert.equal(leaking.problems.length, 2);
+  assert.match(ok.notes[0], /update checks enabled/);
+  const missing = checkPackagedUpdater(fakeRelease({ feedConfig: false }));
+  assert.ok(missing.problems.every(problem => /app-update\.yml is missing/.test(problem)), missing.problems.join('\n'));
+  assert.equal(missing.problems.length, 2);
   const flagged = checkPackagedUpdater(fakeRelease({ release: true }));
   assert.ok(flagged.problems.some(problem => /must not carry injofficeRelease/.test(problem)));
-  assert.ok(flagged.problems.some(problem => /produced update feeds latest-linux\.yml, latest-mac\.yml/.test(problem)));
   const stale = checkPackagedUpdater(fakeRelease({ electronUpdater: '0.0.1' }));
   assert.ok(stale.problems.every(problem => /packaged electron-updater@0\.0\.1/.test(problem)));
   assert.equal(checkPackagedUpdater(path.join(os.tmpdir(), 'injoffice-none')).problems[0].startsWith('no unpacked application'), true);
@@ -97,7 +98,9 @@ test('unsigned previews bundle the updater modules but carry no update channel',
 
 test('release builds need the flag, app-update.yml and feeds that reference present files', () => {
   assert.deepEqual(checkPackagedUpdater(fakeRelease({ release: true }), { release: true }).problems, []);
-  const preview = checkPackagedUpdater(fakeRelease(), { release: true }).problems;
+  const previewDir = fakeRelease({feedConfig: false});
+  fs.rmSync(path.join(previewDir, 'latest-mac.yml'));
+  const preview = checkPackagedUpdater(previewDir, { release: true }).problems;
   assert.ok(preview.some(problem => /lacks injofficeRelease/.test(problem)));
   assert.ok(preview.some(problem => /app-update\.yml is missing/.test(problem)));
   assert.ok(preview.some(problem => /latest-mac\.yml was not produced/.test(problem)));
@@ -112,7 +115,7 @@ test('the release manifest records every installer with size, sha256 and the sou
   assert.equal(manifest.schema, SCHEMA);
   assert.equal(manifest.revision, 'abc123');
   assert.equal(manifest.workflowRun, 'https://github.com/injectinglabs/injoffice/actions/runs/7');
-  assert.deepEqual(manifest.artifacts.map(item => item.name), ['InjOffice-0.1.0-arm64-mac.zip', 'InjOffice-0.1.0-arm64.dmg']);
+  assert.deepEqual(manifest.artifacts.map(item => item.name), ['InjOffice-0.1.0-arm64-mac.zip', 'InjOffice-0.1.0-arm64.dmg', 'InjOffice-0.1.0-linux-x64.AppImage', 'InjOffice-0.1.0-mac-arm64.zip', 'latest-linux.yml', 'latest-mac.yml']);
   assert.equal(manifest.artifacts[1].sha256, crypto.createHash('sha256').update('dmg bytes').digest('hex'));
   assert.equal(manifest.artifacts[1].bytes, 9);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')), manifest);

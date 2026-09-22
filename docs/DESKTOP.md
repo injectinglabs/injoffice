@@ -75,8 +75,13 @@ GitHub Actions → **Desktop builds** (`.github/workflows/desktop.yml`,
 | linux-x64 | AppImage, DEB, RPM |
 | linux-arm64 | AppImage, DEB, RPM |
 
-These artifacts are unsigned. They must not set `injofficeRelease` and must not
-drive the in-app public updater. `CSC_IDENTITY_AUTO_DISCOVERY` is false.
+These artifacts are unsigned. They must not set `injofficeRelease`.
+`CSC_IDENTITY_AUTO_DISCOVERY` is false. Update checks are enabled by default in
+every packaged build. Previews discover published `desktop-preview-vX.Y.Z[-rN]`
+and stable `desktop-vX.Y.Z` releases; signed builds only discover stable releases.
+Only greater application versions are offered, so rebuilding 0.1.0 does not
+update an existing 0.1.0 installation. Install the corrected preview once to
+enable checks in copies that shipped with the old updater disabled.
 
 On macOS, preview packaging uses an **ad-hoc signature** to seal the complete app
 bundle. This is not Developer ID signing or notarization: Gatekeeper can still
@@ -105,14 +110,20 @@ Publish a draft only after install, open/edit/save, and upgrade checks on each
 shipped platform. If a release is broken, ship a higher patch version; do not
 replace published bytes.
 
-In-app updates (signed builds only) use `electron-updater` against GitHub
-Releases whose tags start with `desktop-v`. The renderer remains offline; the
-updater uses its own Electron session. Downloads and restart are
-user-initiated. Restart must refuse unsaved documents and failed recovery
-writes.
+Windows and AppImage use `electron-updater` for download and restart, including
+preview builds. Signed Mac builds also use that native updater. Ad-hoc signed Mac
+previews instead offer the matching DMG for installation by the user, because
+native Mac updates require proper signing. Checks run after 15 seconds and every
+six hours unless the user turns automatic checking off; manual checks remain
+available. The renderer remains offline; update requests use a separate Electron
+session. Downloads and restart are user-initiated. Restart must refuse unsaved
+documents and failed recovery writes. Publish native `latest*.yml` feeds and
+their referenced assets together, with filenames unchanged from the build.
 
 DEB/RPM users install a new package with their package manager. There is no
-APT/YUM repository and no in-app update for those packages. The unsigned preview
+APT/YUM repository. The app checks for new versions and offers a compatible
+DEB/RPM installer in the browser; it never claims that opening a download has
+installed the update. The unsigned preview
 matrix supports Linux ARM64; the signed-draft matrix currently supports Linux
 x64 only. Windows ARM, beta channels, staged rollouts, and store distribution
 are out of scope.
@@ -185,6 +196,7 @@ Electron as native authority.
 - No claim of Word/Excel/PowerPoint/Acrobat feature or layout parity.
 - DOCX on-screen preview may use flowing HTML; page-paint is a separate export
   path and is the layout that should match a printed page.
-- Public updates come only from **published** `desktop-v*` GitHub Releases.
+- Updates come only from published desktop releases in `injectinglabs/injoffice`;
+  signed builds exclude previews and all builds exclude npm releases and drafts.
 - External Office oracles and private fidelity corpora stay local; do not add
   them to CI.
