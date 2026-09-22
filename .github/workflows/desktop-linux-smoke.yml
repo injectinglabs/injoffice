@@ -12,7 +12,7 @@ on:
       release_tag:
         description: Published desktop release tag to install and test
         required: true
-        default: desktop-preview-v0.1.0-r3
+        default: desktop-preview-v0.1.0-r4
         type: string
 permissions:
   contents: read
