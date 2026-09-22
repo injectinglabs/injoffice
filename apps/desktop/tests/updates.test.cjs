@@ -189,3 +189,43 @@ test('headless Linux authorization cannot wait on an invisible password prompt',
     exists: binary => binary === '/usr/bin/apt-get', run: () => assert.fail('unexpected install')}), /authorization is unavailable/);
   assert.throws(() => installLinuxPackage('deb', 'relative.deb'), /Invalid update package/);
 });
+
+for (const [platform, packageType, extension] of [['win32', undefined, 'exe'], ['linux', 'deb', 'deb'], ['linux', 'rpm', 'rpm']]) {
+  for (const corrupt of [false, true]) test(`${platform} ${extension} ${corrupt ? 'rejects a corrupt download' : 'downloads and verifies the update inside the app'}`, async t => {
+    const {createServer} = require('node:http');
+    const {createHash} = require('node:crypto');
+    const {NodeHttpExecutor} = require('builder-util/out/nodeHttpExecutor');
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'injoffice-native-download-'));
+    t.after(() => fs.rm(directory, {recursive: true, force: true}));
+    const payload = Buffer.from('verified installer fixture');
+    const hash = createHash('sha512').update(corrupt ? 'different content' : payload).digest('base64');
+    const server = createServer((request, response) => {
+      if (new URL(request.url, 'http://localhost').pathname.endsWith('.yml')) response.end(`version: 0.2.0\nfiles:\n  - url: update.${extension}\n    sha512: ${hash}\n    size: ${payload.length}\n`);
+      else { response.setHeader('Content-Length', payload.length); response.end(payload); }
+    });
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+    t.after(() => { server.closeAllConnections(); server.close(); });
+    const config = path.join(directory, 'app-update.yml');
+    await fs.writeFile(config, 'updaterCacheDirName: updater-cache\n');
+    const app = {version: '0.1.0', name: 'InjOffice', isPackaged: true, whenReady: async () => {},
+      userDataPath: directory, baseCachePath: directory, appUpdateConfigPath: config, onQuit() {}};
+    const updater = loadReleaseUpdater(platform, {packageType, app});
+    const errors = []; updater.on('error', error => errors.push(error.message));
+    const {ElectronHttpExecutor} = require('electron-updater/out/electronHttpExecutor');
+    updater.httpExecutor = new ElectronHttpExecutor();
+    const transport = new NodeHttpExecutor();
+    updater.httpExecutor.createRequest = transport.createRequest.bind(transport);
+    updater.disableDifferentialDownload = true;
+    // Test the real download/verification implementation against an isolated
+    // fixture server; production discovery remains fixed to the InjOffice repo.
+    updater.setFeedURL({provider: 'generic', url: `http://127.0.0.1:${server.address().port}`});
+    const service = await createUpdateService({appVersion: app.version, settingsPath: path.join(directory, 'settings.json'),
+      loadUpdater: () => updater, prepareInstall: () => assert.fail('downloads must not install')});
+    t.after(() => service.dispose());
+    assert.equal((await service.check()).status, 'available', errors.join('\n'));
+    assert.equal((await service.download()).status, corrupt ? 'error' : 'downloaded', errors.join('\n'));
+    if (corrupt) assert.match(errors.join('\n'), /checksum mismatch/i);
+    if (!corrupt) assert.deepEqual(await fs.readFile(updater.downloadedUpdateHelper.file), payload);
+    else assert.equal(updater.downloadedUpdateHelper.file, null);
+  });
+}
