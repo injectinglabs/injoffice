@@ -5,18 +5,16 @@
 //   node check-packaged-updater.cjs <releaseDir>            unsigned preview
 //   node check-packaged-updater.cjs <releaseDir> --release  signed desktop-v* draft
 //
-// electron/main.cjs enables the in-app updater only when the packaged package.json
-// carries `injofficeRelease: true` AND resources/app-update.yml exists (both are
-// written by electron-builder.release.cjs). Unsigned previews must have neither;
-// both kinds must still bundle electron-updater and semver, because the host
-// requires them lazily and a missing module would surface only on a user's machine.
+// Every packaged build checks for updates. The release marker restricts signed
+// installations to stable releases; preview builds also discover desktop previews.
+// Both configurations must carry the native feeds used by Windows and AppImage.
 const fs = require('node:fs');
 const path = require('node:path');
 const { findPackagedApps, readAsar } = require('./packaged-app.cjs');
 
 const desktopManifest = require('../package.json');
 const UPDATER_MODULES = ['electron-updater', 'semver'];
-const HOST_MODULES = ['electron/updates.cjs', 'electron/desktop-update-provider.cjs'];
+const HOST_MODULES = ['electron/updates.cjs', 'electron/desktop-update-provider.cjs', 'electron/desktop-releases.cjs', 'electron/installer-update.cjs'];
 const FEED_BY_PLATFORM = { mac: 'latest-mac.yml', win: 'latest.yml', linux: 'latest-linux.yml' };
 
 function yamlScalars(text, key) {
@@ -46,31 +44,25 @@ function checkPackagedUpdater(releaseDir, { release = false } = {}) {
       const flagged = metadata.injofficeRelease === true;
       const feedConfig = path.join(app.resources, 'app-update.yml');
       const hasFeedConfig = fs.existsSync(feedConfig);
-      if (release) {
-        if (!flagged) problems.push(`${label}: package.json lacks injofficeRelease: true (electron-builder.release.cjs extraMetadata)`);
-        if (!hasFeedConfig) problems.push(`${label}: ${feedConfig} is missing; the updater has no feed`);
-        else {
-          const feed = fs.readFileSync(feedConfig, 'utf8');
-          for (const [key, value] of [['provider', 'github'], ['owner', 'injectinglabs'], ['repo', 'injoffice']]) {
-            if (!yamlScalars(feed, key).includes(value)) problems.push(`${label}: app-update.yml ${key} is not ${value}`);
-          }
+      if (release && !flagged) problems.push(`${label}: package.json lacks injofficeRelease: true (electron-builder.release.cjs extraMetadata)`);
+      if (!release && flagged) problems.push(`${label}: unsigned preview must not carry injofficeRelease: true`);
+      if (!hasFeedConfig) problems.push(`${label}: ${feedConfig} is missing; the updater has no feed`);
+      else {
+        const feed = fs.readFileSync(feedConfig, 'utf8');
+        for (const [key, value] of [['provider', 'github'], ['owner', 'injectinglabs'], ['repo', 'injoffice']]) {
+          if (!yamlScalars(feed, key).includes(value)) problems.push(`${label}: app-update.yml ${key} is not ${value}`);
         }
-        const feedFile = path.join(releaseDir, FEED_BY_PLATFORM[app.platform]);
-        if (!fs.existsSync(feedFile)) problems.push(`${label}: ${feedFile} was not produced`);
-        else {
-          const feed = fs.readFileSync(feedFile, 'utf8');
-          const version = yamlScalars(feed, 'version')[0];
-          if (version !== metadata.version) problems.push(`${label}: ${path.basename(feedFile)} version ${version} != packaged ${metadata.version}`);
-          for (const url of yamlScalars(feed, 'url')) if (!fs.existsSync(path.join(releaseDir, url))) problems.push(`${label}: ${path.basename(feedFile)} references missing ${url}`);
-        }
-        notes.push(`${label}: release build, updater feed ${FEED_BY_PLATFORM[app.platform]} present`);
-      } else {
-        if (flagged) problems.push(`${label}: unsigned preview must not carry injofficeRelease: true`);
-        if (hasFeedConfig) problems.push(`${label}: unsigned preview must not ship ${feedConfig}; it would drive the public updater`);
-        const feeds = fs.readdirSync(releaseDir).filter(name => /^latest.*\.yml$/.test(name));
-        if (feeds.length > 0) problems.push(`${label}: unsigned preview produced update feeds ${feeds.join(', ')}`);
-        notes.push(`${label}: unsigned preview, updater deliberately disabled (no injofficeRelease flag, no app-update.yml), electron-updater ${desktopManifest.dependencies['electron-updater']} and semver ${desktopManifest.dependencies.semver} packaged for the host`);
       }
+      const feedName = app.platform === 'linux' && app.arch !== 'x64' ? `latest-linux-${app.arch}.yml` : FEED_BY_PLATFORM[app.platform];
+      const feedFile = path.join(releaseDir, feedName);
+      if (!fs.existsSync(feedFile)) problems.push(`${label}: ${feedFile} was not produced`);
+      else {
+        const feed = fs.readFileSync(feedFile, 'utf8');
+        const version = yamlScalars(feed, 'version')[0];
+        if (version !== metadata.version) problems.push(`${label}: ${path.basename(feedFile)} version ${version} != packaged ${metadata.version}`);
+        for (const url of yamlScalars(feed, 'url')) if (!fs.existsSync(path.join(releaseDir, url))) problems.push(`${label}: ${path.basename(feedFile)} references missing ${url}`);
+      }
+      notes.push(`${label}: ${release ? 'stable release' : 'preview'} update checks enabled; updater feed ${feedName} present`);
     } catch (error) {
       problems.push(`${label}: ${error.message}`);
     } finally { asar.close(); }

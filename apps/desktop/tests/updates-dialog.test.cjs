@@ -93,3 +93,17 @@ test('a checked build with nothing to install says it is up to date', async () =
     assert.match(view.root.findByProps({ className: 'updates-summary' }).findByType('h3').children.join(''), /You’re up to date/);
   } finally { if (view) await act(async () => view.unmount()); delete global.window; }
 });
+
+test('package-manager and unsigned Mac updates offer an installer without promising a restart update', async () => {
+  const Dialog = await loadDialog(); let downloads = 0;
+  const state = {...initial, status: 'available', manualInstall: true, version: '0.1.11'};
+  global.window = {injDesktop: {getUpdateState: async () => state, onUpdateState: () => () => {}, downloadUpdate: async () => { downloads++; return state; }}};
+  let view;
+  try {
+    await act(async () => { view = create(React.createElement(Dialog, {onClose() {}})); });
+    await act(async () => view.root.findAllByType('button').find(button => button.children.join('') === 'Download installer').props.onClick());
+    assert.equal(downloads, 1);
+    assert.equal(view.root.findAllByType('button').some(button => button.children.join('') === 'Restart and update'), false);
+    assert.match(JSON.stringify(view.toJSON()), /close InjOffice and run it/);
+  } finally { if (view) await act(async () => view.unmount()); delete global.window; }
+});

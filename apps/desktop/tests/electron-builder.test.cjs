@@ -47,7 +47,9 @@ test('preview Mac signing seals the bundle without leaking into Developer ID rel
   assert.equal(preview.mac.identity, '-');
   assert.equal(preview.mac.hardenedRuntime, false);
   assert.equal(preview.mac.notarize, false);
-  assert.equal(preview.publish, null);
+  assert.equal(preview.publish.owner, 'injectinglabs');
+  assert.equal(preview.publish.repo, 'injoffice');
+  assert.equal(preview.publish.tagNamePrefix, 'desktop-preview-v');
   assert.equal(preview.extraMetadata?.injofficeRelease, undefined);
   assert.equal(release.mac.identity, undefined);
   assert.equal(release.mac.forceCodeSigning, true);

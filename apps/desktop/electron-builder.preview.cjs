@@ -3,5 +3,7 @@
 const {build} = require('./package.json');
 module.exports = {
   ...build,
+  artifactName: '${productName}-${version}-${os}-${arch}.${ext}',
+  publish: {provider: 'github', owner: 'injectinglabs', repo: 'injoffice', releaseType: 'prerelease', tagNamePrefix: 'desktop-preview-v'},
   mac: {...build.mac, identity: '-', hardenedRuntime: false, notarize: false},
 };

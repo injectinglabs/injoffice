@@ -110,7 +110,7 @@ jobs:
       - name: Verify Linux installer metadata and icons
         if: runner.os == 'Linux'
         run: node apps/desktop/scripts/check-linux-packages.cjs
-      - name: Verify packaged updater dependencies and the absent update channel
+      - name: Verify packaged updater dependencies and update metadata
         run: node apps/desktop/scripts/check-packaged-updater.cjs apps/desktop/release
       - name: Record artifact checksums and source revision
         run: npm run manifest -w @injoffice/desktop
@@ -124,6 +124,8 @@ jobs:
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
             apps/desktop/release/*.rpm
+            apps/desktop/release/latest*.yml
+            apps/desktop/release/*.blockmap
             apps/desktop/release/manifest.json
             apps/desktop/release/SHA256SUMS
           if-no-files-found: error

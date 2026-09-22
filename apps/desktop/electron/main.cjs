@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, session } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, session, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { pathToFileURL } = require('node:url');
@@ -10,6 +10,7 @@ const { RecoveryStore } = require('./recovery-store.cjs');
 const { RecentFiles, openRecentFile } = require('./recent-files.cjs');
 const { resolveAsset, allowRequest, isTrustedSender } = require('./security.cjs');
 const { createUpdateService, updateAvailability, loadReleaseUpdater } = require('./updates.cjs');
+const { InstallerUpdate } = require('./installer-update.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'injoffice', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 const rendererRoot = path.resolve(__dirname, '../renderer');
@@ -191,12 +192,26 @@ app.whenReady().then(async () => {
     const metadata = JSON.parse(await fs.readFile(path.join(app.getAppPath(), 'package.json'), 'utf8'));
     await fs.access(path.join(process.resourcesPath, 'app-update.yml'));
     release = metadata.injofficeRelease === true;
-  } catch { /* Source builds and unsigned local previews have no update channel. */ }
+  } catch { /* Source builds may have no native update configuration. */ }
+  const manualInstall = (process.platform === 'darwin' && !release) || (process.platform === 'linux' && !process.env.APPIMAGE);
+  let packageFormat = 'rpm';
+  if (process.platform === 'linux') {
+    try { await fs.access('/etc/debian_version'); packageFormat = 'deb'; } catch { /* RPM-based desktop. */ }
+  }
   updates = await createUpdateService({
     appVersion: app.getVersion?.() ?? '0.1.0',
     settingsPath: path.join(app.getPath('userData'), 'updates.json'),
     unavailable: updateAvailability({ packaged: app.isPackaged, release, platform: process.platform, appImage: Boolean(process.env.APPIMAGE) }),
-    loadUpdater: () => loadReleaseUpdater(process.platform),
+    manualInstall,
+    loadUpdater: () => manualInstall ? new InstallerUpdate({
+      version: app.getVersion(), platform: process.platform, arch: process.arch, format: packageFormat, preview: !release,
+      request: async url => {
+        const response = await session.fromPartition('injoffice-update-checks', {cache: false}).fetch(url.href, {headers: {Accept: 'application/vnd.github+json'}, signal: AbortSignal.timeout(20000)});
+        if (!response.ok) throw new Error('Desktop release request failed');
+        return response.json();
+      },
+      openExternal: url => shell.openExternal(url),
+    }) : loadReleaseUpdater(process.platform, {preview: !release}),
     notify: state => { if (window && !window.isDestroyed()) window.webContents.send('updates:state', state); },
     prepareInstall: install => {
       if (!window || window.isDestroyed() || !prepareUpdateInstall) throw new Error('Open the workspace before installing the update.');
