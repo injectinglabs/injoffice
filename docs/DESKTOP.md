@@ -2,8 +2,8 @@
 
 InjOffice Desktop is a local Electron editor around the same native extract/apply
 engines as the playground. It has no AI, no account, and no required hosted
-backend. The renderer stays offline except the optional GitHub updater in
-**signed public** builds.
+backend. The renderer stays offline. The main process checks GitHub for updates in
+installed desktop builds.
 
 The private workspace is `apps/desktop` (`@injoffice/desktop`, not published).
 Host adapters, the mock-tested Electron main process, the start page, workspace
@@ -49,7 +49,8 @@ paint; VBA is not executed.
 
 Desktop WASM must track current `main`. After an engine merge, rebuild desktop
 from that SHA. Do not freeze a lagging snapshot as the advertised product.
-Unsigned developer previews are not public updates.
+Unsigned preview artifacts become discoverable updates only after a desktop
+release and its complete update metadata are explicitly published.
 
 ## Builds and updates
 
@@ -65,7 +66,7 @@ conversions of repository-root `logo.png`. Regenerate on macOS with
 ### Unsigned developer previews
 
 GitHub Actions → **Desktop builds** (`.github/workflows/desktop.yml`,
-`workflow_dispatch` only). Matrix:
+manual dispatch and updater/packaging pull requests). Matrix:
 
 | Platform | Artifact |
 | --- | --- |
@@ -92,7 +93,7 @@ checks do not replace interactive install/open/edit/save testing.
 ### Signed public drafts
 
 Tag a commit `desktop-v*` (desktop versions are independent of npm package
-versions) or dispatch **Desktop release draft**
+versions), then manually dispatch **Desktop release draft**
 (`.github/workflows/desktop-release.yml`) against that tag. The workflow uses
 the `desktop-release` GitHub environment and creates a **draft** GitHub
 Release. It never publishes. Ordinary CI artifacts and local `electron-builder`
@@ -158,7 +159,8 @@ APT, launches the installed application under Xvfb with its sandbox enabled, and
 creates a blank spreadsheet through the real renderer and native engine. It saves
 startup logs and a screenshot for diagnosis. This checks installation/startup on
 the CI images; it does not certify every Linux distribution, desktop, or GPU.
-These desktop workflows are not ordinary PR checks or required merge checks.
+Updater/packaging pull requests also run these checks; they are not configured
+as required branch-protection checks.
 
 For a downloaded DEB, Ubuntu App Center's local-package page does not load the
 app icon or publisher and leaves the published date unset. Its PackageKit APT
@@ -173,7 +175,8 @@ and [PackageKit backend](https://github.com/PackageKit/PackageKit/blob/main/back
 
 Desktop **host** tests (Node, no GUI) belong in the `core` shard of
 `scripts/ci-test-shards.json` once the workspace has a `test` script. Native
-WASM editor tests, packaging, and signed builds are **not** PR merge gates.
+WASM editor tests and packaging also run for updater/packaging pull requests.
+Signed builds require manual dispatch and credentials.
 
 ```bash
 npm run test -w @injoffice/desktop
@@ -217,3 +220,30 @@ An isolated CI polkit rule approves only apt-get; cancellation is covered by uni
 Mac's Squirrel update requires signed baseline and target builds, so this unsigned
 CI check does not establish successful Mac installation. Sign and notarize both
 versions and perform that upgrade check before claiming Mac update support.
+
+### Preparing native Mac updates
+
+The manual **Signed macOS installers** workflow builds both Mac architectures
+independently, so a Windows signing certificate is not a prerequisite for Mac
+updates. Configure these five secrets in the `desktop-release` environment or
+repository Actions secrets:
+
+- `MAC_CSC_LINK`: base64-encoded Developer ID Application P12, including its private key.
+- `MAC_CSC_KEY_PASSWORD`: password for that P12.
+- `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`: Apple notarization credentials.
+
+Do not put credentials in source files, release notes, or chat. Prepare a new
+`desktop-vX.Y.Z` tag with the same desktop package version, then dispatch
+`desktop-macos-signed.yml` from main with that `release_tag`. The workflow refuses
+published versions, validates the certificate's Apple team, checks notarization,
+and verifies that the packaged native updater is enabled. It uploads artifacts
+only; it does not publish or overwrite releases.
+
+For a mixed release, combine these signed Mac artifacts and `latest-mac.yml`
+with the Windows/Linux installers and their native feeds from the same source
+tree and version. Verify all feed hashes and install/upgrade results before
+publication. The previously shipped unsigned Mac builds need one manual install
+of this signed baseline; changing server metadata cannot change their updater
+implementation. Subsequent signed versions use Download update and Restart and
+update inside the app. A successful signed Mac upgrade must still be validated
+with real signed baseline and target builds once credentials are available.
