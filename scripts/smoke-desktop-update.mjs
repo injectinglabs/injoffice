@@ -67,6 +67,10 @@ try {
     socket.addEventListener('open', resolve, {once: true});
     socket.addEventListener('error', reject, {once: true});
   });
+  socket.addEventListener('close', () => {
+    for (const task of pending.values()) {clearTimeout(task.timer); task.reject(new Error('App debugging connection closed'));}
+    pending.clear();
+  });
   socket.addEventListener('message', ({data}) => {
     const message = JSON.parse(data);
     const task = pending.get(message.id);
@@ -94,6 +98,14 @@ try {
   await evaluate('void window.injDesktop.installUpdate(); true');
   await until(async () => {
     if (child.exitCode !== null || child.signalCode !== null) return true;
+    try {
+      const state = await evaluate('window.injDesktop.getUpdateState()');
+      assert.ok(state.status !== 'downloaded' || !state.message, JSON.stringify(state));
+      assert.notEqual(state.status, 'error', JSON.stringify(state));
+    } catch (error) {
+      if (child.exitCode !== null || socket.readyState !== WebSocket.OPEN) return true;
+      throw error;
+    }
     return false;
   }, 'old application to quit', 180000);
   await until(async () => {
@@ -104,6 +116,12 @@ try {
   writeFileSync(resolve(output, 'result.json'), JSON.stringify(result, null, 2));
   console.log('PASS:', JSON.stringify(result));
 } finally {
+  if (socket?.readyState === WebSocket.OPEN) {
+    try {
+      const state = await evaluate('window.injDesktop.getUpdateState()');
+      writeFileSync(resolve(output, 'update-state.json'), JSON.stringify(state, null, 2));
+    } catch { /* Preserve process output if the old renderer has closed. */ }
+  }
   writeFileSync(resolve(output, 'electron.log'), logs);
   for (const task of pending.values()) clearTimeout(task.timer);
   socket?.close();

@@ -87,7 +87,13 @@ try {
   assert.equal(updateState.autoCheck, true, 'update checks default to enabled');
   assert.equal(updateState.manualInstall, false, 'DEB updates download and install in-app');
   assert.equal(updateState.requiresElevation, true, 'DEB installation requires system authorization');
-  const checked = await evaluate('window.injDesktop.checkForUpdates()');
+  let checked;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    checked = await evaluate('window.injDesktop.checkForUpdates()');
+    if (checked.status !== 'error') break;
+    console.log(`Live update check attempt ${attempt + 1}: ${JSON.stringify(checked)}`);
+    await delay(2000 * (attempt + 1));
+  }
   assert.ok(['not-available', 'available'].includes(checked.status), `Live update check failed: ${JSON.stringify(checked)}`);
   await evaluate(`document.querySelector('.start-create-xlsx').click()`);
   await until(`!!document.querySelector('.editor-workspace:not([hidden]) [role="gridcell"]')`, 'new spreadsheet cells');

@@ -46,11 +46,13 @@ jobs:
           sudo tee /etc/polkit-1/rules.d/49-injoffice-upgrade-ci.rules >/dev/null <<'RULE'
           polkit.addRule(function(action, subject) {
             if (action.id == "org.freedesktop.policykit.exec" &&
-                action.lookup("program") == "/usr/bin/apt-get" && subject.isInGroup("sudo"))
+                action.lookup("program") == "/usr/bin/apt-get" && subject.user == "runner")
               return polkit.Result.YES;
           });
           RULE
           sudo systemctl restart polkit
+          id
+          pkexec --disable-internal-agent /usr/bin/apt-get --version
           echo 'INJOFFICE_TEST_EXE=/opt/InjOffice/injoffice' >> "$GITHUB_ENV"
       - name: Prepare and install the Windows baseline
         if: runner.os == 'Windows'
