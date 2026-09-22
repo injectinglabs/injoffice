@@ -285,17 +285,25 @@
         var RELEASES = 'https://github.com/' + REPO + '/releases'
         // Shipped as a fallback so the page is useful even when the GitHub API is
         // unreachable or rate limited; refreshed from the API when that succeeds.
-        var FALLBACK = {
-          version: '0.1.10',
-          tag: 'desktop-v0.1.10',
-          assets: [
-            'InjOffice-0.1.10-mac-arm64.dmg', 'InjOffice-0.1.10-mac-x64.dmg',
-            'InjOffice-0.1.10-win-x64.exe',
-            'InjOffice-0.1.10-linux-amd64.deb', 'InjOffice-0.1.10-linux-arm64.deb',
-            'InjOffice-0.1.10-linux-x86_64.rpm', 'InjOffice-0.1.10-linux-aarch64.rpm',
-            'InjOffice-0.1.10-linux-x86_64.AppImage', 'InjOffice-0.1.10-linux-arm64.AppImage',
-          ],
-        }
+        var FALLBACK = [
+          {
+            tag: 'desktop-v0.1.11', version: '0.1.11',
+            assets: [
+              'InjOffice-0.1.11-win-x64.exe',
+              'InjOffice-0.1.11-linux-amd64.deb', 'InjOffice-0.1.11-linux-x86_64.rpm', 'InjOffice-0.1.11-linux-x86_64.AppImage',
+            ],
+          },
+          {
+            tag: 'desktop-v0.1.10', version: '0.1.10',
+            assets: [
+              'InjOffice-0.1.10-mac-arm64.dmg', 'InjOffice-0.1.10-mac-x64.dmg',
+              'InjOffice-0.1.10-win-x64.exe',
+              'InjOffice-0.1.10-linux-amd64.deb', 'InjOffice-0.1.10-linux-arm64.deb',
+              'InjOffice-0.1.10-linux-x86_64.rpm', 'InjOffice-0.1.10-linux-aarch64.rpm',
+              'InjOffice-0.1.10-linux-x86_64.AppImage', 'InjOffice-0.1.10-linux-arm64.AppImage',
+            ],
+          },
+        ]
 
         function detect() {
           var ua = navigator.userAgent || ''
@@ -346,19 +354,32 @@
 
         var here = detect()
 
-        function urlFor(release, name) {
-          return RELEASES + '/download/' + encodeURIComponent(release.tag) + '/' + encodeURIComponent(name)
+        // A release may ship only some platforms (one whose signing identity is not in place
+        // yet), so every build resolves to the newest release that actually contains it. macOS
+        // keeps its last complete release while Windows and Linux move ahead.
+        function urlFor(tag, name) {
+          return RELEASES + '/download/' + encodeURIComponent(tag) + '/' + encodeURIComponent(name)
         }
 
-        function render(release) {
+        function resolve(releases, build) {
+          for (var i = 0; i < releases.length; i++) {
+            var release = releases[i]
+            var name = release.assets.find(function (asset) { return build.match.test(asset) })
+            if (name) return { tag: release.tag, version: release.version, name: name }
+          }
+          return null
+        }
+
+        function render(releases) {
+          var newest = releases[0]
           var container = document.getElementById('platforms')
           if (!container) return
           container.textContent = ''
           LAYOUT.forEach(function (group) {
             var available = group.builds
               .map(function (build) {
-                var name = release.assets.find(function (asset) { return build.match.test(asset) })
-                return name ? { build: build, name: name } : null
+                var found = resolve(releases, build)
+                return found ? { build: build, found: found } : null
               })
               .filter(Boolean)
             if (!available.length) return
@@ -381,10 +402,14 @@
             available.forEach(function (entry) {
               var item = document.createElement('li')
               var link = document.createElement('a')
-              link.href = urlFor(release, entry.name)
+              link.href = urlFor(entry.found.tag, entry.found.name)
               link.innerHTML = '<span class="label"></span><span class="hint"></span>'
               link.querySelector('.label').textContent = entry.build.label
-              link.querySelector('.hint').textContent = entry.build.hint
+              // Say the version when this build is not from the newest release, so an older
+              // platform build is visible rather than implied.
+              link.querySelector('.hint').textContent = entry.found.version === newest.version
+                ? entry.build.hint
+                : entry.build.hint + ' · ' + entry.found.version
               item.appendChild(link)
               list.appendChild(item)
             })
@@ -401,9 +426,9 @@
           var label = document.getElementById('primary-download-label')
           var group = LAYOUT.find(function (entry) { return entry.os === here.os })
           var build = group && group.builds.find(function (candidate) { return candidate.arch === here.arch })
-          var name = build && release.assets.find(function (asset) { return build.match.test(asset) })
-          if (primary && name) {
-            primary.href = urlFor(release, name)
+          var found = build && resolve(releases, build)
+          if (primary && found) {
+            primary.href = urlFor(found.tag, found.name)
             label.textContent = 'Download for ' + group.title + (group.builds.length > 1 ? ' · ' + build.label : '')
           } else if (label) {
             label.textContent = 'See all downloads'
@@ -411,32 +436,33 @@
           }
 
           var meta = document.getElementById('release-meta')
-          if (meta) {
-            meta.textContent = 'Version ' + release.version + ' · free and open source, MIT licensed'
-          }
+          if (meta) meta.textContent = 'Version ' + newest.version + ' · free and open source, MIT licensed'
           var footer = document.getElementById('footer-version')
           if (footer) {
             footer.innerHTML = ''
             var link = document.createElement('a')
-            link.href = RELEASES + '/tag/' + release.tag
-            link.textContent = 'Release notes and checksums (' + release.version + ')'
+            link.href = RELEASES + '/tag/' + newest.tag
+            link.textContent = 'Release notes and checksums (' + newest.version + ')'
             footer.appendChild(link)
           }
         }
 
         render(FALLBACK)
 
-        fetch('https://api.github.com/repos/' + REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+        fetch('https://api.github.com/repos/' + REPO + '/releases?per_page=10', { headers: { Accept: 'application/vnd.github+json' } })
           .then(function (response) { return response.ok ? response.json() : null })
           .then(function (data) {
-            if (!data || !Array.isArray(data.assets) || !data.tag_name) return
-            var names = data.assets.map(function (asset) { return asset.name })
-            if (!names.length) return
-            render({
-              tag: data.tag_name,
-              version: String(data.tag_name).replace(/^desktop-v/, ''),
-              assets: names,
-            })
+            if (!Array.isArray(data)) return
+            var releases = data
+              .filter(function (release) { return !release.draft && Array.isArray(release.assets) && release.assets.length })
+              .map(function (release) {
+                return {
+                  tag: release.tag_name,
+                  version: String(release.tag_name).replace(/^desktop-v/, ''),
+                  assets: release.assets.map(function (asset) { return asset.name }),
+                }
+              })
+            if (releases.length) render(releases)
           })
           .catch(function () {})
 
