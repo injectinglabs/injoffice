@@ -7,7 +7,42 @@ concurrency:
   group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  # Windows runners cannot execute the engines' POSIX build scripts, so the wasm engines are
+  # built once on Linux and shared, the same way .github/workflows/desktop.yml does it.
+  engines:
+    name: native engines (wasm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go/xlsxpatch/go.mod
+          cache: false
+      - name: Cache the Go build cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-wasm-${{ hashFiles('go/*/go.mod', 'go/*/go.sum', 'go/**/*.go') }}
+          restore-keys: ${{ runner.os }}-go-build-wasm-
+      - run: npm ci
+      - name: Build the WASM engines and their workspace dependencies
+        run: npm run build -w @injoffice/docx-wasm -w @injoffice/xlsx-wasm -w @injoffice/pptx-wasm
+      - name: Prove the built engines extract a blank document
+        run: npm run test:native -w @injoffice/desktop
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-engines
+          path: packages/*/dist
+          if-no-files-found: error
+          retention-days: 1
+
   build:
+    needs: engines
     environment: desktop-release
     strategy:
       fail-fast: false
@@ -57,7 +92,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools desktop-file-utils appstream
       - run: npm ci
       - run: node --test apps/desktop/tests/release-validation.test.mjs
-      - run: npm run desktop:build
+      - name: Use the engines built by the engines job
+        uses: actions/download-artifact@v8
+        with:
+          name: native-engines
+          path: packages
+      - name: Prove the transferred engines work on this runner
+        run: npm run test:native -w @injoffice/desktop
+      - name: Build the renderer from the built engines
+        # The workspace prebuild would rebuild the engines with Go, which Windows runners
+        # cannot do; they come from the engines job instead.
+        working-directory: apps/desktop
+        run: npx vite build
       - run: npm run test -w @injoffice/desktop
       - run: npm run test:native -w @injoffice/desktop
       - run: npm run typecheck -w @injoffice/desktop
