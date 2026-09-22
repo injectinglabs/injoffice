@@ -38,7 +38,7 @@ test('preflight names each missing secret by its environment variable and reposi
 
 function assets(dir, { version: feedVersion = version, drop = [], only = ['mac', 'windows', 'linux'] } = {}) {
   const names = [`InjOffice-${version}-mac-arm64.dmg`, `InjOffice-${version}-mac-x64.dmg`, `InjOffice-${version}-mac-arm64.zip`, `InjOffice-${version}-mac-x64.zip`,
-    `InjOffice-${version}-win-x64.exe`, `InjOffice-${version}-linux-x64.AppImage`, `InjOffice-${version}-linux-x64.deb`, `InjOffice-${version}-linux-x64.rpm`]
+    `InjOffice-${version}-win-x64.exe`, `InjOffice-${version}-linux-x86_64.AppImage`, `InjOffice-${version}-linux-amd64.deb`, `InjOffice-${version}-linux-x86_64.rpm`]
   const platform = { mac: names.slice(0, 4), windows: names.slice(4, 5), linux: names.slice(5) }
   for (const [name, files] of Object.entries(platform)) {
     if (!only.includes(name)) continue
