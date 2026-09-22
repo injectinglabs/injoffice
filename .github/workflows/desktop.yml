@@ -1,10 +1,20 @@
 name: Desktop builds
-# Unsigned developer previews for every desktop platform (workflow_dispatch only).
+# Unsigned desktop builds; PRs touching updater or packaging code also verify upgrades.
 # The Go WASM engines are built once on Linux and shared with the packaging jobs,
 # so all installers carry byte-identical engines and packaging jobs only need
 # Node. Signed drafts are desktop-release.yml.
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/desktop/electron/**'
+      - 'apps/desktop/scripts/**'
+      - 'apps/desktop/tests/*update*'
+      - 'apps/desktop/src/UpdatesDialog.tsx'
+      - 'apps/desktop/package.json'
+      - 'apps/desktop/electron-builder*.cjs'
+      - '.github/workflows/desktop*.yml'
+      - 'scripts/*desktop*'
 permissions:
   contents: read
 concurrency:
@@ -96,6 +106,9 @@ jobs:
         run: npx electron-builder --config electron-builder.preview.cjs ${{ matrix.args }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # The preview config uses identity '-' only; no signing credentials
+          # are passed to this PR workflow. Seal the bundle on PRs as on dispatch.
+          CSC_FOR_PULL_REQUEST: 'true'
       - name: Verify Mac signatures and executable startup
         if: runner.os == 'macOS'
         shell: bash
@@ -132,3 +145,6 @@ jobs:
   linux-smoke:
     needs: desktop
     uses: ./.github/workflows/desktop-linux-smoke.yml
+  upgrade-smoke:
+    needs: desktop
+    uses: ./.github/workflows/desktop-upgrade-smoke.yml
