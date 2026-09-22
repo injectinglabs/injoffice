@@ -11,7 +11,8 @@ const macSecrets = Object.fromEntries(Object.keys(SIGNING_ENV.mac).map(name => [
 
 test('preflight passes only on a matching desktop-v tag with every platform secret present', () => {
   assert.deepEqual(preflight('mac', { ...onTag, ...macSecrets }), [])
-  assert.deepEqual(preflight('windows', { ...onTag, CSC_LINK: 'x', CSC_KEY_PASSWORD: 'y' }), [])
+  const windowsSigning = Object.fromEntries(Object.keys(SIGNING_ENV.windows).map(name => [name, 'set']))
+  assert.deepEqual(preflight('windows', { ...onTag, ...windowsSigning }), [])
   assert.deepEqual(preflight('linux', onTag), [])
   const branch = preflight('linux', { GITHUB_REF_TYPE: 'branch', GITHUB_REF_NAME: 'main' })
   assert.equal(branch.length, 1)
@@ -29,7 +30,10 @@ test('preflight names each missing secret by its environment variable and reposi
     assert.ok(problems.some(problem => problem.includes(`${variable} is empty`) && problem.includes(secret)), variable)
   }
   assert.ok(problems.every(problem => !problem.includes('secret-value')))
-  assert.match(preflight('windows', onTag)[0], /WINDOWS_CSC_LINK/)
+  const missingWindows = preflight('windows', onTag).join('\n')
+  assert.match(missingWindows, /AZURE_SIGNING_ENDPOINT/)
+  assert.match(missingWindows, /AZURE_CLIENT_SECRET/)
+  for (const variable of Object.keys(SIGNING_ENV.windows)) assert.match(missingWindows, new RegExp(variable))
 })
 
 function assets(dir, { version: feedVersion = version, drop = [] } = {}) {

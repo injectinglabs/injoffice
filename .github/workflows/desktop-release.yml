@@ -25,8 +25,18 @@ jobs:
             args: --linux --x64
     runs-on: ${{ matrix.os }}
     env:
-      CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || matrix.platform == 'windows' && secrets.WINDOWS_CSC_LINK || '' }}
-      CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || matrix.platform == 'windows' && secrets.WINDOWS_CSC_KEY_PASSWORD || '' }}
+      CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || '' }}
+      CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+      # Windows signs through Azure Artifact Signing: account identifiers are repository
+      # variables (not secret), the Entra application is a secret, and Azure.Identity reads
+      # AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET itself.
+      AZURE_SIGNING_ENDPOINT: ${{ matrix.platform == 'windows' && vars.AZURE_SIGNING_ENDPOINT || '' }}
+      AZURE_SIGNING_ACCOUNT: ${{ matrix.platform == 'windows' && vars.AZURE_SIGNING_ACCOUNT || '' }}
+      AZURE_SIGNING_CERT_PROFILE: ${{ matrix.platform == 'windows' && vars.AZURE_SIGNING_CERT_PROFILE || '' }}
+      AZURE_SIGNING_PUBLISHER_NAME: ${{ matrix.platform == 'windows' && vars.AZURE_SIGNING_PUBLISHER_NAME || '' }}
+      AZURE_TENANT_ID: ${{ matrix.platform == 'windows' && secrets.AZURE_TENANT_ID || '' }}
+      AZURE_CLIENT_ID: ${{ matrix.platform == 'windows' && secrets.AZURE_CLIENT_ID || '' }}
+      AZURE_CLIENT_SECRET: ${{ matrix.platform == 'windows' && secrets.AZURE_CLIENT_SECRET || '' }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
