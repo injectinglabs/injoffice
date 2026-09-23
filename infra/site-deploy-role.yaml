@@ -102,14 +102,21 @@ Resources:
                 Effect: Allow
                 Action: route53:GetHostedZone
                 Resource: !Sub 'arn:${AWS::Partition}:route53:::hostedzone/${HostedZoneId}'
+              # The distribution references the clean-URL function; CloudFormation reads its
+              # ARN and tags with the caller's rights during a release switch.
+              - Sid: ReadCleanUrlFunction
+                Effect: Allow
+                Action:
+                  - cloudfront:DescribeFunction
+                  - cloudfront:GetFunction
+                  - cloudfront:ListTagsForResource
+                Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:function/${SiteStackName}-clean-urls'
               - Sid: ReadDistributionReferences
                 Effect: Allow
                 Action:
                   - cloudfront:GetOriginAccessControl
                   - cloudfront:GetCachePolicy
                   - cloudfront:GetResponseHeadersPolicy
-                  - cloudfront:DescribeFunction
-                  - cloudfront:GetFunction
                   - acm:DescribeCertificate
                   - acm:ListCertificates
                 Resource: '*'
