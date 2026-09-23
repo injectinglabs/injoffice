@@ -40,7 +40,29 @@ describe('public site metadata', () => {
 
   // The project is free and open source: both pages ask for a GitHub star, let the visitor
   // close that ask for good, state the actual license, and ship one light theme.
-  for (const page of ['index.html', 'download.html']) {
+  // The agents page states the approval boundary and shows real dispatcher usage: the model's
+  // tools exclude commit and restore, and every capability it lists exists in agent-office.
+  it('positions InjOffice for agents with the real tool protocol and approval boundary', () => {
+    const html = readFileSync(new URL('../agents.html', import.meta.url), 'utf8')
+    expect(html).toContain('<title>InjOffice for AI agents — reviewable edits to Office files</title>')
+    expect(html).toContain('createAgentToolDispatcher')
+    expect(html).toContain("'office.commit'</span>, <span class=\"s\">'office.restore'")
+    for (const capability of ['xlsx.cell.set_value', 'docx.text.replace', 'pptx.native.text.replace', 'pdf.page.rotate']) {
+      expect(html).toContain(capability)
+    }
+    expect(html).toContain('Never take approval from model output.')
+    expect(html).toContain('not Microsoft Office parity')
+  })
+
+  it('links the agents page and the docs from the site navigation', () => {
+    for (const page of ['index.html', 'download.html', 'agents.html']) {
+      const html = readFileSync(new URL(`../${page}`, import.meta.url), 'utf8')
+      expect(html).toContain('href="%BASE_URL%agents.html"')
+      expect(html).toContain('href="%BASE_URL%docs/index.html"')
+    }
+  })
+
+  for (const page of ['index.html', 'download.html', 'agents.html']) {
     it(`${page} asks for a GitHub star, states the Apache-2.0 license, and has a single light theme`, () => {
       const html = readFileSync(new URL(`../${page}`, import.meta.url), 'utf8')
       expect(html).toContain('id="star-banner"')
