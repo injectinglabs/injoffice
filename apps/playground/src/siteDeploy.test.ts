@@ -89,3 +89,32 @@ describe('the release-only change-set rule', () => {
     }
   })
 })
+
+// The CloudFront function that serves clean URLs is kept in infra/clean-urls.js and inlined in
+// the stack template; the two must not drift apart.
+describe('clean page URLs', () => {
+  it('inlines exactly the tested function source in the site stack', () => {
+    const source = read('infra/clean-urls.js').trimEnd().split('\n')
+    const template = read('infra/demo-site.yaml')
+    for (const line of source) if (line.trim()) expect(template).toContain(`          ${line}`)
+    expect(template).toContain('FunctionARN: !GetAtt CleanUrls.FunctionMetadata.FunctionARN')
+    expect(template).toContain('Runtime: cloudfront-js-2.0')
+  })
+
+  it('serves clean URLs and redirects old .html addresses', () => {
+    const handler = new Function(`${read('infra/clean-urls.js')}; return handler`)()
+    const run = (uri: string, querystring = {}) => {
+      const result = handler({ request: { uri, querystring } })
+      return result.statusCode ? `301 ${result.headers.location.value}` : result.uri
+    }
+    expect(run('/')).toBe('/index.html')
+    expect(run('/agents')).toBe('/agents.html')
+    expect(run('/docs/agents/quickstart')).toBe('/docs/agents/quickstart.html')
+    expect(run('/docs/')).toBe('/docs/index.html')
+    expect(run('/docs')).toBe('301 /docs/')
+    expect(run('/agents.html', { ref: { value: 'x' } })).toBe('301 /agents?ref=x')
+    expect(run('/index.html')).toBe('301 /')
+    expect(run('/download.html')).toBe('301 /#download')
+    expect(run('/assets/app-1a2b.js')).toBe('/assets/app-1a2b.js')
+  })
+})
