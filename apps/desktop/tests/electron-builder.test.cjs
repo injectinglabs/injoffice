@@ -43,7 +43,11 @@ test('electron-builder packages the Vite renderer and Electron host, not dist/',
 
 test('preview Mac signing seals the bundle without leaking into Developer ID releases', () => {
   const preview = require('../electron-builder.preview.cjs');
+  const declared = process.env.INJOFFICE_MAC_UNSIGNED;
+  delete process.env.INJOFFICE_MAC_UNSIGNED;
+  delete require.cache[require.resolve('../electron-builder.release.cjs')];
   const release = require('../electron-builder.release.cjs');
+  if (declared !== undefined) process.env.INJOFFICE_MAC_UNSIGNED = declared;
   assert.equal(preview.mac.identity, '-');
   assert.equal(preview.mac.hardenedRuntime, false);
   assert.equal(preview.mac.notarize, false);
@@ -77,4 +81,17 @@ test('the installed name carries no version on any platform', () => {
       assert.doesNotMatch(String(value), /\$\{version\}/, `${section}.${name} must not name the version`);
     }
   }
+});
+
+// INJOFFICE_MAC_UNSIGNED changes what the release config produces, so it must reach only the
+// steps that act on it. Set for the whole job it also reaches the workspace tests, which are
+// written against the signed configuration, and they fail on every platform.
+test('the unsigned macOS declaration is scoped to the steps that use it', () => {
+  const workflow = fs.readFileSync(path.resolve(root, '../../.github/workflows/desktop-release.yml'), 'utf8');
+  const build = workflow.slice(workflow.indexOf('  build:'), workflow.indexOf('  draft:'));
+  const jobEnv = build.slice(build.indexOf('    env:'), build.indexOf('    steps:'));
+  assert.doesNotMatch(jobEnv, /INJOFFICE_MAC_UNSIGNED/, 'it must not be job-wide');
+  const steps = build.slice(build.indexOf('    steps:'));
+  assert.match(steps, /INJOFFICE_MAC_UNSIGNED/, 'the steps that act on it declare it');
+  assert.equal((steps.match(/INJOFFICE_MAC_UNSIGNED/g) ?? []).length, 2, 'preflight and packaging, and nothing else');
 });
