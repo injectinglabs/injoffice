@@ -19,7 +19,7 @@ function links(markdown, source) {
     if (/^\s*(`{3,}|~{3,})/.test(line)) { fenced = !fenced; return line }
     if (fenced) return line
     return line.replace(/\]\(([^\s)]+)(\s+"[^"]*")?\)/g, (whole, href, title = '') => {
-      if (href.startsWith('#/')) return `](https://injoffice.com/playground.html${href}${title})`
+      if (href.startsWith('#/')) return `](https://injoffice.com/playground${href}${title})`
       if (/^(https?:|mailto:|data:|#)/.test(href)) return whole
       const [file, hash] = href.split('#')
       const path = relative(root, resolve(dirname(resolve(root, source)), file)).split('/').map(encodeURIComponent).join('/')
@@ -59,5 +59,5 @@ write('reference/generated/index.md', '# Source-derived reference\n\nThese pages
   + '\n\n## Go modules\n\n' + inventory.go.map(module => `- [${module.path}](./go/${module.path.split('/').at(-1)})`).join('\n')
   + '\n\n## Protocols and release references\n\n' + contracts.map(name => `- [${name.toLowerCase().replaceAll('-', ' ')}](./contracts/${name.toLowerCase()})`).join('\n') + '\n')
 write('public/logo.svg', readFileSync(resolve(root, 'logo.svg')))
-write('public/llms.txt', '# InjOffice documentation\n\nGuides and source-derived references for capability-scoped document workflows. No model service is included.\n\n- [Quickstart](./getting-started/quickstart.html)\n- [Agent safety](./agents/safety.html)\n- [Support and limitations](./getting-started/support.html)\n- [Reference](./reference/index.html)\n')
+write('public/llms.txt', '# InjOffice documentation\n\nGuides and source-derived references for capability-scoped document workflows. No model service is included.\n\n- [Quickstart](./getting-started/quickstart)\n- [Agent safety](./agents/safety)\n- [Support and limitations](./getting-started/support)\n- [Reference](./reference/)\n')
 console.log(`Generated ${pages.length} source-derived reference pages; no demo assets or document engines are bundled.`)
