@@ -4,7 +4,7 @@ import './updates-dialog.css';
 
 const labels: Record<DesktopUpdateState['status'], string> = {
   disabled: 'Updates aren’t available in this build', idle: 'Keep InjOffice up to date', checking: 'Checking for updates…',
-  available: 'A new version is available', downloading: 'Downloading your update…',
+  available: 'A new version is available', downloading: 'Getting your update ready…',
   downloaded: 'Ready to restart', installing: 'Preparing to restart…', 'not-available': 'You’re up to date', error: 'Update interrupted',
 };
 
@@ -19,6 +19,17 @@ export function UpdateNotice({ onOpen }: { onOpen(): void }) {
     void bridge.getUpdateState().then(value => { if (active && !received) setState(value); }).catch(() => {});
     return () => { active = false; unsubscribe(); };
   }, [bridge]);
+  // The update arrives in the background, so the moment it is ready the dialog raises itself:
+  // the only question left is whether to restart. It asks once per version, and a user who
+  // closed it keeps working with the notice as the way back.
+  const announced = useRef('');
+  useEffect(() => {
+    if (!state || state.status !== 'downloaded' || state.manualInstall) return;
+    const version = String(state.version ?? '');
+    if (announced.current === version) return;
+    announced.current = version;
+    onOpen();
+  }, [state, onOpen]);
   const key = `${state?.version}:${state?.status}`;
   if (!state || !['available', 'downloaded'].includes(state.status) || dismissed === key) return null;
   return <div className="update-notice" role="status"><span>{state.status === 'downloaded' ? 'Your InjOffice update is ready.' : `InjOffice ${state.version} is available.`}</span><button onClick={onOpen}>View update</button><button aria-label="Dismiss update notice" onClick={() => setDismissed(key)}>×</button></div>;
@@ -72,7 +83,7 @@ export default function UpdatesDialog({ onClose }: { onClose(): void }) {
       {status === 'idle' && <p>Check for the latest improvements and fixes.</p>}
       {state?.manualInstall && status === 'available' && <p>Download the installer for your computer, then close InjOffice and run it to finish updating.</p>}
       {state?.requiresElevation && ['available', 'downloaded'].includes(status ?? '') && <p>Your system will ask for administrator approval when you restart to install the update.</p>}
-      {status === 'downloaded' && <p>Your documents will be checked before restarting. You can keep working and update later.</p>}
+      {status === 'downloaded' && <p>The update is downloaded and ready. Your documents will be checked before restarting, and you can keep working and update later.</p>}
       {status === 'downloading' && <div className="updates-progress"><progress max="100" value={Number.isFinite(progress) ? progress : undefined} aria-label="Update download progress" /><span>{Number.isFinite(progress) ? `${Math.round(progress)}%` : 'Downloading'}</span></div>}
     </div>
     {state?.releaseNotes && <section className="updates-notes" aria-labelledby="updates-notes-title"><h3 id="updates-notes-title">What’s new</h3><p>{state.releaseNotes}</p></section>}

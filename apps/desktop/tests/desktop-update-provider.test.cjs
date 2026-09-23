@@ -35,6 +35,19 @@ test('preview builds select explicit desktop previews with native feeds, ignorin
 
 const {InstallerUpdate} = require('../electron/installer-update.cjs')
 const {findDesktopRelease} = require('../electron/desktop-releases.cjs')
+test('an install several versions behind updates straight to the newest release', async () => {
+  // Releases arrive newest-first from the API, but the choice is by version, not by order:
+  // someone on 0.1.10 goes to 0.1.15, never to the 0.1.11 in between.
+  const catalogue = [release('0.1.11'), release('0.1.15'), release('0.1.10'), release('0.1.12')]
+  assert.equal((await findDesktopRelease(async () => catalogue)).version, '0.1.15')
+  // Order in the feed must not decide it either.
+  const shuffled = [release('0.1.15'), release('0.1.12'), release('0.1.11')]
+  assert.equal((await findDesktopRelease(async () => shuffled)).version, '0.1.15')
+  // A draft or a prerelease is not a destination for a stable installation.
+  const noisy = [{ ...release('0.2.0'), draft: true }, { tag_name: 'desktop-preview-v0.3.0', prerelease: true }, release('0.1.15')]
+  assert.equal((await findDesktopRelease(async () => noisy)).version, '0.1.15')
+})
+
 test('stable releases win equal versions; previews never enter signed installations', async () => {
   const items = [release('0.2.0'), {tag_name: 'desktop-preview-v0.2.0-r99', prerelease: true}, {tag_name: 'desktop-preview-v0.3.0', prerelease: true}]
   assert.equal((await findDesktopRelease(async () => items)).version, '0.2.0')

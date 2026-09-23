@@ -53,7 +53,15 @@ async function createUpdateService({ appVersion, settingsPath, unavailable, manu
     // No request URLs, local paths, credentials, or server error bodies in UI.
     updater.logger = { info() {}, warn() {}, error() {}, debug() {} };
     updater.on('error', failure);
-    updater.on('update-available', info => emit({ status: 'available', ...details(info), message: undefined, percent: undefined }));
+    updater.on('update-available', info => {
+      emit({ status: 'available', ...details(info), message: undefined, percent: undefined });
+      // Fetch it now, so the only thing left to ask the user is whether to restart. A
+      // manual-install target opens an installer in the browser instead, which has to stay a
+      // deliberate action, and someone who turned automatic checks off is not expecting
+      // background downloads either.
+      if (manualInstall || !state.autoCheck || disposed) return;
+      queueMicrotask(() => { void download(); });
+    });
     updater.on('update-not-available', () => emit({ status: 'not-available', version: undefined, releaseNotes: undefined, message: undefined }));
     updater.on('download-progress', progress => {
       if (state.status === 'downloading') emit({ percent: Math.max(0, Math.min(100, Number(progress.percent) || 0)) });
@@ -68,6 +76,11 @@ async function createUpdateService({ appVersion, settingsPath, unavailable, manu
     try { await getUpdater().checkForUpdates(); }
     catch { if (state.status !== 'error') failure(); }
     finally { operation = undefined; }
+    // Fetch it now, so the only thing left to ask the user is whether to restart. This runs
+    // after the check releases the lock, because download() refuses while one is held. A
+    // manual-install target opens an installer in the browser, which has to stay a deliberate
+    // act, and someone who turned automatic checks off is not expecting background traffic.
+    if (state.status === 'available' && !manualInstall && state.autoCheck && !disposed) await download();
     return snapshot();
   }
   async function download() {

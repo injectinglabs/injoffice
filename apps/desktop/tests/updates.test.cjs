@@ -49,17 +49,24 @@ test('installer-based updates check automatically and never pretend a browser do
   assert.equal(f.count().installs, 0);
 });
 
-test('automatic checks are delayed, periodic, persisted, and never automatically download/install', async t => {
+test('automatic checks are delayed, periodic, persisted, and never install on their own', async t => {
   const f = await fixture(t); f.service.start();
   assert.deepEqual([...f.tasks.values()].map(t => t.ms), [15000, 21600000]);
   await f.service.check();
-  assert.deepEqual(f.count(), { loads: 1, checks: 1, downloads: 0, installs: 0, cancellations: 0 });
+  // The update is fetched in the background so the user is asked to restart, not to download;
+  // installing still waits for that choice, so nothing restarts the app on its own.
+  assert.deepEqual(f.count(), { loads: 1, checks: 1, downloads: 1, installs: 0, cancellations: 0 });
   assert.equal(f.updater.autoDownload, false); assert.equal(f.updater.autoInstallOnAppQuit, false);
   assert.equal(f.updater.allowPrerelease, false); assert.equal(f.updater.allowDowngrade, false);
   assert.equal(f.updater.disableWebInstaller, true);
   await f.service.setAutomaticUpdates(false);
   assert.equal(f.tasks.size, 0); assert.deepEqual(JSON.parse(await fs.readFile(f.settingsPath, 'utf8')), { version: 1, autoCheck: false });
-  await f.service.check(); assert.equal(f.count().checks, 2, 'manual checking still works');
+  // A staged update suppresses further checks: there is nothing left to discover until it is
+  // installed, so the count stays where it was.
+  await f.service.check(); assert.equal(f.count().checks, 1, 'a staged update stops further checks');
+  const quiet = await fixture(t, { settings: JSON.stringify({ version: 1, autoCheck: false }) });
+  assert.equal((await quiet.service.check()).status, 'available', 'manual checking still works with automatic checks off');
+  assert.equal(quiet.count().downloads, 0, 'and it does not fetch anything in the background');
   await assert.rejects(f.service.setAutomaticUpdates('false'), /Invalid/);
 });
 
@@ -90,9 +97,9 @@ test('network and verification errors remain recoverable and redact server data'
   await f.service.check(); assert.equal(f.service.getState().status, 'error');
   assert.doesNotMatch(f.service.getState().message, /secret/);
   f.updater.checkForUpdates = async () => f.updater.emit('update-available', { version: '0.2.0' });
-  await f.service.check();
+  // The background fetch runs inside the check, so a failing download surfaces from there.
   f.updater.downloadUpdate = async () => { f.updater.emit('error', new Error('signature failed')); throw Error('signature failed'); };
-  await f.service.download(); assert.equal(f.service.getState().status, 'error');
+  await f.service.check(); assert.equal(f.service.getState().status, 'error');
   await f.service.install(); assert.equal(f.count().installs, 0);
 });
 
@@ -222,10 +229,35 @@ for (const [platform, packageType, extension] of [['win32', undefined, 'exe'], [
     const service = await createUpdateService({appVersion: app.version, settingsPath: path.join(directory, 'settings.json'),
       loadUpdater: () => updater, prepareInstall: () => assert.fail('downloads must not install')});
     t.after(() => service.dispose());
-    assert.equal((await service.check()).status, 'available', errors.join('\n'));
-    assert.equal((await service.download()).status, corrupt ? 'error' : 'downloaded', errors.join('\n'));
+    // The check fetches what it finds, so the real download and its verification happen here.
+    assert.equal((await service.check()).status, corrupt ? 'error' : 'downloaded', errors.join('\n'));
     if (corrupt) assert.match(errors.join('\n'), /checksum mismatch/i);
     if (!corrupt) assert.deepEqual(await fs.readFile(updater.downloadedUpdateHelper.file), payload);
     else assert.equal(updater.downloadedUpdateHelper.file, null);
   });
 }
+
+// The user should be asked whether to restart, not asked to fetch: a found update downloads
+// itself. Targets whose "download" opens an installer in the browser are excluded, and so is a
+// user who turned automatic checks off, because neither expects background traffic.
+test('a found update downloads itself, except where the download is a deliberate act', async t => {
+  const auto = await fixture(t);
+  auto.service.start();
+  await auto.service.check();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(auto.count().downloads, 1, 'the update was fetched without being asked for');
+  assert.equal(auto.service.getState().status, 'downloaded', 'and is ready to install');
+
+  const manual = await fixture(t, { manualInstall: true });
+  manual.service.start();
+  await manual.service.check();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(manual.count().downloads, 0, 'a manual-install target does not open an installer on its own');
+  assert.equal(manual.service.getState().status, 'available');
+
+  const off = await fixture(t, { settings: JSON.stringify({ automatic: false }) });
+  off.service.start();
+  await off.service.check();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(off.count().downloads, 0, 'automatic checks off means no background download');
+});
