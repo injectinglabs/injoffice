@@ -61,6 +61,24 @@ test('preview Mac signing seals the bundle without leaking into Developer ID rel
   assert.equal(release.mac.notarize, true);
 });
 
+// An unsigned release still has to launch. macOS on Apple Silicon rejects a binary with no
+// signature at all, so the bundle is sealed ad-hoc rather than left unsigned, and the hardened
+// runtime stays off because library validation cannot pass against an ad-hoc seal.
+test('an unsigned Mac release is sealed ad-hoc, not left unsigned', () => {
+  const declared = process.env.INJOFFICE_MAC_UNSIGNED;
+  process.env.INJOFFICE_MAC_UNSIGNED = '1';
+  delete require.cache[require.resolve('../electron-builder.release.cjs')];
+  const unsigned = require('../electron-builder.release.cjs');
+  if (declared === undefined) delete process.env.INJOFFICE_MAC_UNSIGNED;
+  else process.env.INJOFFICE_MAC_UNSIGNED = declared;
+  delete require.cache[require.resolve('../electron-builder.release.cjs')];
+  assert.equal(unsigned.mac.identity, '-');
+  assert.equal(unsigned.mac.hardenedRuntime, false);
+  assert.equal(unsigned.mac.notarize, false);
+  assert.equal(unsigned.mac.forceCodeSigning, false);
+  assert.equal(unsigned.extraMetadata.injofficeMacSigned, false);
+});
+
 // The installed application is called InjOffice on every platform; its version belongs in the
 // app's update view, not in the name a system settings screen shows.
 test('the installed name carries no version on any platform', () => {

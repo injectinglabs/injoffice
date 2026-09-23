@@ -29,7 +29,11 @@ module.exports = {
     releaseType: 'draft', tagNamePrefix: 'desktop-v',
   },
   ...(macUnsigned
-    ? {mac: {...build.mac, forceCodeSigning: false, notarize: false, identity: null}}
+    // identity '-' seals the bundle ad-hoc, the way the preview builds do. A null identity would
+    // skip signing altogether, and macOS on Apple Silicon refuses to launch a binary carrying no
+    // signature at all. hardenedRuntime stays off because an ad-hoc signature cannot satisfy
+    // library validation, which would fail the app at launch.
+    ? {mac: {...build.mac, forceCodeSigning: false, notarize: false, hardenedRuntime: false, identity: '-'}}
     : {mac: {...build.mac, forceCodeSigning: true, hardenedRuntime: true, notarize: true}}),
   win: {...build.win, forceCodeSigning: true, ...(azureSigning ? {azureSignOptions: azureSigning} : {})},
 };
