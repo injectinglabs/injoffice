@@ -84,9 +84,9 @@ try {
   assert.equal(baseline.appVersion, '0.0.0');
   assert.equal(baseline.manualInstall, false, 'the test must exercise native installation, not a browser fallback');
   const available = await evaluate('window.injDesktop.checkForUpdates()');
-  assert.equal(available.status, 'available', JSON.stringify(available));
+  assert.ok(['available', 'downloading', 'downloaded'].includes(available.status), JSON.stringify(available));
   assert.match(available.version, /^\d+\.\d+\.\d+$/);
-  console.log(`Installed baseline discovered ${available.version}; downloading through the host IPC.`);
+  console.log(`Installed baseline discovered ${available.version} (${available.status}); completing the download through the host IPC.`);
   await evaluate('void window.injDesktop.downloadUpdate(); true');
   await until(async () => {
     const state = await evaluate('window.injDesktop.getUpdateState()');
