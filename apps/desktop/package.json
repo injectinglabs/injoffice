@@ -121,6 +121,9 @@
         "rank": "Alternate",
         "mimeType": "application/pdf"
       }
-    ]
+    ],
+    "nsis": {
+      "uninstallDisplayName": "${productName}"
+    }
   }
 }
