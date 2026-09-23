@@ -54,18 +54,19 @@ describe('playground workbench design system', () => {
     expect(css).toContain('align-items: flex-end')
     expect(css).toContain(':focus-visible')
     expect(css).toContain('prefers-reduced-motion')
-    expect(css).toContain('html[data-theme="dark"]')
-    expect(css).toContain('color-scheme: dark')
+    // The public site ships one light theme.
+    expect(css).not.toContain('html[data-theme="dark"]')
+    expect(css).not.toContain('color-scheme: dark')
     expect(css).toContain('--chrome')
-    expect(css).toContain('.scheme-toggle')
+    expect(css).not.toContain('.scheme-toggle')
   })
 
   it('exposes the active tool and accent as stable styling hooks', () => {
     expect(app).toContain('data-surface={surface}')
     expect(app).toContain('data-workbench-surface={surface}')
     expect(app).toContain('data-accent={demo.accent}')
-    expect(app).toContain('ColorSchemeToggle')
-    expect(app).toContain('persistColorScheme')
+    expect(app).not.toContain('ColorSchemeToggle')
+    expect(app).not.toContain('prefers-color-scheme')
   })
 
   it('uses a continuous showcase layout with independently identified live sections', () => {
@@ -101,7 +102,7 @@ describe('playground workbench design system', () => {
     expect(app).toContain('className="github-link"')
   })
 
-  it('drives Univer dark mode from the playground color scheme', () => {
+  it('keeps Univer on the playground light scheme', () => {
     const editor = readFileSync(resolve(source, 'UniverEditor.tsx'), 'utf8')
     const simulator = readFileSync(resolve(source, 'collabSimulator.tsx'), 'utf8')
     expect(editor).toContain('darkMode: univerDarkMode()')

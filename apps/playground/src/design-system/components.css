@@ -477,7 +477,6 @@
   box-shadow: var(--ds-shadow);
 }
 
-html[data-theme="dark"] .ds-snack { background: #e3e3e3; color: #202124; }
 
 .ds-comment {
   width: min(280px, 100%);

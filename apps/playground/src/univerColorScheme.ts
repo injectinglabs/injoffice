@@ -1,13 +1,10 @@
-import { currentColorScheme, subscribeColorScheme, type ColorScheme } from './colorScheme'
-
-export function univerDarkMode(scheme: ColorScheme = currentColorScheme()): boolean {
-  return scheme === 'dark'
+/** Univer editors on the public site always run in light mode. */
+export function univerDarkMode(): boolean {
+  return false
 }
 
-/** Keep a live Univer instance on the playground Light/Dark toggle. */
+/** Pin a live Univer instance to light mode. There is nothing to follow, so the unbind is a no-op. */
 export function bindUniverColorScheme(api: { toggleDarkMode(isDarkMode: boolean): void }): () => void {
-  api.toggleDarkMode(univerDarkMode())
-  return subscribeColorScheme((scheme) => {
-    api.toggleDarkMode(univerDarkMode(scheme))
-  })
+  api.toggleDarkMode(false)
+  return () => {}
 }

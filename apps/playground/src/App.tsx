@@ -1,12 +1,5 @@
 import { Component, Suspense, useCallback, useEffect, useRef, useState, type ComponentType, type MouseEvent, type ReactNode } from 'react'
-import {
-  applyColorScheme,
-  currentColorScheme,
-  persistColorScheme,
-  preferredColorScheme,
-  readStoredColorScheme,
-  type ColorScheme,
-} from './colorScheme'
+import { applyColorScheme } from './colorScheme'
 import type { DemoDefinition } from './demoRegistry'
 import { preloadWorkspace, preloadWorkspaceOnIntent } from './workspaceRegistry'
 import { resolveToolWorkspace, TOOL_WORKSPACES, workspaceExamples, workspaceHref } from './toolWorkspaces'
@@ -46,16 +39,7 @@ function ToolNavigation({ surface, hash, remembered }: { surface: Surface; hash:
   </nav>
 }
 
-function ColorSchemeToggle({ scheme, onScheme }: { scheme: ColorScheme; onScheme: (next: ColorScheme) => void }) {
-  return (
-    <div className="scheme-toggle" role="group" aria-label="Color scheme">
-      <button type="button" aria-pressed={scheme === 'light'} onClick={() => onScheme('light')}>Light</button>
-      <button type="button" aria-pressed={scheme === 'dark'} onClick={() => onScheme('dark')}>Dark</button>
-    </div>
-  )
-}
-
-function AppHeader({ scheme, onScheme }: { scheme: ColorScheme; onScheme: (next: ColorScheme) => void }) {
+function AppHeader() {
   return (
     <header className="app-header">
       <div className="app-header-inner">
@@ -75,7 +59,6 @@ function AppHeader({ scheme, onScheme }: { scheme: ColorScheme; onScheme: (next:
             navigation?.scrollIntoView({ block: 'start' })
             navigation?.focus({ preventScroll: true })
           }}>Examples</a>
-          <ColorSchemeToggle scheme={scheme} onScheme={onScheme} />
           <a className="github-link" href="https://github.com/injectinglabs/injoffice" target="_blank" rel="noreferrer">GitHub<span aria-hidden="true">↗</span></a>
         </div>
       </div>
@@ -187,7 +170,6 @@ class SectionBoundary extends Component<{ children: ReactNode; onRetry: () => vo
 export default function App() {
   const [route, setRoute] = useState(() => ({ surface: sectionForHash(location.hash).surface, hash: workspaceNavigationHash(location.hash) }))
   const { surface, hash } = route
-  const [scheme, setScheme] = useState<ColorScheme>(() => currentColorScheme())
   const [requestedKey, setRequestedKey] = useState(() => sectionForHash(location.hash).key)
   const [requestVersion, setRequestVersion] = useState(0)
   const sectionHashes = useRef(new Map<string, string>())
@@ -299,17 +281,7 @@ export default function App() {
   }, [pinAnchor])
 
   useEffect(() => {
-    applyColorScheme(scheme)
-  }, [scheme])
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => {
-      if (readStoredColorScheme()) return
-      setScheme(preferredColorScheme())
-    }
-    media.addEventListener('change', onChange)
-    return () => media.removeEventListener('change', onChange)
+    applyColorScheme()
   }, [])
 
   useEffect(() => {
@@ -322,7 +294,7 @@ export default function App() {
         event.preventDefault()
         document.getElementById('main-content')?.focus({ preventScroll: true })
       }}>Skip to demo</a>
-      <AppHeader scheme={scheme} onScheme={(next) => { persistColorScheme(next); setScheme(next) }} />
+      <AppHeader />
       <div className="app-frame">
       <aside className="app-sidebar">
         <ToolNavigation surface={surface} hash={hash} remembered={sectionHashes.current} />
