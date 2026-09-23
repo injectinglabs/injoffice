@@ -5,7 +5,7 @@ Treat capability discovery and runtime validation as authoritative. The table be
 | Workflow | Supported scope | Do not assume |
 | --- | --- | --- |
 | XLSX native Worker | Cell values/formulas, supported styles, row height, column width | Sheet/row/column insertion, arbitrary structural edits, merge write-back through this Worker adapter |
-| DOCX native Worker | Source-anchored complete run or eligible single-run paragraph text replacement | Arbitrary rich-text restructuring, tracked-change editing, Word pagination parity |
+| DOCX native Worker | Source-anchored complete run or eligible single-run paragraph text replacement | Arbitrary rich-text restructuring, tracked-change editing, exact page layout |
 | PPTX native Worker | Exact parsed text and AutoShape property changes | Imported slide insertion/removal, general pictures/charts/tables/groups/animation editing |
 | Authored presentations | Bounded DeckSpec/WireDeck compilation | Lossless round-trip of an arbitrary imported deck |
 | PDF agent adapter | Bounded page operations | General text rewriting, OCR, or redaction through this adapter |

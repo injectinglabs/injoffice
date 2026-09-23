@@ -142,7 +142,7 @@ describe('content pages', () => {
     for (const file of files) {
       const html = page(file)
       expect(html, file).not.toContain('/compare')
-      expect(html, file).not.toMatch(/LibreOffice|OnlyOffice|WPS Office|Google (Docs|Workspace)|Microsoft Office|\bvs\.? [A-Z]|comparison/i)
+      expect(html, file).not.toMatch(/LibreOffice|OnlyOffice|WPS Office|Google (Docs|Workspace)|Microsoft (Office|Excel|Word|PowerPoint)|\bvs\.? [A-Z]|comparison|parity|-equivalent|(Word|Excel|PowerPoint)('s)? (exact )?(pagination|print fidelity)|(Excel|Word|PowerPoint) replacement/i)
     }
   })
 

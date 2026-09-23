@@ -8,7 +8,7 @@ InjOffice is a set of browser and server libraries for editing office artifacts.
 
 The repository is a monorepo with independently consumable TypeScript packages, private apps, and Go modules. The TypeScript packages target Node.js 22 or newer and modern bundlers. UI integrations use React and, where noted, Univer OSS as an optional editor shell. Univer is not the file authority. Native paint compilers are a preview mode.
 
-> Release status (2026-09-21): the source is licensed under Apache-2.0; all 26 npm packages are published at 0.1.0, and 0.1.1-rc.0 is available under the `next` tag. Stable 0.1.1 publication is pending. See the [release checklist](docs/PUBLIC-RELEASE.md). The scoped v3 Native Office completion matrix is complete; broader format coverage remains partial and this is not Microsoft Office parity.
+> Release status (2026-09-21): the source is licensed under Apache-2.0; all 26 npm packages are published at 0.1.0, and 0.1.1-rc.0 is available under the `next` tag. Stable 0.1.1 publication is pending. See the [release checklist](docs/PUBLIC-RELEASE.md). The scoped v3 Native Office completion matrix is complete; broader format coverage remains partial and growing.
 
 ## Native file API
 
@@ -22,7 +22,7 @@ The original OOXML bytes remain the authority. The supported path is XLSX-first 
 
 React, Konva, DOM/HTML layout, screenshots, and Univer must not decide file identity or pass/fail semantics.
 
-The playground's PPTX file preview is explicitly approximate. It displays supported source picture crops, authored character bullets, paragraph margins/indents, and modeled local default/list-level/run styles, including relationship-resolved theme fonts and colors. Browser fonts, wrapping, line height, and bullet positioning are not PowerPoint-equivalent; exact native paint still refuses unqualified text and marker geometry.
+The playground's PPTX file preview is explicitly approximate. It displays supported source picture crops, authored character bullets, paragraph margins/indents, and modeled local default/list-level/run styles, including relationship-resolved theme fonts and colors. Browser fonts, wrapping, line height, and bullet positioning are approximate in this preview; exact native paint still refuses unqualified text and marker geometry.
 
 For top-level title/body placeholders, a bounded read-only projection resolves a unique slide-to-layout match by `idx` and layout-to-master match by type, complete transforms, body properties, and supported master/list styles. These inherited targets remain `preserveOnly`. Ambiguous or missing matches, grouped/other placeholder types, partial transforms, ancestor paragraph templates, and unsupported inherited paint/visibility remain outside this subset. This does not render whole-master artwork or establish general slide-master fidelity; original package bytes remain unchanged.
 
@@ -124,7 +124,7 @@ Open http://127.0.0.1:3100 directly into Sheets, the first of four comprehensive
 Create and edit:
 
 - `#/sheets` live workbook plus native XLSX inspection and bounded write-back
-- `#/docs` browser-local real DOCX extraction, guarded text write-back, exact-byte readback, and explicit preservation/refusal evidence; it does not claim Word pagination or page-paint
+- `#/docs` browser-local real DOCX extraction, guarded text write-back, exact-byte readback, and explicit preservation/refusal evidence; it does not claim exact page layout or page-paint
 - `#/slides` DeckSpec authoring, themes, editable transitions, layout QC, and canvas editing
 - `#/pdf` real-file PDF viewing, high-DPI rendering, navigation, zoom, text search, outline inspection, current-page rotation, and download
 
@@ -194,7 +194,7 @@ go test ./...
 - **Optional runtime.** Libraries work offline or with a host-injected backend. The XLSX, DOCX, and PPTX WASM runtimes are the playground's browser-local defaults; the in-repo `injoffice-server` remains optional for storage, collaboration, and centralized trust or policy enforcement. Public releases contain only generic library and server components, never consumer-specific backend code, authentication configuration, tenant data, or credentials.
 - **Fail-closed fidelity.** Surgical writers start from original OOXML bytes and preserve untouched ZIP parts. If a requested edit cannot be performed safely, it should return an error rather than silently rebuild and discard unsupported content.
 
-The capabilities enumerated by the scoped v3 completion matrix are complete, but native format coverage outside that scope remains partial. Do not assume Microsoft Office, LibreOffice, or unrestricted Excel round-trip parity. See [Native Office completion](docs/NATIVE-OFFICE-COMPLETION.md) and [Public release](docs/PUBLIC-RELEASE.md) for the precise status.
+The capabilities enumerated by the scoped v3 completion matrix are complete, but native format coverage outside that scope remains partial. Do not assume unrestricted round-trip support for every feature of a format. See [Native Office completion](docs/NATIVE-OFFICE-COMPLETION.md) and [Public release](docs/PUBLIC-RELEASE.md) for the precise status.
 
 ## Documentation
 

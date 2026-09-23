@@ -8,7 +8,7 @@ The data-model helpers can be useful without embedding an editor. Optional manag
 
 The chart function produces an ECharts option, not a mounted chart or saved XLSX drawing. The pivot result is a deterministic grid, not an exported native pivot cache. Use the corresponding native conversion/write APIs when your workflow must persist these objects into a file.
 
-The pivot input's first row supplies field names. The example groups West into a total of 35 and East into 35. Advanced Excel features such as slicers, arbitrary external sources, and general pivot semantic parity are outside this bounded example.
+The pivot input's first row supplies field names. The example groups West into a total of 35 and East into 35. Advanced pivot features such as slicers, arbitrary external sources, and general pivot semantics are outside this bounded example.
 
 ## Connect to an editor
 

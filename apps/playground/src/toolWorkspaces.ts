@@ -22,7 +22,7 @@ export const TOOL_WORKSPACES: readonly ToolWorkspaceDefinition[] = [
     collab, history, shapes,
   ] },
   { tool: 'docs', title: 'Docs', description: 'Revise a launch brief. Approve the exact text change before saving.', features: [
-    { id: 'editor', label: 'Document editor', group: 'Edit', source: 'docs', description: 'Open and update DOCX text, then download the real file. The preview is not Word pagination.' },
+    { id: 'editor', label: 'Document editor', group: 'Edit', source: 'docs', description: 'Open and update DOCX text, then download the real file. The preview does not show exact page layout.' },
     agent, collab, history, fonts,
   ] },
   { tool: 'slides', title: 'Slides', description: 'Update a presentation. Review the changed text and download the verified deck.', features: [

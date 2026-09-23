@@ -24,7 +24,7 @@ Structural/open slices, mark changes, ambiguous or overlapping targets, missing 
 
 The root Docs package includes shaping and page-paint contracts with explicit font/layout providers. Browser extract/apply clients should use the narrow `/native-docx` entry to avoid Node-only shaping imports.
 
-Successful text readback does not prove Word pagination, font matching, or full-page visual fidelity. Treat preview compiler diagnostics separately from native write validation.
+Successful text readback does not prove exact page layout, font matching, or full-page visual output. Treat preview compiler diagnostics separately from native write validation.
 
 ## References
 

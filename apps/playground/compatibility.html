@@ -83,7 +83,7 @@
             <thead><tr><th scope="col">Format</th><th scope="col">Can change</th><th scope="col">Not yet</th></tr></thead>
             <tbody>
               <tr><th scope="row">Excel</th><td>Cell values and formulas, supported styles, row heights and column widths</td><td>Inserting sheets, rows or columns and other structural edits</td></tr>
-              <tr><th scope="row">Word</th><td>Text replaced in place, with supported formatting</td><td>Restructuring rich text freely, editing tracked changes, Word's exact pagination</td></tr>
+              <tr><th scope="row">Word</th><td>Text replaced in place, with supported formatting</td><td>Restructuring rich text freely, editing tracked changes, exact page layout</td></tr>
               <tr><th scope="row">PowerPoint</th><td>Slide text and shape properties</td><td>Inserting or removing imported slides; editing pictures, charts, tables, groups and animations</td></tr>
               <tr><th scope="row">PDF</th><td>Page operations: rotate, crop, resize, reorder, insert and delete</td><td>General text rewriting, OCR and redaction through the agent adapter</td></tr>
             </tbody>
@@ -93,7 +93,7 @@
           <p>The original file stays the authority. InjOffice writes the changes it makes into that file and keeps the parts it did not change. Being able to display something does not mean it can be edited: some content is shown but kept read-only, and commands that would need to change it are disabled.</p>
 
           <h2>Layout</h2>
-          <p>The Word document view flows on screen and is not Word's pagination. Page layout is a separate path, used for PDF export. No part of InjOffice claims Word, Excel, PowerPoint or Acrobat layout parity.</p>
+          <p>The document view flows on screen; page layout is a separate path, used for PDF export.</p>
 
           <h2>For developers</h2>
           <p>The libraries publish the same limits per operation, and every engine advertises which operations a given file supports. See the <a href="%BASE_URL%docs/getting-started/support">support and limitations</a> page in the docs.</p>

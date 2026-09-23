@@ -68,7 +68,7 @@ describe('native document page viewer', () => {
       expect(markup).toContain('Nothing is uploaded until')
       expect(markup).toContain('Upload to helper and render native pages')
       expect(markup).toContain('Upload to helper and try approximate pages')
-      expect(markup).toContain('does not reproduce older Word pagination')
+      expect(markup).toContain('does not reproduce the original pagination')
       expect(fetch).not.toHaveBeenCalled()
     } finally { vi.unstubAllGlobals() }
   })

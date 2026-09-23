@@ -38,7 +38,7 @@ describe('PPTX approximate preview policy', () => {
   })
   it('keeps the fidelity label while asynchronous geometry is prepared',()=>{
     const deck=validDeck([]),html=renderToStaticMarkup(createElement(PptxFilePreview,{deck}))
-    expect(html).toContain('Approximate file preview');expect(html).toContain('Not PowerPoint-equivalent rendering');expect(html).toContain('Preparing local geometry preview')
+    expect(html).toContain('Approximate file preview');expect(html).toContain('browser fonts, wrapping and line height are approximate');expect(html).toContain('Preparing local geometry preview')
   })
   it('renders original text escaped and applies insets once inside the compiled text rectangle',async()=>{
     const text:NativeElement={kind:'text',id:'text',provenance:'authored',transform:{x:0,y:0,cx:1270000,cy:635000},paragraphs:[{runs:[{text:'<script>alert(1)</script>',fontSizeHundredthPt:1200}]}],textBody:{leftInsetEmu:12700,rightInsetEmu:25400,topInsetEmu:38100,bottomInsetEmu:50800,wrap:'none',verticalAnchor:'top',autoFit:'none',horizontalOverflow:'overflow',verticalOverflow:'overflow'},compatibility:{status:'editable',diagnostics:[]},passthrough:[]}

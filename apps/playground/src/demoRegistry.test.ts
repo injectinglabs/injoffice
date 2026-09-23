@@ -23,7 +23,7 @@ describe('playground capability registry', () => {
     const shapes = DEMOS.find((demo) => demo.surface === 'shapes')!
 
     expect(docs.description).toMatch(/editable passage/i)
-    expect(docs.description).toMatch(/without Word pagination/i)
+    expect(docs.description).toMatch(/without exact page layout/i)
     expect(docs.runtime).toBe('Browser')
     expect(pdf.description).toMatch(/organize pages/i)
     expect(pdf.description).toMatch(/Advanced server tools require local setup/i)
