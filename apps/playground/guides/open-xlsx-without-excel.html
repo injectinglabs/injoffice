@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="How to open, edit and save an .xlsx spreadsheet without Microsoft Excel, using InjOffice: a free, open-source editor that works offline on macOS, Windows and Linux." />
+    <title>Open and edit XLSX files without Excel</title>
+    <link rel="canonical" href="https://injoffice.com/guides/open-xlsx-without-excel" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="InjOffice" />
+    <meta property="og:title" content="Open and edit XLSX files without Excel" />
+    <meta property="og:description" content="How to open, edit and save an .xlsx spreadsheet without Microsoft Excel, using InjOffice: a free, open-source editor that works offline on macOS, Windows and Linux." />
+    <meta property="og:url" content="https://injoffice.com/guides/open-xlsx-without-excel" />
+    <meta property="og:image" content="https://injoffice.com/og/injoffice.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="InjOffice: a spreadsheet cell changing from Review to Ready as a tracked change" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Open and edit XLSX files without Excel" />
+    <meta name="twitter:description" content="How to open, edit and save an .xlsx spreadsheet without Microsoft Excel, using InjOffice: a free, open-source editor that works offline on macOS, Windows and Linux." />
+    <meta name="twitter:image" content="https://injoffice.com/og/injoffice.png" />
+    <script>
+      // Hide the star banner before first paint for someone who already closed it.
+      try { if (localStorage.getItem('injoffice-star-banner') === 'dismissed') document.documentElement.dataset.starDismissed = '' } catch (e) {}
+    </script>
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%logo.svg" />
+    <link rel="apple-touch-icon" href="%BASE_URL%logo.svg" />
+    <link rel="stylesheet" href="%BASE_URL%fonts/fonts.css" />
+    <link rel="stylesheet" href="/site/pages.css" />
+    <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Home", "item": "https://injoffice.com/"}, {"@type": "ListItem", "position": 2, "name": "Open XLSX without Excel", "item": "https://injoffice.com/guides/open-xlsx-without-excel"}]}</script>
+    <script type="application/ld+json">{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Open and edit XLSX files without Excel", "description": "How to open, edit and save an .xlsx spreadsheet without Microsoft Excel, using InjOffice: a free, open-source editor that works offline on macOS, Windows and Linux.", "url": "https://injoffice.com/guides/open-xlsx-without-excel", "dateModified": "2026-09-23", "inLanguage": "en", "publisher": {"@type": "Organization", "name": "Injecting Inc.", "url": "https://injoffice.com/"}}</script>
+  </head>
+  <body>
+    <aside class="star-banner" id="star-banner" aria-label="Support InjOffice">
+      <div class="wrap">
+        <p>Enjoying InjOffice? Rate us with a star on GitHub.</p>
+        <a class="star-button" href="https://github.com/injectinglabs/injoffice" target="_blank" rel="noopener">
+          <span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.3L12 17.1l-5.6 3 1.1-6.3L2.9 9.4l6.3-.9L12 2.8z" /></svg>Star on GitHub</span><span class="star-count" id="star-count"></span>
+        </a>
+        <button class="star-close" type="button" id="star-close" aria-label="Close">&times;</button>
+      </div>
+    </aside>
+
+    <header class="site">
+      <div class="wrap">
+        <a class="brand" href="%BASE_URL%"><img src="%BASE_URL%logo.svg" alt="" /> InjOffice</a>
+        <nav class="site" aria-label="Site">
+          <a href="%BASE_URL%#download">Download</a>
+          <a href="%BASE_URL%agents">Agents</a>
+          <a class="hide-sm" href="%BASE_URL%docs/">Docs</a>
+          <a class="hide-sm" href="%BASE_URL%playground">Playground</a>
+          <a class="github" href="https://github.com/injectinglabs/injoffice"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.5a10.5 10.5 0 0 0-3.3 20.5c.5.1.7-.2.7-.5v-1.8c-2.9.6-3.5-1.4-3.5-1.4-.5-1.2-1.2-1.6-1.2-1.6-1-.7.1-.7.1-.7 1 .1 1.6 1.1 1.6 1.1.9 1.6 2.5 1.2 3.1.9.1-.7.4-1.2.7-1.4-2.3-.3-4.8-1.2-4.8-5.2 0-1.1.4-2.1 1.1-2.8-.1-.3-.5-1.4.1-2.8 0 0 .9-.3 2.9 1.1a10 10 0 0 1 5.3 0c2-1.4 2.9-1.1 2.9-1.1.6 1.4.2 2.5.1 2.8.7.7 1.1 1.7 1.1 2.8 0 4-2.5 4.9-4.8 5.2.4.3.7 1 .7 2v2.9c0 .3.2.6.7.5A10.5 10.5 0 0 0 12 1.5z" /></svg><span class="github-label">GitHub</span></a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-head">
+        <div class="wrap">
+          <ol class="crumbs" aria-label="Breadcrumb"><li><a href="%BASE_URL%">Home</a></li><li aria-current="page">Open XLSX without Excel</li></ol>
+          <h1>Open and edit XLSX files without Excel</h1>
+          <p class="lede">View and change an Excel workbook on your own computer: cell values, formulas and formatting. InjOffice is free, works offline, and keeps the parts of the workbook you did not touch.</p>
+          <p class="meta">Verified with InjOffice 0.1.15.</p>
+        </div>
+      </div>
+      <div class="wrap layout">
+        <article class="prose">
+          <h2>Steps</h2>
+          <ol>
+            <li><b>Install InjOffice</b> for <a href="%BASE_URL%download/macos">macOS</a>, <a href="%BASE_URL%download/windows">Windows</a> or <a href="%BASE_URL%download/linux">Linux</a>.</li>
+            <li><b>Open the workbook</b> with <b>File</b>, <b>Open</b> (<code>Ctrl+O</code>, or <code>⌘O</code> on a Mac). It opens in a worksheet grid with a formula bar.</li>
+            <li><b>Edit cells</b>: select a cell and type a value, or a formula starting with <code>=</code>. Formulas are calculated on your computer. Copy and paste work across the grid.</li>
+            <li><b>Format</b> with the ribbon: supported cell styles, row heights and column widths.</li>
+            <li><b>Save</b> with <code>Ctrl+S</code> (<code>⌘S</code>), or <b>Save As</b> for a copy.</li>
+          </ol>
+
+          <h2>CSV and TSV</h2>
+          <p>To bring in plain data, use <b>File</b>, <b>Import CSV / TSV</b>. To hand a sheet to another tool, use <b>File</b>, <b>Export</b>, <b>Export selected sheet CSV / TSV</b>; fields are written as literal text, or as the formula source.</p>
+
+          <h2>What happens to the rest of the workbook</h2>
+          <p>An <code>.xlsx</code> file holds many parts: sheets, styles, shared strings, charts and more. InjOffice writes the cells and properties you changed into the original file and keeps the other parts as they were, rather than regenerating the workbook.</p>
+
+          <h2>Limits today</h2>
+          <ul>
+            <li>Structural edits such as inserting rows or columns are not available yet.</li>
+            <li>Only supported styles can be changed; other formatting is kept but not edited.</li>
+            <li>Binary <code>.xls</code> and <code>.xlsb</code> files and OpenDocument <code>.ods</code> files are not opened.</li>
+            <li>Password-protected workbooks do not open: remove the password in the app that created the file first.</li>
+            <li>It is not a full Excel replacement. The <a href="%BASE_URL%docs/reference/generated/contracts/functions">function reference</a> lists the formulas the engine knows.</li>
+          </ul>
+          <p>Commands the engine cannot perform on a particular file are shown disabled with the reason. See <a href="%BASE_URL%compatibility">compatibility</a> for every format.</p>
+        </article>
+        <aside class="side" aria-label="Downloads and related pages">
+          <div class="get">
+            <h2>Get InjOffice</h2>
+            <p class="version">Free, for macOS, Windows and Linux</p>
+            <ul><li><a class="build" href="%BASE_URL%#download">Download<span class="hint">free</span></a></li></ul>
+          </div>
+          <nav class="related" aria-label="Related pages">
+            <h2>Related</h2>
+            <ul><li><a href="%BASE_URL%download/macos">Install on macOS</a></li><li><a href="%BASE_URL%download/windows">Install on Windows</a></li><li><a href="%BASE_URL%download/linux">Install on Linux</a></li><li><a href="%BASE_URL%guides/edit-docx-offline">Edit Word documents offline</a></li><li><a href="%BASE_URL%compare/libreoffice">InjOffice vs LibreOffice</a></li><li><a href="%BASE_URL%compatibility">Compatibility</a></li><li><a href="%BASE_URL%changelog">Changelog</a></li></ul>
+          </nav>
+        </aside>
+      </div>
+    </main>
+
+    <footer class="site">
+      <div class="wrap">
+        <span>InjOffice by Injecting Inc. Apache-2.0 licensed.</span>
+        <nav aria-label="Footer">
+          <a href="%BASE_URL%#download">Download</a>
+          <a href="%BASE_URL%guides/edit-docx-offline">Guides</a>
+          <a href="%BASE_URL%compare/libreoffice">Compare</a>
+          <a href="%BASE_URL%compatibility">Compatibility</a>
+          <a href="%BASE_URL%changelog">Changelog</a>
+          <a href="https://github.com/injectinglabs/injoffice">GitHub</a>
+          <a href="https://github.com/injectinglabs/injoffice/blob/main/LICENSE">License</a>
+          <a href="%BASE_URL%privacy">Privacy</a>
+          <a href="%BASE_URL%company">Company</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script type="module" src="/site/pages.js"></script>
+  </body>
+</html>

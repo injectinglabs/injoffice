@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="How InjOffice compares with LibreOffice: where LibreOffice is more capable, where InjOffice works differently, and which one to choose for editing Word, Excel and PowerPoint files." />
+    <title>InjOffice vs LibreOffice: an honest comparison</title>
+    <link rel="canonical" href="https://injoffice.com/compare/libreoffice" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="InjOffice" />
+    <meta property="og:title" content="InjOffice vs LibreOffice: an honest comparison" />
+    <meta property="og:description" content="How InjOffice compares with LibreOffice: where LibreOffice is more capable, where InjOffice works differently, and which one to choose for editing Word, Excel and PowerPoint files." />
+    <meta property="og:url" content="https://injoffice.com/compare/libreoffice" />
+    <meta property="og:image" content="https://injoffice.com/og/injoffice.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="InjOffice: a spreadsheet cell changing from Review to Ready as a tracked change" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="InjOffice vs LibreOffice: an honest comparison" />
+    <meta name="twitter:description" content="How InjOffice compares with LibreOffice: where LibreOffice is more capable, where InjOffice works differently, and which one to choose for editing Word, Excel and PowerPoint files." />
+    <meta name="twitter:image" content="https://injoffice.com/og/injoffice.png" />
+    <script>
+      // Hide the star banner before first paint for someone who already closed it.
+      try { if (localStorage.getItem('injoffice-star-banner') === 'dismissed') document.documentElement.dataset.starDismissed = '' } catch (e) {}
+    </script>
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%logo.svg" />
+    <link rel="apple-touch-icon" href="%BASE_URL%logo.svg" />
+    <link rel="stylesheet" href="%BASE_URL%fonts/fonts.css" />
+    <link rel="stylesheet" href="/site/pages.css" />
+    <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Home", "item": "https://injoffice.com/"}, {"@type": "ListItem", "position": 2, "name": "InjOffice vs LibreOffice", "item": "https://injoffice.com/compare/libreoffice"}]}</script>
+    <script type="application/ld+json">{"@context": "https://schema.org", "@type": "TechArticle", "headline": "InjOffice vs LibreOffice", "description": "How InjOffice compares with LibreOffice: where LibreOffice is more capable, where InjOffice works differently, and which one to choose for editing Word, Excel and PowerPoint files.", "url": "https://injoffice.com/compare/libreoffice", "dateModified": "2026-09-23", "inLanguage": "en", "publisher": {"@type": "Organization", "name": "Injecting Inc.", "url": "https://injoffice.com/"}}</script>
+  </head>
+  <body>
+    <aside class="star-banner" id="star-banner" aria-label="Support InjOffice">
+      <div class="wrap">
+        <p>Enjoying InjOffice? Rate us with a star on GitHub.</p>
+        <a class="star-button" href="https://github.com/injectinglabs/injoffice" target="_blank" rel="noopener">
+          <span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.3L12 17.1l-5.6 3 1.1-6.3L2.9 9.4l6.3-.9L12 2.8z" /></svg>Star on GitHub</span><span class="star-count" id="star-count"></span>
+        </a>
+        <button class="star-close" type="button" id="star-close" aria-label="Close">&times;</button>
+      </div>
+    </aside>
+
+    <header class="site">
+      <div class="wrap">
+        <a class="brand" href="%BASE_URL%"><img src="%BASE_URL%logo.svg" alt="" /> InjOffice</a>
+        <nav class="site" aria-label="Site">
+          <a href="%BASE_URL%#download">Download</a>
+          <a href="%BASE_URL%agents">Agents</a>
+          <a class="hide-sm" href="%BASE_URL%docs/">Docs</a>
+          <a class="hide-sm" href="%BASE_URL%playground">Playground</a>
+          <a class="github" href="https://github.com/injectinglabs/injoffice"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.5a10.5 10.5 0 0 0-3.3 20.5c.5.1.7-.2.7-.5v-1.8c-2.9.6-3.5-1.4-3.5-1.4-.5-1.2-1.2-1.6-1.2-1.6-1-.7.1-.7.1-.7 1 .1 1.6 1.1 1.6 1.1.9 1.6 2.5 1.2 3.1.9.1-.7.4-1.2.7-1.4-2.3-.3-4.8-1.2-4.8-5.2 0-1.1.4-2.1 1.1-2.8-.1-.3-.5-1.4.1-2.8 0 0 .9-.3 2.9 1.1a10 10 0 0 1 5.3 0c2-1.4 2.9-1.1 2.9-1.1.6 1.4.2 2.5.1 2.8.7.7 1.1 1.7 1.1 2.8 0 4-2.5 4.9-4.8 5.2.4.3.7 1 .7 2v2.9c0 .3.2.6.7.5A10.5 10.5 0 0 0 12 1.5z" /></svg><span class="github-label">GitHub</span></a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-head">
+        <div class="wrap">
+          <ol class="crumbs" aria-label="Breadcrumb"><li><a href="%BASE_URL%">Home</a></li><li aria-current="page">InjOffice vs LibreOffice</li></ol>
+          <h1>InjOffice vs LibreOffice</h1>
+          <p class="lede">LibreOffice is a mature, complete office suite. InjOffice is a young editor built around one different idea: change the original Office file in place and keep everything else as it was. Here is where each one fits.</p>
+          <p class="meta">Both are free and open source. Updated 2026-09-23.</p>
+        </div>
+      </div>
+      <div class="wrap layout">
+        <article class="prose">
+          <h2>At a glance</h2>
+          <div class="table-wrap"><table class="facts">
+            <thead><tr><th scope="col"></th><th scope="col">LibreOffice</th><th scope="col">InjOffice</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Maturity</th><td>Developed since 2010, from the OpenOffice.org code base</td><td>First desktop releases in 2026; early</td></tr>
+              <tr><th scope="row">Applications</th><td>Writer, Calc, Impress, Draw, Math and Base</td><td>One editor for Word, Excel, PowerPoint and PDF files</td></tr>
+              <tr><th scope="row">Native format</th><td>OpenDocument (ODF)</td><td>The original Office file (DOCX, XLSX, PPTX), plus PDF</td></tr>
+              <tr><th scope="row">Older formats</th><td>Opens <code>.doc</code>, <code>.xls</code>, <code>.ppt</code> and many more</td><td>Does not open binary Office or OpenDocument files</td></tr>
+              <tr><th scope="row">Macros</th><td>Runs macros (Basic, Python and others)</td><td>Never runs macros</td></tr>
+              <tr><th scope="row">Saving an Office file</th><td>Converts the file into its own document model and writes it back out</td><td>Writes only the parts you changed into the original file</td></tr>
+              <tr><th scope="row">For developers and AI agents</th><td>Automation through its APIs and macros</td><td>TypeScript and Go libraries with reviewable change sets</td></tr>
+              <tr><th scope="row">License</th><td>MPL 2.0</td><td>Apache-2.0</td></tr>
+              <tr><th scope="row">Platforms</th><td>Windows, macOS, Linux</td><td>Windows, macOS, Linux</td></tr>
+            </tbody>
+          </table></div>
+
+          <h2 id="where-libreoffice-is-better">Where LibreOffice is better</h2>
+          <ul>
+            <li><b>Feature breadth.</b> Word processing, spreadsheets, presentations, drawing, formulas and databases, each with years of features that InjOffice does not have: styles management, mail merge, pivot tables, advanced charts, slide design tools and much more.</li>
+            <li><b>Maturity.</b> More than a decade of releases, a large user base and extensive documentation and community help.</li>
+            <li><b>Formats.</b> It opens and saves OpenDocument, legacy Microsoft Office formats and many others. InjOffice opens only DOCX, XLSX, PPTX and PDF.</li>
+            <li><b>Layout and printing.</b> It lays out and prints pages itself. InjOffice's document view flows on screen and does not reproduce Word's pagination.</li>
+            <li><b>Macros and extensions.</b> It can automate work with macros and extend itself with add-ons. InjOffice runs neither.</li>
+            <li><b>Structural editing.</b> Inserting rows and columns, reorganizing documents and building presentations from scratch are routine in LibreOffice and limited in InjOffice today.</li>
+          </ul>
+          <p>If you need a full office suite, LibreOffice is the better choice today.</p>
+
+          <h2 id="where-injoffice-is-different">Where InjOffice is different</h2>
+          <ul>
+            <li><b>It keeps the file you were sent.</b> Editing a DOCX, XLSX or PPTX changes the parts you touched and leaves the rest of the package as it was, so parts InjOffice does not understand are not dropped or rewritten on save.</li>
+            <li><b>It says what it cannot do.</b> Commands it cannot perform safely on a particular file are disabled with a reason, and files it cannot handle, such as password-protected ones, are refused rather than opened in a way that could change them.</li>
+            <li><b>It is built for AI agents too.</b> The same engines are available as libraries in which an agent proposes a change set, your application reviews and approves it, and the written file is verified. See <a href="%BASE_URL%agents">InjOffice for AI agents</a>.</li>
+            <li><b>It is small and local.</b> No account, no upload, one editor for four formats.</li>
+          </ul>
+
+          <h2>Which to choose</h2>
+          <p>Choose <b>LibreOffice</b> when you need a complete suite, work in OpenDocument or older formats, rely on macros, or need precise page layout. Choose <b>InjOffice</b> when you want to change an Office file you received and send it back with everything you did not touch intact, or when you are building software, including AI agents, that edits Office files. Many people will use both.</p>
+        </article>
+        <aside class="side" aria-label="Downloads and related pages">
+
+          <nav class="related" aria-label="Related pages">
+            <h2>Related</h2>
+            <ul><li><a href="%BASE_URL%download/macos">Install on macOS</a></li><li><a href="%BASE_URL%download/windows">Install on Windows</a></li><li><a href="%BASE_URL%download/linux">Install on Linux</a></li><li><a href="%BASE_URL%guides/edit-docx-offline">Edit Word documents offline</a></li><li><a href="%BASE_URL%guides/open-xlsx-without-excel">Open XLSX without Excel</a></li><li><a href="%BASE_URL%compatibility">Compatibility</a></li><li><a href="%BASE_URL%changelog">Changelog</a></li></ul>
+          </nav>
+        </aside>
+      </div>
+    </main>
+
+    <footer class="site">
+      <div class="wrap">
+        <span>InjOffice by Injecting Inc. Apache-2.0 licensed.</span>
+        <nav aria-label="Footer">
+          <a href="%BASE_URL%#download">Download</a>
+          <a href="%BASE_URL%guides/edit-docx-offline">Guides</a>
+          <a href="%BASE_URL%compare/libreoffice">Compare</a>
+          <a href="%BASE_URL%compatibility">Compatibility</a>
+          <a href="%BASE_URL%changelog">Changelog</a>
+          <a href="https://github.com/injectinglabs/injoffice">GitHub</a>
+          <a href="https://github.com/injectinglabs/injoffice/blob/main/LICENSE">License</a>
+          <a href="%BASE_URL%privacy">Privacy</a>
+          <a href="%BASE_URL%company">Company</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script type="module" src="/site/pages.js"></script>
+  </body>
+</html>

@@ -95,3 +95,68 @@ describe('public site metadata', () => {
     })
   }
 })
+
+// Task-focused content pages: each answers one search with its own canonical clean URL, one
+// h1, previews and breadcrumbs, and reaches the rest of the site by clean links only.
+const CONTENT: Record<string, { file: string; title: RegExp; assets?: string[] }> = {
+  'download/macos': { file: 'download/macos.html', title: /Free offline office app for Mac/, assets: ['mac-arm64.dmg', 'mac-x64.dmg'] },
+  'download/windows': { file: 'download/windows.html', title: /Free office software for Windows/, assets: ['win-x64.exe'] },
+  'download/linux': { file: 'download/linux.html', title: /Open-source office suite for Linux/, assets: ['linux-x86_64.AppImage', 'linux-amd64.deb', 'linux-x86_64.rpm'] },
+  'guides/edit-docx-offline': { file: 'guides/edit-docx-offline.html', title: /Edit Word documents offline/ },
+  'guides/open-xlsx-without-excel': { file: 'guides/open-xlsx-without-excel.html', title: /Open and edit XLSX files without Excel/ },
+  'compare/libreoffice': { file: 'compare/libreoffice.html', title: /InjOffice vs LibreOffice/ },
+  compatibility: { file: 'compatibility.html', title: /compatibility/i },
+  changelog: { file: 'changelog.html', title: /changelog/i },
+}
+
+describe('content pages', () => {
+  for (const [path, { file, title, assets }] of Object.entries(CONTENT)) {
+    it(`/${path} is a complete, crawlable page`, () => {
+      const html = page(file)
+      expect(html.match(/<title>([^<]+)<\/title>/)?.[1]).toMatch(title)
+      expect(html).toContain(`<link rel="canonical" href="https://injoffice.com/${path}" />`)
+      expect(html).toContain(`<meta property="og:url" content="https://injoffice.com/${path}" />`)
+      expect(html).toContain('<meta property="og:image" content="https://injoffice.com/og/injoffice.png" />')
+      expect(html).toMatch(/<meta name="description" content="[^"]{60,}"/)
+      expect(html.match(/<h1\b/g)).toHaveLength(1)
+      expect(html).toContain('"@type": "BreadcrumbList"')
+      expect(html).toContain('<p>Enjoying InjOffice? Rate us with a star on GitHub.</p>')
+      expect(html).toContain('<link rel="stylesheet" href="/site/pages.css" />')
+      const local = [...html.matchAll(/<a\b[^>]*href="([^"]+)"/g)].map(match => match[1]!).filter(href => !/^(https?:|mailto:)/.test(href))
+      expect(local.filter(href => !href.startsWith('%BASE_URL%')), 'site links go through the base').toEqual([])
+      expect(local.filter(href => /\.html($|[?#])/.test(href)), 'no .html site links').toEqual([])
+      for (const asset of assets ?? []) {
+        // A working download link without scripts, refreshed from the releases API when it answers.
+        expect(html).toMatch(new RegExp(`href="https://github\\.com/injectinglabs/injoffice/releases/download/desktop-v[0-9.]+/InjOffice-[0-9.]+-${asset.replace('.', '\\.')}"`))
+      }
+      if (assets) expect(html).toContain('"@type": "SoftwareApplication"')
+    })
+  }
+
+  // A comparison page has to say where the other product is the better choice.
+  it('says plainly where LibreOffice is better', () => {
+    const html = page('compare/libreoffice.html')
+    expect(html).toContain('<h2 id="where-libreoffice-is-better">Where LibreOffice is better</h2>')
+    expect(html).toContain('If you need a full office suite, LibreOffice is the better choice today.')
+  })
+
+  it('is listed in the sitemap and linked from the home page', () => {
+    const sitemap = readFileSync(new URL('../public/sitemap.xml', import.meta.url), 'utf8')
+    const home = page('index.html')
+    for (const path of Object.keys(CONTENT)) {
+      expect(sitemap).toContain(`<loc>https://injoffice.com/${path}</loc>`)
+    }
+    for (const os of ['macos', 'windows', 'linux']) expect(home).toContain(`href="%BASE_URL%download/${os}"`)
+    for (const path of ['guides/edit-docx-offline', 'compare/libreoffice', 'compatibility', 'changelog']) {
+      expect(home).toContain(`href="%BASE_URL%${path}"`)
+    }
+  })
+
+  it('shares one banner and download script across the content pages', () => {
+    const script = readFileSync(new URL('../site/pages.js', import.meta.url), 'utf8')
+    expect(script).toContain("localStorage.setItem('injoffice-star-banner', 'dismissed')")
+    expect(script).toContain('stars < 50')
+    // Published desktop releases only: previews and drafts never reach a download page.
+    expect(script).toContain('!release.draft && !release.prerelease && /^desktop-v\\d/.test(release.tag_name)')
+  })
+})
