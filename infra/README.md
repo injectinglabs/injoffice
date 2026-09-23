@@ -87,7 +87,9 @@ and a check that the live `index.html` is the uploaded one. It deletes nothing, 
 rerun of the same commit reuses its uploaded release.
 
 The job assumes a role from `site-deploy-role.yaml`. That role trusts only this
-repository's `site` GitHub environment and can upload under `assets/` and `releases/`,
+repository's `site` GitHub environment, matched by the repository's OIDC subject prefix
+(`gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix`; this
+repository uses immutable subjects that carry its owner and repository IDs), and can upload under `assets/` and `releases/`,
 move `ReleaseId` on the site stack, and invalidate the distribution. It cannot change
 the template, DNS, the certificate or the bucket policy, and it cannot delete objects.
 Template changes to `demo-site.yaml` stay an explicit owner action.
