@@ -47,7 +47,7 @@ that representation.
 Cardinal rotation, reflection, ratios, center translation, and rational algebra
 are exact. Noncardinal sine/cosine values retain their exact binary64 rational
 values with a disclosed conservative elementary-function allowance. This is a
-bounded preview policy, **not a formal libm accuracy proof or Office parity claim**.
+bounded preview policy, **not a formal libm accuracy proof or rendering-equivalence claim**.
 It does not round arbitrary rotation to integer PPM.
 
 Composition propagates uncertainty including products of input errors. Paint

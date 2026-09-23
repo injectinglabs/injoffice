@@ -19,6 +19,6 @@ The existing `compileWireDeckToNativeV1` and `compileNativePptxSlide` APIs expos
 this correction without a new option. Shape outlines and source qualification
 are unchanged. Legacy paragraph placement with no explicit `textBody` retains
 its full-frame behavior. This is a geometry correction; it does not qualify
-fonts, arbitrary adjustments, or Microsoft Office visual equivalence.
+fonts, arbitrary adjustments, or visual equivalence.
 
 Guide reference: [Apache POI's published DrawingML preset definitions](https://github.com/apache/poi/blob/trunk/poi/src/main/resources/org/apache/poi/sl/draw/geom/presetShapeDefinitions.xml), `ellipse`, `triangle`, `diamond`.

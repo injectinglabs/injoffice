@@ -35,7 +35,7 @@ PPTX sources and `report.json`: five painted positives, three refusals
 also exercise integer-looking values without exact provenance, close restoration,
 unsafe intermediates, and the unchanged command limit.
 
-This is a bounded numerical qualification, not browser-pixel or Office parity.
+This is a bounded numerical qualification, not a browser-pixel or rendering-equivalence claim.
 The six wide/tall `cornerTabs`, `plaqueTabs`, and `squareTabs` cases remain
 unsupported: their pinned text rectangles invert at aspect 10:1. The catalog
 uses `hypot(w,h)/20` on each edge, so continuous positive text dimensions require

@@ -1,6 +1,6 @@
 # Local PPTX file preview geometry
 
-`PptxFilePreview` now renders supported native groups, evaluated custom/preset paths, and source shape transforms through the same public renderer as the supplied-font native preview. The local view still labels its text as an approximation: browser fonts, wrapping, line heights and glyph ink are not qualified native text layout or a PowerPoint-equivalence claim. Editing authority is unchanged.
+`PptxFilePreview` now renders supported native groups, evaluated custom/preset paths, and source shape transforms through the same public renderer as the supplied-font native preview. The local view still labels its text as an approximation: browser fonts, wrapping, line heights and glyph ink are not qualified native text layout or an equivalence claim. Editing authority is unchanged.
 
 ## Geometry and source ownership
 

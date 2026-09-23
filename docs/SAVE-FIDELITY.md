@@ -17,9 +17,9 @@ GenOffice regex tests.
 | Save write-back fidelity | After one `Apply*`, did unmodeled XML and untouched ZIP parts survive? | This product. |
 | Native paint | How does TypeScript preview compile extracted JSON to renderer-neutral commands? | Paint is not a save path. Page-paint, RenderTree, SVG, and screenshots never decide write-back pass/fail. |
 | `officecompat` package inventory | What OPC parts exist, and did a declared allowlist contain every mutation? | Inventories fingerprint parts. They do not prove intra-XML neighbor survival. The Native Office completion matrix is a coverage inventory, not this suite. |
-| Local Office raster benches | Do PNG pixels match an external Word/Excel/PowerPoint or LibreOffice render? | Those benches are local-only. They are not CI write-back gates and are not Microsoft Office paint parity. |
+| Local raster benches | Do PNG pixels match an external reference render? | Those benches are local-only. They are not CI write-back gates or paint-equivalence claims. |
 
-Do not claim Word, Excel, or PowerPoint GUI or paint parity.
+Do not claim user-interface or paint equivalence.
 
 ## The extract–mutate–reopen loop
 
@@ -107,6 +107,5 @@ not a regex port of GenOffice.
    part-byte equality).
 5. For a refusal case, assert the error and that no package is returned.
 
-Keep the test deterministic and free of Word, Excel, PowerPoint, or LibreOffice
-as a runtime. Paint, PNG comparators, and the completion matrix are separate
+Keep the test deterministic and free of any external office application as a runtime. Paint, PNG comparators, and the completion matrix are separate
 gates.

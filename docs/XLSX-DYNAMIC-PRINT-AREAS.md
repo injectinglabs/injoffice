@@ -77,6 +77,6 @@ and [MS-XLSX section 2.2.2 formula grammar](https://learn.microsoft.com/en-us/op
 
 This bounded source-cell dependency is not a workbook calculation engine.
 Generated producer/consumer tests and actual WASM/browser proof qualify this
-software path. They do not establish independent Excel printer calibration,
+software path. They do not establish independent printer calibration,
 general dynamic print-formula support, or freshness of saved formula results.
 The [print calibration contract](XLSX-PRINT-CALIBRATION.md) remains unchanged.

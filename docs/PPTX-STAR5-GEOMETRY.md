@@ -18,7 +18,7 @@ Tiny geometry can collapse after integer rounding; insets that collapse a text
 region are refused by the existing compiler bounds check.
 
 This is a default authored-geometry correction. It adds no source extraction,
-custom adjustment, custom-path, font, or Microsoft Office visual-equivalence
+custom adjustment, custom-path, font, or visual-equivalence
 qualification. Source stars remain subject to existing extraction refusals.
 
 Guide reference: [Apache POI's published DrawingML preset definitions](https://github.com/apache/poi/blob/trunk/poi/src/main/resources/org/apache/poi/sl/draw/geom/presetShapeDefinitions.xml), `star5`.

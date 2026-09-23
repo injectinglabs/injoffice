@@ -28,7 +28,7 @@ Fifteen clean-container PowerPoint 16.112.4 reference exports are retained exter
 
 The observed geometry starts category zero at the top and proceeds clockwise; reversed category orientation reverses that direction. Radius is `(value-min)/(max-min)` and reversed value orientation complements it, including signed values that lie within the explicit scale. Standard paths and filled polygons close to their first category. Filled series paint in XML sequence. The value axis owns the complete spoke set; category-axis line paint does not produce a separate path in the three colored/deleted-axis isolation fixtures. Standard spokes paint before data, filled spokes after data. Labels, grids and automatic axis defaults are outside this first profile.
 
-`source-radial-plot-v1` fits a circle of radius half the smaller host plot extent at its center. It preserves these radial relationships rather than claiming Office plot-margin parity. Existing 4096-bit ChartRational arithmetic keeps radial ratios and final XY algebra exact. Cardinal directions are exact; other directions use an explicitly non-formal libm allowance matching the source-affine policy: `64*Number.EPSILON*(abs(angle)+1)`. At the 100-million-EMU frame limit, the angular allowance is below 0.00001 EMU. Coordinates round once to whole EMU, with at most 0.5 EMU algebraic rounding, and complete stroke hulls include a separate conservative one-EMU numerical outset. This is a qualification policy, not a proof of the JavaScript transcendental implementation. Independent 90-digit Decimal Taylor references test 3/5/7/256 directions at the maximum frame.
+`source-radial-plot-v1` fits a circle of radius half the smaller host plot extent at its center. It preserves these radial relationships rather than claiming plot-margin equivalence. Existing 4096-bit ChartRational arithmetic keeps radial ratios and final XY algebra exact. Cardinal directions are exact; other directions use an explicitly non-formal libm allowance matching the source-affine policy: `64*Number.EPSILON*(abs(angle)+1)`. At the 100-million-EMU frame limit, the angular allowance is below 0.00001 EMU. Coordinates round once to whole EMU, with at most 0.5 EMU algebraic rounding, and complete stroke hulls include a separate conservative one-EMU numerical outset. This is a qualification policy, not a proof of the JavaScript transcendental implementation. Independent 90-digit Decimal Taylor references test 3/5/7/256 directions at the maximum frame.
 
 Each series has at most 257 commands; all 256 spokes fit exactly 512 commands. Up to sixteen series and one spoke node imply at most 4,624 commands. Generic 512-per-path limits do not change. The connected compiler must qualify complete ink hulls before plot clipping and retain the separate source/workbook admission boundary.
 
@@ -65,7 +65,7 @@ separate Linux qualification workflow builds fresh artifacts and preserves sourc
 DOM, preview, pixel counts and screenshots. Local Chrome startup remains blocked;
 no browser success is claimed until that workflow passes and screenshots are
 reviewed. The retained fifteen Office exports qualify the documented radial
-relationships, not general PowerPoint plot layout equivalence.
+relationships, not general plot layout equivalence.
 
 ## WASM packaging budget
 

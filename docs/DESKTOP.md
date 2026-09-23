@@ -15,7 +15,7 @@ host to list it; the lockfile may contain it only when pulled by
 Root `desktop:build`, `desktop:start`, and `desktop:dist` scripts forward to
 `@injoffice/desktop`.
 
-This is not Microsoft Office parity. Do not advertise it as such.
+Coverage is partial; describe only the workflows the app supports.
 
 ## Run from source
 
@@ -216,12 +216,12 @@ Electron as native authority.
 
 ## Support limits
 
-- No claim of Word/Excel/PowerPoint/Acrobat feature or layout parity.
+- No claim of complete feature or layout coverage.
 - DOCX on-screen preview may use flowing HTML; page-paint is a separate export
   path and is the layout that should match a printed page.
 - Updates come only from published desktop releases in `injectinglabs/injoffice`;
   signed builds exclude previews and all builds exclude npm releases and drafts.
-- External Office oracles and private fidelity corpora stay local; do not add
+- External reference renderers and private corpora stay local; do not add
   them to CI.
 
 ### Installed upgrade regression checks

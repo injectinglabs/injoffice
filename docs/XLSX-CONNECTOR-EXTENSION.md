@@ -1,8 +1,7 @@
 # XLSX connector extension v1
 
 InjOffice persists its credential-free `ConnectorSpec` subset in a custom OPC
-part because the project does not claim that its HTTP/JSON/CSV gateway model is
-equivalent to Excel external connections or query tables.
+part because its HTTP/JSON/CSV gateway model is its own, separate from the workbook external-connection and query-table parts.
 
 The v1 package identities are fixed:
 

@@ -63,5 +63,5 @@ function returning an offset reference. This implementation combines only its
 existing qualified reference subsets. See [Microsoft reference operators](https://support.microsoft.com/en-us/excel/calculation-operators-and-precedence-in-excel)
 and [OFFSET semantics](https://support.microsoft.com/en-us/excel/functions/offset-function).
 Source-order separate page sequences remain an explicit approximate preview
-policy, not a claim of Excel page fitting or printer parity. Synthetic tests
-and browser/WASM proof do not replace independent Excel print references.
+policy, not a claim of page fitting or printer equivalence. Synthetic tests
+and browser/WASM proof do not replace independent print references.

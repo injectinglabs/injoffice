@@ -172,7 +172,7 @@ flows the body through equal-width columns (disclosed by
 `textBody.presetTextWarpAdj` so the approximate renderer can warp glyph
 baselines along an InjOffice warp envelope (disclosed by
 `pptx.text-warp-approximate`; unmodeled presets stay omitted and flattened
-under `pptx.text-warp-flattened-approximate`; neither is PowerPoint-equivalent);
+under `pptx.text-warp-flattened-approximate`; neither is an exact rendering);
 `AllowInheritedTextPreview` admits the declared
 inherited-text and placeholder-inheritance approximations described in
 `go/pptxpatch/README.md`, and resolves authored `a:lnSpc` / `a:spcBef` /
@@ -265,7 +265,7 @@ children override it, for AutoShapes as well as connectors. `stCxn`/`endCxn`
 attachments and connector locks are informational: geometry is fully defined by the
 transform, preset, and adjustments, so they are preserved but never resolved. Arrow
 insets and arrowheads follow the terminal tangents of the evaluated path under the
-existing arrow-v1 policy; none of this claims Office connector routing.
+existing arrow-v1 policy; none of this claims general connector routing.
 
 The XML boundary accepts a deliberately canonical v1 declaration only at the
 start of a part: XML 1.0, followed optionally by `encoding="UTF-8"` and then

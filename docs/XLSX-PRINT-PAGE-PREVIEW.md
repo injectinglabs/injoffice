@@ -3,7 +3,7 @@
 `compileNativeSheetPrintPagePreviewV1` turns already-qualified saved print areas
 and authored page setup into isolated page rectangles at 96 CSS pixels per inch.
 It reuses the existing print-area and selected-range planners. It does not add a
-printer, invent missing setup, or claim Excel or LibreOffice raster parity.
+printer, invent missing setup, or claim raster equivalence with another renderer.
 
 Grid/cache preview remains the default surface. Print-page preview is additive
 and fail-closed: when it is unavailable, consumers keep the grid.
@@ -84,15 +84,14 @@ never committed. Their current authored print markup is outside this profile:
 - `different-column-width-excel2010.xlsx` includes headers/footers and no
   supported `pageSetup`. Headers are not drawn here.
 
-LibreOffice can emit print pages for those files by applying application
-defaults. InjOffice does not. Synthetic page-setup fixtures in unit tests prove
+Some applications emit print pages for those files by applying their own defaults. InjOffice does not. Synthetic page-setup fixtures in unit tests prove
 the available Letter/A4 percentage path and the refusal reasons.
 
 ## What this is not
 
-- Not Excel printer calibration or device-resolution fidelity.
+- Not printer calibration or device-resolution fidelity.
 - Not fit-to-page qualification.
-- Not LibreOffice/Excel PDF pixel parity.
+- Not PDF pixel equivalence with another renderer.
 - Not a replacement for the grid/cache preview or cached-chart images.
 - Not a host paper/margin/scale chooser. Use the existing selected-range page
   preview when an explicit host policy is required.
@@ -121,9 +120,7 @@ a header that quietly loses part of itself is worse than one that is honestly
 not painted. Without `header_footer_facts` every band stays unpainted.
 
 Line placement uses typical Latin ascent and descent fractions of the em, not
-the authored face's own metrics, and is approximate: it is not Excel printer
-calibration, and Excel's own clamp of a zero header margin to its printer's
-minimum margin is a printer fact this tier does not resolve.
+the authored face's own metrics, and is approximate: it is not printer calibration, and clamping a zero header margin to a printer's minimum margin is a printer fact this tier does not resolve.
 
 Paint, wrapping, rotation, and drawing rasterization remain
 the host’s responsibility. When already-compiled cell-paint plans are supplied,

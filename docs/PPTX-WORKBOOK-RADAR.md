@@ -14,4 +14,4 @@ Both authority paths use the same profile-free radial geometry: categories start
 
 The dedicated browser workflow runs the actual helper, worker and production SVG component under Node 24 and Go 1.23. It checks exact DOM path data/paint/order, fully visible measured SVG bounds, nondegenerate series and same-region hide-series pixel controls, restoring inline visibility before failure evidence. It always uploads source packages, extracted decks, worker responses, DOM identities and clipped screenshots. Local Chrome is not retried where startup is denied; browser qualification requires the workflow result and artifact review.
 
-No numerical, input or WASM artifact ceiling is increased by this slice. No new PowerPoint export qualification is claimed: the retained radial and graphic-frame geometry policies are reused with separately qualified workbook cell authority.
+No numerical, input or WASM artifact ceiling is increased by this slice. No new export qualification is claimed: the retained radial and graphic-frame geometry policies are reused with separately qualified workbook cell authority.

@@ -49,7 +49,7 @@ The original expense source SHA-256 is
 The public Go API reports seven conflicts, the navy `#1E2761` fill, three merges,
 and saved SUMIF results `2229.7` and `249.5`; strict extraction still refuses.
 Tests cover the separate authority boundary and malformed/unsupported sources.
-No browser visual or Excel print-calibration claim follows from this API test.
+No browser visual or print-calibration claim follows from this API test.
 
 ## Browser recovery and verification
 
@@ -107,8 +107,7 @@ refuse the whole result. No partial overlay is returned.
 The proportional data-bar length follows Microsoft's [data-bar contract](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.databar?view=openxml-3.0.1)
 conceptually: minLength + (value-min)/(max-min) * (maxLength-minLength). The
 [Office 2010 contract](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.office2010.excel.databar?view=openxml-3.0.1)
-defines linked legacy/x14 declarations. The percentage is not a claim about
-Excel pixel quantization, font metrics, printer scaling or pagination.
+defines linked legacy/x14 declarations. The percentage is not a claim about pixel quantization, font metrics, printer scaling or pagination.
 
 One frozen-row viewport form is separately qualified: zero frozen columns,
 1–127 frozen rows, an A-column origin immediately below them, bottomLeft active
@@ -136,5 +135,4 @@ checks actual V1 refusal/V2 fallback, source hash, merge/header colors, saved
 status/number values, differential colors and bar width. Cancellation and source
 replacement wait for an actual V2 inspection before delivering delayed replies.
 Screenshots are retained in the `xlsx-source-conditional-browser` CI artifact.
-This does not replace local unchanged-source browser review or an independent
-Excel print calibration matrix.
+This does not replace local unchanged-source browser review or an independent print calibration matrix.

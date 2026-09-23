@@ -2,7 +2,7 @@
 
 The object-inspection API can project a read-only conditional fill supplement, and the spreadsheet page demo applies it only when **Preview supported conditional fills** is selected. For example, one `cellIs` rule `greaterThan 0` with an explicit green solid-fill differential style colors saved values `3` and `7`, while retaining the ordinary fill for `-2` and `0`.
 
-This is a narrow source-based display feature. It does not change source styles, resolve general conditional formatting, recalculate formulas, authorize mutations or establish Excel print fidelity. The existing native conditional-formatting preservation inventory and table-style refusal policies remain unchanged.
+This is a narrow source-based display feature. It does not change source styles, resolve general conditional formatting, recalculate formulas, authorize mutations or establish print fidelity. The existing native conditional-formatting preservation inventory and table-style refusal policies remain unchanged.
 
 ## Qualified source profile
 

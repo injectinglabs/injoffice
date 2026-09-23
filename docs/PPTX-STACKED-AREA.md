@@ -48,8 +48,7 @@ painted and separate antialiasing does not introduce seams. The source-qualified
 enforces at most 1,536 generated area commands per series for at most 256
 categories. The generic custom-path limit remains unchanged. Standard area
 series can overlap: this preview paints in XML series sequence as
-an explicit host policy. Authored order alone does not establish Office paint
-order or visual parity. Stacked bar/line families and mixed-sign stacking remain
+an explicit host policy. Authored order alone does not establish an external paint order or visual equivalence. Stacked bar/line families and mixed-sign stacking remain
 separate completion rows; this area option does not claim to complete them.
 
 The primary audit uses ECMA-376 Part 1 (2016), §21.2.3.4 (bar grouping) and

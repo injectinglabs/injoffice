@@ -21,4 +21,4 @@ Source documents remain unchanged and original drawing diagnostics are retained
 in the read-only result. Supported behavior does not make refused geometry editable.
 The preview remains approximate: top-and-bottom and other unsupported wrap
 geometries continue to refuse with source diagnostics. This coverage does not
-claim unrestricted Word layout equivalence.
+claim unrestricted layout equivalence.

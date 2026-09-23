@@ -73,8 +73,7 @@ See [DrawingML SourceRectangle semantics](https://learn.microsoft.com/en-us/dotn
 `node scripts/smoke-pptx-crop-browser.mjs` exercises the actual playground
 component in Chrome: a four-quadrant PNG remains four quadrants without crop,
 while two source-rectangle crops each fill the entire destination with the
-expected quadrant color. This is a deterministic geometry/pixel oracle, not a
-PowerPoint reference screenshot or evidence of broader text/layout parity.
+expected quadrant color. This is a deterministic geometry/pixel oracle, not an external reference screenshot or evidence of broader text/layout equivalence.
 
 ## Native text boundary
 
@@ -187,7 +186,7 @@ Migration is intentionally one-way:
 
 Until that migration completes, `packages/slides/src/DeckView.tsx` and
 `DeckCanvasView.tsx` are feature-frozen. They may receive security or critical bug
-fixes, but no new Office-fidelity work. New shape, text, table, chart-preview, and
+fixes, but no new rendering-fidelity work. New shape, text, table, chart-preview, and
 asset behavior belongs in the native contract or this RenderTree core so the DOM
 and canvas implementations cannot diverge again.
 
