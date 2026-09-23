@@ -133,8 +133,7 @@ const savedBytes = await persistConnectorManagerToNative(
 The explicitly supported custom OPC extension is documented in
 `docs/XLSX-CONNECTOR-EXTENSION.md`. It persists only credential-free definitions
 and preserves unrelated package content. It does not store fetched data, cache
-contents, credentials, authorization state, or refresh status, and it is not
-presented as Excel Power Query/external-connection interoperability.
+contents, credentials, authorization state, or refresh status.
 
 Native hydration uses the manager's ordinary restore path and is intentionally
 limited to client-authority managers. A manager configured with
@@ -170,5 +169,4 @@ them.
 
 Remaining production work includes a full source/schema/schedule browser,
 permission and credential-handoff UI, durable shared caches, pagination,
-production collaboration infrastructure, Excel-native connection mapping,
-and multi-client/Office-load conformance.
+production collaboration infrastructure, native connection mapping, and multi-client load conformance.

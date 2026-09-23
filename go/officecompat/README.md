@@ -30,9 +30,7 @@ The initial suite covers:
 - a DOCX paragraph mutation through `docxpatch`;
 - preservation of opaque `customXml` parts in XLSX and DOCX fixtures.
 
-This first slice verifies package structure and content preservation. It does
-not claim complete format coverage, raw compressed-byte identity, or Microsoft
-Office/LibreOffice acceptance.
+This first slice verifies package structure and content preservation. It does not claim complete format coverage or raw compressed-byte identity.
 
 ## Visual reference comparison
 
@@ -48,9 +46,7 @@ Invalid, truncated, oversized, or dimension-mismatched images fail closed. The
 dedicated qualification caller/config owns each explicit tolerance, and the
 resulting report records it alongside the measured evidence. This module has no
 implicit or recommended tolerance; a zero-value tolerance requires exact visual
-pixels. Microsoft Office and LibreOffice may produce reference artifacts in
-dedicated qualification jobs, but are never runtime or ordinary-test dependencies
-of the comparator.
+pixels. Reference artifacts may come from dedicated qualification jobs; reference renderers are never runtime or ordinary-test dependencies of the comparator.
 
 `VisualCorpusFixtures` consumes the canonical `corpus.Manifest` protocol
 directly, validates its pinned generator identity and bounded record metadata,
@@ -80,10 +76,8 @@ JSON retains each native contract verbatim inside a shared envelope so format
 specific lexical and provenance fields remain observable.
 
 Root-level `npm run check:office-provenance` and `npm run check:office-architecture`
-enforce Microsoft-authored fixture digests and production dependency/authority
-boundaries, including the forbidden-dependency list. This module does not
-treat screenshots as authority and does not claim Microsoft Office/LibreOffice
-reopen or performance qualification.
+enforce externally authored fixture digests and production dependency/authority
+boundaries, including the forbidden-dependency list. This module does not treat screenshots as authority.
 
 ## Bounded structural qualification
 

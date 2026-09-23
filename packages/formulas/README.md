@@ -54,9 +54,7 @@ capability-gated functions explicitly instead of failing the activation.
 
 `targetVocabulary` exposes the same 142 names as `TARGET_FUNCTIONS`; the real
 headless-engine test writes and recalculates every sample through this facade.
-That is a pinned regression gate for the curated vocabulary, not proof of every
-Excel function, worker/performance equivalence, volatile semantics, dependency
-behavior, or error/debugging parity with Univer Pro.
+That is a pinned regression gate for the curated vocabulary, not proof of every spreadsheet function, worker performance, volatile semantics, dependency behavior, or error/debugging behavior.
 
 The package also provides a server-friendly lifecycle around a formula engine selected by your host:
 
@@ -127,4 +125,4 @@ and atomic worksheet writes.
 
 The protocol canonicalizes formula and metadata ordering, validates scalar/error/spill output, rejects stale workbook revisions, and provides cancellation, timeouts, lifecycle events, and engine-contract negotiation. The host must fingerprint the complete snapshot and remains responsible for transport, authorization, persistence, and applying derived results.
 
-This package does not contain a formula evaluator. `TARGET_FUNCTIONS` is an auditable bounded compatibility matrix, and `CalculationManager` is orchestration around a host-injected engine. Neither is a claim of Excel or Univer Pro calculation-engine equivalence.
+This package does not contain a formula evaluator. `TARGET_FUNCTIONS` is an auditable bounded compatibility matrix, and `CalculationManager` is orchestration around a host-injected engine.

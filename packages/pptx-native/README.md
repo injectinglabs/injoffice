@@ -111,7 +111,7 @@ no arrows, and widths at most 10 pt. The style identifier alone grants nothing.
 Theme colors use the source master mapping; unsupported slide/layout overrides
 prevent paint qualification. Style, theme, master and layout part hashes remain
 in the evidence. The planner's solid border is one centered rectangle with round
-joins; this bounded replay policy is not a PowerPoint corner-fidelity claim.
+joins; this is a bounded replay policy.
 
 The playground's separate source-paint button applies eligible borders and removes
 inspection guides for eligible no-border tables. Other tables retain guides and
@@ -133,9 +133,7 @@ The preset option accepts the ten non-solid values defined by ECMA-376 Part 1
 lengths using the source line width. See the [primary ECMA-376 standard download](https://ecma-international.org/publications-and-standards/standards/ecma-376/).
 Its returned `dashArray` is immutable. The demo replays a closed SVG rectangle
 clockwise from the upper-left corner with zero dash phase. These repeat lengths
-come from the standard; PowerPoint's per-edge phase and corner placement have
-not been independently qualified. This is an explicit preview policy and does
-not establish Office raster parity or restore authored typography.
+come from the standard; per-edge phase and corner placement follow an explicit preview policy, which does not restore authored typography.
 
 ### Source-qualified native table typography
 
@@ -161,8 +159,7 @@ controls the explicit HarfBuzz `kern` feature. Native paragraph mutations refuse
 this field until serialization supports it, instead of dropping it.
 
 Glyph layout still uses the renderer's explicitly selected line-layout policy
-and exact supplied font bytes. This source-qualified extraction does not assert
-PowerPoint line-metric or raster equivalence. Local proprietary font files and
+and exact supplied font bytes. This is a source-qualified extraction. Local proprietary font files and
 independent reference artifacts are not repository or CI dependencies.
 
 Opaque chart records may carry `literalPie`, a bounded `literal-pie-v1` source

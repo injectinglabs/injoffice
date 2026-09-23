@@ -369,8 +369,7 @@ documented in `docs/XLSX-CONNECTOR-EXTENSION.md`. Add/remove operations change
 only the owned part, its workbook relationship, and its content-type override;
 updates replace only the owned part. Unknown versions, fields, owners, targets,
 or relationship graphs fail closed, while unrelated custom XML and package
-parts remain byte-identical. This is an InjOffice round-trip extension, not a
-claim of Excel Power Query or external-connection interoperability.
+parts remain byte-identical. This is an InjOffice round-trip extension.
 # Supplemental read-only object preview
 
 `InspectNativeWorkbookObjectsV1` uses native ZIP/OPC validation and returns
@@ -389,8 +388,7 @@ points per series, 65,536 cumulative cache points, and 8 MiB output JSON.
 
 The supplemental table projection can include `fill_preview` for the qualified
 `TableStyleMedium2` subset: a source-theme accent header, alternating body fills,
-and eligible default-font header style IDs. The HLS tint arithmetic is checked
-against original synthetic Excel color probes; this is not a full table renderer.
+and eligible default-font header style IDs. The HLS tint arithmetic is checked against original synthetic color probes; this is not a full table renderer.
 Custom table styles, conditional formatting, header/data DXFs, unqualified theme
 colors and ambiguous style options leave the palette unavailable. Explicit cell
 formatting keeps precedence. Borders, totals formatting and missing-cell paint

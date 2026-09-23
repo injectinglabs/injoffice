@@ -53,8 +53,7 @@ explicit Differences assignment) and a numeric width (`Widths` for 32 or
 does not invent an outline and does not itself create pdf.js word spacing.
 Missing `BaseEncoding` does not imply StandardEncoding; a Type3 built-in
 encoding is empty. Fonts without a proven space encoding or width keep omitting
-the glyph. Inherited Type3 fill versus stroke colors are not claimed as Poppler
-or Acrobat parity. The playground emits matching assets under its deployment
+the glyph. Inherited Type3 fill versus stroke colors follow a declared policy. The playground emits matching assets under its deployment
 base and disables system font substitution for its viewer.
 
 `renderPageToCanvas(viewer, page, canvas, zoom, pixelRatio, { signal, maxPixels })`

@@ -37,8 +37,7 @@ projections are read-only. Unsupported shape text is explicitly omitted while
 independently supported geometry remains visible; diagnostics must be shown by
 the host. These default presets use their DrawingML text rectangles followed
 by authored body insets; custom adjustments remain unsupported. Vertical text
-flow and autofit are not qualified by this geometry support. This is a partial preview, not a claim of
-complete slide or Microsoft Office fidelity.
+flow and autofit are not qualified by this geometry support. This is a partial preview.
 
 Geometry correction: callers of `presetPath` (including authored shapes) now get
 DrawingML defaults for these three presets. Rounded corners formerly used 1/8
@@ -86,8 +85,7 @@ list-style level. The compiler turns it into an explicit `kern` feature that is
 on when the run's font size reaches the threshold and off otherwise, replacing
 any host `kern` feature; other host `resolveRun` features pass through. Runs
 without a threshold keep the host feature list unchanged. Mutation requests that
-carry a threshold are refused rather than serialized. This does not qualify
-PowerPoint's kerning behaviour, autofit, or other inherited text defaults.
+carry a threshold are refused rather than serialized. Kerning behaviour, autofit, and other inherited text defaults are outside this subset.
 
 Resolver, load, and shaper results are untrusted runtime inputs. The compiler
 normalizes exact known fields into fresh bounded objects, validates face identity,
@@ -130,7 +128,7 @@ fragments, shares the resulting baseline across those fragments, and sums line
 boxes for vertical anchoring. Center offsets floor half-EMU remainders; bottom
 offsets use the full remainder, including negative offsets for overflowing text.
 Outputs carry `fidelity: 'deterministicNative'`, the policy identifier, and an
-explicit warning: these rules do not establish Office pixel equivalence.
+explicit warning that these are declared layout rules.
 Omitting the option preserves the existing strict refusals. Unknown policies,
 unresolved fonts, unsupported bidi/wrapping, and malformed provider metrics still
 refuse; this option does not authorize font substitution or file mutation.
@@ -252,7 +250,7 @@ Digest-backed shaping is not a claim that substitute font metrics equal Office.
 marked `shape-source-frame` text bodies. Without it, those bodies remain refused
 even when `lineLayoutPolicy` is set. Opted-in bodies report
 `fidelity: 'approximateSourceFrame'` and a warning; they use the original frame
-without resizing and do not qualify Office-equivalent layout or editing rights.
+without resizing and do not grant editing rights.
 Under the same Go-side opt-in the extractor may also deliver run sizes already
 scaled by an authored `a:normAutofit` `fontScale`, plus the authored
 `lnSpcReduction` and `numCol`/`spcCol`; those elements arrive with
@@ -267,11 +265,10 @@ untouched (the authored `fontScale` already sized the runs). The leading a
 reduction removes comes off the **top** of each line box: the descent below the
 baseline is what the next line must clear, so it is preserved and the text rises
 inside its box by exactly the amount the box lost — the first baseline included.
-Measured against the PowerPoint 16.112.4 export of `font-scale.pptx`, whose
+Measured against the reference export of `font-scale.pptx`, whose
 first baseline sits one whole reduction above the natural ascent; leaving the
 first baseline pinned to the unreduced ascent pushed the whole block down.
-This is a declared read-only approximation of PowerPoint's saved autofit pass,
-not an Office-equivalent line-spacing model. For those elements an authored
+This is a declared read-only approximation of the saved autofit pass. For those elements an authored
 `textBody.columnCount` (2..16) with `textBody.columnSpacingEmu` flows the body
 through that many equal-width columns: column width is
 `(content width - (N-1)*spcCol) / N`, wrapping, alignment and indents are measured
@@ -297,7 +294,7 @@ spacing raises the baseline and an absolute spacing taller than the measured box
 adds its extra leading above the text. The reduction reaches the line spacing
 exactly once and never the paragraph gaps.
 
-The `1.2 x` base is read from the PowerPoint 16.112.4 PDF exports of
+The `1.2 x` base is read from the reference PDF exports of
 `3columns.pptx` and `font-scale.pptx`, taken from their saved text matrices
 rather than from a raster. `3columns.pptx` (Calibri 15pt, `a:lnSpc` 90% less a
 20% `lnSpcReduction`) advances 188.88pt over 15 lines — 12.592pt per line
@@ -309,8 +306,7 @@ exports quantise baselines to 1/300in, which covers the whole residual on the
 `1.2` reading and none of it on the font-box reading. A body with no authored
 percentage and no reduction keeps the measured natural box, which is what
 ECMA-376 21.1.2.2.5 defines for an omitted `a:lnSpc`, and the face's box remains
-the line height used for overflow, column breaks and anchoring. PowerPoint's
-*omitted*-`a:lnSpc` line height is not 1.2 em either — the
+the line height used for overflow, column breaks and anchoring. The reference *omitted*-`a:lnSpc` line height is not 1.2 em either — the
 `bulletMarginAndIndent.pptx` export advances 21.12pt at Calibri 18pt, which is
 neither `1.2 x 18` nor the 1.2207 em box — so that path is left unmodeled.
 `spaceBeforeEmu` and `spaceAfterEmu` are added
@@ -329,8 +325,7 @@ anchors. Center/bottom painting requires the explicit `max-run-natural-v1`
 line policy, just like other native text bodies; the default compiler still
 refuses these placements. Insets bound the text area before the signed anchor
 offset is applied. Table styles, merges, distributed/justified vertical anchors,
-and horizontal `anchorCtr` remain outside this extraction subset. This does not
-qualify PowerPoint line metrics or style inheritance.
+and horizontal `anchorCtr` remain outside this extraction subset. Line metrics and style inheritance are outside this subset.
 
 `literalPiePreview: true` enables a bounded vector preview for extracted charts
 with `chart.literalPie.profile === 'literal-pie-v1'`. This is source **literal**
@@ -343,8 +338,7 @@ image fallback unchanged. Charts remain read-only/preserve-only.
 
 The declared host policy uses an inscribed circle centered in the source frame,
 clockwise angles from up, polygon chords spanning at most two degrees, and one
-final integer-EMU rounding. It does not qualify PowerPoint plot fitting or arc
-fidelity. No title, legend, category/label, axis, cache, formula, theme paint,
+final integer-EMU rounding. Plot fitting is outside this subset. No title, legend, category/label, axis, cache, formula, theme paint,
 explosion, 3D, extension, or effect semantics are accepted. The preview emits
 `chart.literalPiePreview`; omission of the opt-in retains packaged-image behavior.
 `createNativeLiteralPiePaths(pie, cx, cy)` exposes the same bounded paths for
@@ -352,4 +346,4 @@ standalone host views. The PPTX playground has an explicit source-literal chart
 preview checkbox and shows unsupported charts without inventing their values.
 
 Source model: [Microsoft's DrawingML first-slice angle documentation](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.charts.firstsliceangle?view=openxml-3.0.1).
-Independent PowerPoint exports and measured rendering fidelity are still pending.
+

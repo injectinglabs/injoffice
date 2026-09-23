@@ -11,8 +11,7 @@ Property-free indexed radicals with nonempty degree and radicand can also be
 shown as `mroot`, with radicand then degree; unknown radical properties remain
 omitted. This does not expand native rendering or mutation support.
 Unknown formatting, revisions, attributes, constructs, malformed child order or
-unqualified visibility omit the whole equation. This is browser math layout,
-not Word typography, font fidelity or native pagination. The demo lists these
+unqualified visibility omit the whole equation. This is browser math layout, not native typography or pagination. The demo lists these
 equations separately under its explicit read-only partial-text preview. Strict
 painting and equation-paragraph mutations remain refused. No HTML strings,
 links, arbitrary MathML attributes or source font assets are exposed.
@@ -99,8 +98,7 @@ insertion-wrapper diagnostic is the sole exception in an internal read-only
 projection; original diagnostics remain attached to the review output. Unknown
 properties, unresolved inherited visibility, hidden text and other revisions
 still block insertion text. Deletion and move text are never exposed by this
-profile. Hosts must retain kind, omission and diagnostic labels. This is neither
-Word's final/original view nor tracked-change layout, and provides no
+profile. Hosts must retain kind, omission and diagnostic labels. This is not a final/original view or tracked-change layout, and provides no
 accept/reject, editing or native page-paint authority. The browser demo requests
 it through **Inspect tracked-change source**. Native sidecar metadata and XML
 slice hashes are trusted producer evidence; arbitrary hand-authored models are
@@ -449,8 +447,7 @@ numeric run faces retain their separate role records. Body/note shaping,
 provider identity and unrelated diagnostics must remain identical across page
 variants. Graphic ASCII/LTR runs and Latin numbering remain the supported text
 subset. Symbol bullets, EA/CS/RTL selection, substituted note fonts, body fields
-and square-wrap combinations still refuse. Layout is not Word-validated; an
-explicit request may return `status: 'refused'` with no pages.
+and square-wrap combinations still refuse. Layout is bounded to this subset; an explicit request may return `status: 'refused'` with no pages.
 
 The separate opt-in `renderNativeDocxApproximatePagePreviewV1` path may use
 current layout rules for exact legacy mode 12/14 settings. Its extractor-owned
@@ -470,8 +467,7 @@ result remains a distinct, read-only approximate envelope; strict pagination
 and mutation safety are unchanged.
 
 Current-layout approximation reserves expanded line boxes using natural ascent
-from the top and leaves extra leading below the text. This declared host policy
-is not Word baseline fidelity; strict rendering still requires natural line
+from the top and leaves extra leading below the text. This is a declared host policy; strict rendering still requires natural line
 height, and compressed line boxes remain refused in both paths.
 
 Every approximate envelope also discloses what it did not paint. `content_status`
@@ -499,13 +495,13 @@ cell content left by its explicitly authored leading cell margin. It does not
 change widths, row heights, source indents, or document bytes. The source
 indent/margin paths and part digests enter the table projection hash; placement
 is re-derived and bounded against the page. What `w:tblInd` measures is what
-changes between the modes: Microsoft Word places the leading cell's content at
+changes between the modes: the reference layout places the leading cell's content at
 the text margin plus `w:tblInd` in mode 12 and 14 (and when a package attests no
 mode at all, which this tier reads as 12), and places the table's own leading
 edge there in mode 15. Mode 15, ambiguous source
 properties, and page-underflow cases do not receive this policy. The output
 retains the facts and a visible approximation warning, including when combined
-with automatic-border preview. This is not a Word-layout equivalence claim.
+with automatic-border preview.
 Modeled main-part digests are trusted native-extractor evidence joined to the
 package; the TypeScript consumer does not independently hash absent XML bytes.
 
@@ -514,8 +510,7 @@ Mode-12 current-layout previews additionally use the declared
 unmerged tables with one shaped line per cell and equal explicit single top,
 inside-horizontal and bottom borders. Each row reserves one authored border
 width above its content, independently of font metrics and cell padding.
-This bounded approximation follows collapsed-border space accounting, not a
-Word-validated baseline rule. Unequal borders, multiple lines, explicit row
+This bounded approximation follows collapsed-border space accounting. Unequal borders, multiple lines, explicit row
 heights and other unqualified geometry retain their existing behavior. The
 named policy enters the table projection hash and deterministic placement
 replay; strict rendering and source bytes remain unchanged. The approximate
@@ -529,8 +524,7 @@ eligibility also names which source shape proved the absence in
 `absent_font_size_shape`, and the policy must carry the half-points
 `DOCX_HOST_DEFAULT_SIZE_HALF_POINTS_V1` declares for that shape — 24 (12 pt)
 when the package carries no `w:docDefaults` record at all, 20 (10 pt) when the
-record exists and states no `w:sz`. Both numbers were read out of the `Tf`
-operators of Microsoft Word 16.112's own PDF exports of such packages.
+record exists and states no `w:sz`. Both numbers were read out of the `Tf` operators of reference PDF exports of such packages.
 The output retains the source omissions, chosen sizes and a visible warning;
 existing sizes and malformed/unsupported source diagnostics are never replaced.
 Strict rendering continues to refuse missing required font metrics.
@@ -541,9 +535,7 @@ for a package that selects no font anywhere: no `w:rFonts` in the main document,
 its style/numbering/theme/font-table parts or any header, footer, note or comment
 story, and consequently no resolved family in any scope
 (`absent_font_families` eligibility facts). The glossary document is a separate
-document and is not part of that test. The `Aptos` value is a consumer choice
-measured against Microsoft Word 16.112.4 references, not an authored face and not
-a documented Microsoft default; a package that states a family keeps using it.
+document and is not part of that test. The `Aptos` value is a consumer choice measured against reference exports, not an authored face and not a documented format default; a package that states a family keeps using it.
 The family is applied only where the explicitly supplied host manifest attests
 that exact family, weight and style, so an unattested scope stays unshaped. The
 output retains the source omissions, the chosen family and a visible warning, and
@@ -557,8 +549,7 @@ unqualified style effects remain refused. The source model and strict
 diagnostics are unchanged; the distinct `injoffice.docx.auto-border-preview`
 envelope retains the policy, source-bound evidence and original diagnostic
 identities. Consumers must render its pages on the declared opaque white
-surface and display its approximation warning. This is not a claim of Word
-automatic-color fidelity. Optional legacy-settings eligibility is validated
+surface and display its approximation warning. Optional legacy-settings eligibility is validated
 independently; this rendering policy does not grant a settings exception.
 
 Approximate body `PAGE`/`NUMPAGES` fields use the same bounded fixed-point solver
@@ -631,8 +622,7 @@ tables currently refuse vertical merges, rather than splitting ambiguous merge
 groups across the header/body boundary. Source-bound cell IDs distinguish the
 parallel text flows of adjacent cells; repeated line placements have unique
 page-derived IDs and are validated by exact pagination replay, not accepted as
-arbitrary duplicate body content. Generated two-column DOCX browser fixtures
-verify this bounded behavior, not Word pixel equivalence.
+arbitrary duplicate body content. Generated two-column DOCX browser fixtures verify this bounded behavior.
 Natural-height rows without `cant_split: true` use a line-safe fragmentation
 policy: cuts cannot bisect any adjacent cell's shaped line, `keep_lines` group,
 or initial/final two-line widow group. Header prefixes repeat before fragments;
@@ -641,8 +631,7 @@ Horizontal source borders appear only at the source row boundaries, not invented
 at page cuts. Fragment source ranges are contiguous, identity-bound, and checked
 by exact pagination replay. Split rows currently refuse explicit/minimum heights,
 vertical merges, keep-next chains, forced paragraph page breaks, and documents
-containing notes. This is deterministic bounded pagination, not a claim of Word
-row-break parity or content-based table autofit.
+containing notes. This is deterministic bounded pagination, without content-based table autofit.
 Percentage width uses the named `fixed-grid-percent-exact-twips-v1` policy:
 resolve the authored 1..5000 fiftieths-of-a-percent against the owning single
 section column, then scale the authored grid proportionally. Every preferred
@@ -676,8 +665,7 @@ each column's shaped maximum content plus margins fits that width, and the
 complete grid fits the owning section. Empty columns therefore retain their
 consistent authored preferences. Explicit absolute table widths, missing or
 conflicting cell preferences, and content requiring wrapping at those preferences
-continue through the existing content policy and its refusal boundaries. This
-bounded case does not establish general Word autofit fidelity. Its named policy
+continue through the existing content policy and its refusal boundaries. This is a bounded case. Its named policy
 and source preferences enter the same independently re-derived table hash.
 The read-only approximate preview adds one more declared policy,
 `approximate-authored-grid-fitted-v1`, for the same omitted/auto width when the
@@ -707,8 +695,7 @@ This supports unmerged direct-text cells in one section column, including natura
 row fragmentation and repeated headings. It refuses unsatisfied word minima,
 percentage preferred widths, paragraph indents/justification, tabs, discretionary
 breaks, special spacing controls, RTL paragraphs, numbered/merged cells, and
-unqualified font/source diagnostics. This is genuine font-content sizing under
-an explicit bounded policy, **not a claim of Microsoft's autofit algorithm**.
+unqualified font/source diagnostics. This is genuine font-content sizing under an explicit bounded policy.
 Both table policies refuse non-prefix repeating headers,
 cell-border conflicts, nested content, numbered cells, conditional
 `tblStylePr` effects, and any table-descendant resolution diagnostic. Selected story
@@ -764,8 +751,7 @@ lines, tight/through wrapping and vertical displacement remain refused. Wrapping
 and body page fields share one eight-pass, cycle-detecting pagination solve;
 final paint validation independently replays the exact source exclusions. Neither
 the original package nor its native source text is modified.
-This is a source-contract implementation, not independently established Word
-pixel parity.
+This is a source-contract implementation.
 Quarter turns require explicit unrotated DrawingML extents whose swapped bounds
 exactly match `wp:extent`; missing or inconsistent extents refuse before painting.
 Reflections apply in source axes before clockwise rotation. Integer SVG matrices
@@ -792,8 +778,7 @@ Text-run highlighting emits the additive `fill_text_highlight` paint command.
 Consumers must replay these filled rectangles in command order before the line's
 glyph paths; do not assume every non-image command is a glyph. Background width
 comes from each shaped visual fragment's advance (including ordinary spaces),
-and height from its qualified font ascent/descent. This deterministic native
-metric policy is not a claim of Word-pixel parity. The compiler and strict
+and height from its qualified font ascent/descent. This is a deterministic native metric policy. The compiler and strict
 request decoder bind every rectangle to the source highlight color, run,
 fragment, placement and geometry, and reject missing/reordered decorations.
 The 16 OOXML named colors and `none` are supported for text runs; zero-advance
@@ -807,8 +792,7 @@ refuse instead of using browser decoration defaults. Double underlines have one
 stroke-width of clear separation, and `words` omits whitespace fragments.
 Source/style, fragment, font metrics, placement and command order are checked
 again by the request decoder. Other underline styles and custom underline
-colors remain outside this bounded profile. This is a deterministic metric
-policy, not a claim of Word-pixel parity.
+colors remain outside this bounded profile. This is a deterministic metric policy.
 
 Simple decimal `PAGE` and `NUMPAGES` fields in ordinary header/footer paragraphs
 are resolved from the final native body pagination. The Go extractor recognizes
@@ -833,8 +817,7 @@ This bounded profile allows at most 64 pages and 100,000 cumulative variant
 fragments (`DOCX_PAGE_FIELD_LIMITS`). Note/comment fields, header/footer
 tables, other complex `fldChar` sequences, nested fields, unsupported switches,
 locked/dirty fields, non-decimal section numbering formats, and all
-other field instructions remain refused. This implementation makes no Word-pixel parity
-claim. See the [OOXML simple-field definition](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.simplefield?view=openxml-3.0.1).
+other field instructions remain refused. See the [OOXML simple-field definition](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.simplefield?view=openxml-3.0.1).
 
 Ordinary body-paragraph PAGE/NUMPAGES fields use a bounded whole-body layout
 fixed point: start with decimal `1`, shape and paginate, derive field text from
@@ -877,8 +860,7 @@ measurement or fixed percentage is used. The output's `font_size_millipoints`
 continues to identify the authored run size; the compiled glyph paths are the
 rendering authority, not an instruction to re-shape at that size.
 
-This is a deterministic use of the font's recommended simulation metrics, not
-a claim that Microsoft Word uses the same policy. Missing/truncated/invalid
+This is a deterministic use of the font's recommended simulation metrics. Missing/truncated/invalid
 OS/2 metrics, non-reducing scales, script paragraph marks, list/note markers,
 controls, and combinations with underline or highlighting remain refused.
 Direct script paragraphs remain read-only; `baseline` explicitly resets an
@@ -933,7 +915,7 @@ server compiler. Full request/source replay remains a compiler-side operation.
 
 The bounded producer admits direct body-paragraph VML shape/rect textboxes and DrawingML `wps:wsp/wps:txbx` stories with qualified ordinary paragraph/run text. It requires a closed styles-source subset (ordinary run properties, exact style name/basedOn metadata and empty paragraph-property containers), resolves source style visibility, and rejects unknown shape properties, hidden text, revision wrappers/ranges, fields, nested tables, linked textboxes, groups and ambiguous compatibility branches. Unsupported candidates retain explicit omissions and all original drawing diagnostics. Limits are 64 inventory items, 64 paragraphs per item, 4,096 UTF-16 units per paragraph and 100,000 units overall.
 
-This is plain source text, without shape geometry, page placement, wrapping, text flow between linked boxes, SmartArt or Word rendering equivalence. Native paint and editing authority are unchanged. Missing evidence is an empty inventory, never an inferred story; arbitrary caller-authored evidence is not XML proof. The decoder checks original drawing diagnostic anchors, package hashes, source ordering and bounded plain data.
+This is plain source text, without shape geometry, page placement, wrapping, text flow between linked boxes, or SmartArt. Native paint and editing authority are unchanged. Missing evidence is an empty inventory, never an inferred story; arbitrary caller-authored evidence is not XML proof. The decoder checks original drawing diagnostic anchors, package hashes, source ordering and bounded plain data.
 
 Source semantics: [WordprocessingML TextBoxContent](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.textboxcontent?view=openxml-3.0.1), [DrawingML TextBoxInfo2](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.office2010.word.drawingshape.textboxinfo2?view=openxml-3.0.1), and [VML TextBox](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.vml.textbox?view=openxml-3.0.1).
 
@@ -1001,9 +983,7 @@ browser. Hosts can use the compiler API directly without that development
 adapter.
 
 The result reproduces this bounded authored rectangle in its own coordinate
-box. Page placement and general Word shape fidelity are not established. Text
-baseline and fit follow the pinned font metrics; no independent Word-reference
-comparison is claimed. Glyph or metric overflow is refused rather than clipped,
+box. Page placement is outside this subset. Text baseline and fit follow the pinned font metrics. Glyph or metric overflow is refused rather than clipped,
 wrapped, shrunk or silently replaced.
 
 For authored multiline text, the supplied font must have zero canonical line
@@ -1011,8 +991,7 @@ gap. Each natural font line box is centered within its exact authored line step;
 the center offset must be a nonnegative integer millipoint. Too-small spacing,
 half-integer offsets, whole-stack overflow, and per-line glyph overflow are
 refused. Per-line source ranges, baseline positions and contiguous path ranges
-are validated in helper output, including missing nonspace lines. This is a
-canonical local metrics policy, not measured Word typography equivalence.
+are validated in helper output, including missing nonspace lines. This is a canonical local metrics policy.
 [Open XML line spacing semantics](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.spacingbetweenlines.line?view=openxml-3.0.1)
 define exact spacing in twips and describe centering when the line box is taller.
 
@@ -1047,8 +1026,7 @@ evidence and checks exact bounds, centered metrics and source/font hashes.
 Budgets remain 4,096 source UTF-16 units, 16 lines, 16,384 glyphs and bounded
 aggregate paths; cluster selection has a separate bounded work counter.
 Original no-wrap and authored-hard-break profiles retain their behavior.
-This conservative wrapping policy is a local preview, not established Word
-line-breaking equivalence or surrounding-body/page wrapping.
+This conservative wrapping policy is a local preview, without surrounding-body/page wrapping.
 
 ### Page-placed rectangle preview
 

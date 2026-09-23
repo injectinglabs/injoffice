@@ -23,7 +23,7 @@ renderer versions and image budgets; zero tolerances require identical pixels.
     "format": "xlsx",
     "source": "sources/budget.xlsx",
     "sourceSha256": "REPLACE_WITH_REVIEWED_SOURCE_SHA256",
-    "referenceRenderer": "Excel VERSION / OS / fonts / export settings",
+    "referenceRenderer": "RENDERER VERSION / OS / fonts / export settings",
     "candidateRenderer": "InjOffice COMMIT / browser / fonts / scale",
     "referenceKind": "external-office-export",
     "referenceLicense": "REPLACE_WITH_OWNERSHIP_OR_REDISTRIBUTION_LICENSE",
@@ -59,8 +59,7 @@ renderer versions and image budgets; zero tolerances require identical pixels.
   print/export settings. The renderer strings are metadata, not attestations.
 - Render reference and candidate from the same pinned source, at identical
   dimensions. Do not resize the candidate to hide pagination or geometry drift.
-- Review reference images independently. A screenshot produced by InjOffice is
-  a regression baseline, not proof of Microsoft Office compatibility.
+- Review reference images independently. A screenshot produced by InjOffice is a regression baseline, not an independent reference.
 - List every expected page/slide/sheet viewport. A missing listed candidate
   fails. This command does not enumerate document pages: the capture job must
   separately assert page count and reject unexpected extra pages.
@@ -81,5 +80,4 @@ Metadata is descriptive, not authenticated evidence of the application used.
 
 The executable generated corpus lives in `qualification/rendering` at the
 repository root. Its PDF pixel oracle produces real reference/candidate PNGs
-and invokes this command with exact tolerances; the other cases retain their
-scoped browser and contract assertions without claiming Office-export parity.
+and invokes this command with exact tolerances; the other cases retain their scoped browser and contract assertions.
