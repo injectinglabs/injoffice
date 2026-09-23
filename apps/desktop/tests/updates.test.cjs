@@ -261,3 +261,56 @@ test('a found update downloads itself, except where the download is a deliberate
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(off.count().downloads, 0, 'automatic checks off means no background download');
 });
+
+// Most people click "Later" and keep working, so a downloaded update also installs when the app
+// next quits: only where that raises no prompt after the window is gone, and only for someone
+// who left automatic updates on.
+test('a downloaded update installs on quit only where asked, and follows the automatic preference', async t => {
+  const f = await fixture(t, {installOnQuit: true});
+  await f.service.check();
+  assert.equal(f.updater.autoInstallOnAppQuit, true);
+  assert.equal(f.service.getState().installOnQuit, true);
+  await f.service.setAutomaticUpdates(false);
+  assert.equal(f.updater.autoInstallOnAppQuit, false, 'turning automatic updates off stops the quit install');
+  assert.equal(f.service.getState().installOnQuit, false);
+  await f.service.setAutomaticUpdates(true);
+  assert.equal(f.updater.autoInstallOnAppQuit, true);
+  assert.equal(f.count().installs, 0, 'nothing installs while the app is running');
+
+  const packaged = await fixture(t);
+  await packaged.service.check();
+  assert.equal(packaged.updater.autoInstallOnAppQuit, false, 'off unless main asks (DEB/RPM would prompt after quit)');
+  const manual = await fixture(t, {installOnQuit: true, manualInstall: true});
+  await manual.service.check();
+  assert.equal(manual.updater.autoInstallOnAppQuit, false, 'a browser-installer target has nothing to install');
+  const quiet = await fixture(t, {installOnQuit: true, settings: JSON.stringify({version: 1, autoCheck: false})});
+  await quiet.service.check();
+  assert.equal(quiet.updater.autoInstallOnAppQuit, false, 'automatic updates off: the user decides');
+  assert.equal(quiet.service.getState().installOnQuit, false);
+});
+
+// Pin the library behaviour the feature relies on, so an electron-updater upgrade that changes
+// it fails here: the quit hook installs silently without relaunching, and only on a clean exit.
+test('electron-updater installs a downloaded update silently on a clean quit and skips a failed one', () => {
+  const {NsisUpdater} = require('electron-updater');
+  const quits = [], installs = [];
+  const app = {version: '0.1.0', name: 'InjOffice', isPackaged: true, appUpdateConfigPath: '/nonexistent', userDataPath: os.tmpdir(), baseCachePath: os.tmpdir(),
+    whenReady: () => Promise.resolve(), relaunch() {}, quit() {}, onQuit(handler) { quits.push(handler); }};
+  const make = enabled => {
+    const updater = new NsisUpdater({provider: 'generic', url: 'https://updates.invalid'}, app);
+    updater.logger = null;
+    updater.doInstall = options => { installs.push(options); return true; };
+    updater.downloadedUpdateHelper = {file: 'C:/cache/InjOffice-0.2.0-win-x64.exe', downloadedFileInfo: {isAdminRightsRequired: false}};
+    updater.autoInstallOnAppQuit = enabled;
+    updater.addQuitHandler();
+    return updater;
+  };
+  make(false);
+  assert.equal(quits.length, 0, 'disabled: no quit hook at all');
+  make(true);
+  assert.equal(quits.length, 1);
+  quits[0](1);
+  assert.equal(installs.length, 0, 'a crash or failed exit does not install');
+  quits[0](0);
+  assert.deepEqual(installs, [{isSilent: true, isForceRunAfter: false, isAdminRightsRequired: false}]);
+});

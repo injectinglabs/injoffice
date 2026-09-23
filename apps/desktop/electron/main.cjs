@@ -214,6 +214,9 @@ app.whenReady().then(async () => {
     unavailable: updateAvailability({ packaged: app.isPackaged, platform: process.platform, packageType }),
     manualInstall,
     requiresElevation: process.platform === 'linux' && ['deb', 'rpm'].includes(packageType),
+    // Installing on quit must not raise a prompt after the window is gone: the per-user NSIS
+    // installer and an AppImage swap need none, a DEB/RPM install needs pkexec, so it waits.
+    installOnQuit: process.platform === 'win32' || packageType === 'AppImage',
     loadUpdater: () => manualInstall ? new InstallerUpdate({
       version: app.getVersion(), platform: process.platform, arch: process.arch, preview: !release,
       request: async url => {

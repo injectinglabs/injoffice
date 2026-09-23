@@ -9,7 +9,7 @@ function updateAvailability({ packaged, platform, packageType }) {
   return null;
 }
 
-async function createUpdateService({ appVersion, settingsPath, unavailable, manualInstall = false, requiresElevation = false, loadUpdater, notify = () => {}, prepareInstall, cancelInstall = () => {}, timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
+async function createUpdateService({ appVersion, settingsPath, unavailable, manualInstall = false, requiresElevation = false, installOnQuit = false, loadUpdater, notify = () => {}, prepareInstall, cancelInstall = () => {}, timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
   let autoCheck = true, preferenceMessage;
   try {
     const info = await fs.stat(settingsPath);
@@ -20,7 +20,11 @@ async function createUpdateService({ appVersion, settingsPath, unavailable, manu
   } catch (error) {
     if (error.code !== 'ENOENT') { autoCheck = false; preferenceMessage = 'Update preferences could not be read. Automatic checks are off; choose your preference again to save it.'; }
   }
-  let state = { status: unavailable ? 'disabled' : 'idle', appVersion, autoCheck, manualInstall, requiresElevation, ...(unavailable || preferenceMessage ? { message: unavailable || preferenceMessage } : {}) };
+  // A downloaded update installs silently when the app next quits normally, where that needs no
+  // prompt (main decides: Windows per-user NSIS and AppImage, never a pkexec package install).
+  // Someone who turned automatic updates off chose to decide for themselves, so it waits for them.
+  const quitInstall = () => Boolean(installOnQuit && !manualInstall && !unavailable && autoCheck);
+  let state = { status: unavailable ? 'disabled' : 'idle', appVersion, autoCheck, manualInstall, requiresElevation, installOnQuit: quitInstall(), ...(unavailable || preferenceMessage ? { message: unavailable || preferenceMessage } : {}) };
   let updater, timer, interval, operation, disposed = false, preferenceQueue = Promise.resolve();
   let nativeInstallListeners = [];
   const snapshot = () => ({ ...state });
@@ -45,7 +49,7 @@ async function createUpdateService({ appVersion, settingsPath, unavailable, manu
     if (updater) return updater;
     updater = loadUpdater();
     updater.autoDownload = false;
-    updater.autoInstallOnAppQuit = false;
+    updater.autoInstallOnAppQuit = quitInstall();
     updater.allowPrerelease = false;
     updater.allowDowngrade = false;
     updater.disableWebInstaller = true;
@@ -129,7 +133,9 @@ async function createUpdateService({ appVersion, settingsPath, unavailable, manu
       if (disposed || unavailable) return snapshot();
       await fs.mkdir(path.dirname(settingsPath), { recursive: true });
       await atomicWrite(settingsPath, Buffer.from(JSON.stringify({ version: 1, autoCheck: enabled }) + '\n'));
-      emit({ autoCheck: enabled, message: undefined });
+      autoCheck = enabled;
+      if (updater) updater.autoInstallOnAppQuit = quitInstall();
+      emit({ autoCheck: enabled, installOnQuit: quitInstall(), message: undefined });
       schedule();
       return snapshot();
     });

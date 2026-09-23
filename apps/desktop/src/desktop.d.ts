@@ -7,6 +7,7 @@ declare global {
     autoCheck: boolean;
     manualInstall?: boolean;
     requiresElevation?: boolean;
+    installOnQuit?: boolean;
     version?: string;
     releaseNotes?: string;
     percent?: number;
