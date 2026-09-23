@@ -129,5 +129,8 @@ describe('clean page URLs', () => {
     expect(run('/index.html')).toBe('301 /')
     expect(run('/download.html')).toBe('301 /#download')
     expect(run('/assets/app-1a2b.js')).toBe('/assets/app-1a2b.js')
+    // Removed comparison pages answer 410 Gone, including their old .html address.
+    expect(handler({ request: { uri: '/compare/libreoffice', querystring: {} } }).statusCode).toBe(410)
+    expect(handler({ request: { uri: '/compare/libreoffice.html', querystring: {} } }).statusCode).toBe(410)
   })
 })

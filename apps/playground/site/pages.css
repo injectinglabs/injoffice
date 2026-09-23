@@ -1,4 +1,4 @@
-/* Shared styles for the content pages (download guides, how-to guides, comparison,
+/* Shared styles for the content pages (download guides, how-to guides,
    compatibility, changelog). Same tokens and chrome as the home page, tuned for reading. */
 :root {
   color-scheme: light;
@@ -84,7 +84,7 @@ main { border-top: 1px solid var(--rule); }
 .prose .note.caution { border-left-color: var(--remove); }
 .prose .note p:last-child { margin-bottom: 0; }
 
-/* Tables for requirements, comparisons and limits. */
+/* Tables for requirements and limits. */
 .table-wrap { overflow-x: auto; margin: 0 0 20px; }
 table.facts { width: 100%; border-collapse: collapse; font-size: 16px; }
 table.facts th, table.facts td { text-align: left; vertical-align: top; padding: 12px 16px 12px 0; border-bottom: 1px solid var(--rule); }
