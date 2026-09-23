@@ -95,3 +95,14 @@ test('the unsigned macOS declaration is scoped to the steps that use it', () => 
   assert.match(steps, /INJOFFICE_MAC_UNSIGNED/, 'the steps that act on it declare it');
   assert.equal((steps.match(/INJOFFICE_MAC_UNSIGNED/g) ?? []).length, 2, 'preflight and packaging, and nothing else');
 });
+
+// Whichever way macOS ships, the release proves something about the bundle: a signed run checks
+// the Developer ID signature and the notarization ticket, an unsigned run checks the ad-hoc seal
+// and that nothing pretends to be notarized. Neither may be silently absent.
+test('each macOS signing mode has its own verification step', () => {
+  const workflow = fs.readFileSync(path.resolve(root, '../../.github/workflows/desktop-release.yml'), 'utf8');
+  assert.match(workflow, /if: runner\.os == 'macOS' && inputs\.mac_signing == 'signed'/);
+  assert.match(workflow, /if: runner\.os == 'macOS' && inputs\.mac_signing == 'unsigned'/);
+  assert.match(workflow, /stapler validate/, 'the signed path validates the notarization ticket');
+  assert.match(workflow, /claims notarization in an unsigned release/, 'the unsigned path refuses a false claim');
+});

@@ -151,12 +151,24 @@ jobs:
         if: runner.os == 'Linux'
         run: node apps/desktop/scripts/check-linux-packages.cjs
       - name: Verify notarized Mac applications
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && inputs.mac_signing == 'signed'
         run: |
           codesign --verify --deep --strict apps/desktop/release/mac-arm64/InjOffice.app
           codesign --verify --deep --strict apps/desktop/release/mac/InjOffice.app
           xcrun stapler validate apps/desktop/release/mac-arm64/InjOffice.app
           xcrun stapler validate apps/desktop/release/mac/InjOffice.app
+      - name: Verify the unsigned Mac bundles are sealed and carry no notarization claim
+        if: runner.os == 'macOS' && inputs.mac_signing == 'unsigned'
+        # An ad-hoc signature seals the bundle but is not a Developer ID identity, so Gatekeeper
+        # will warn. Prove the seal holds, and prove we are not shipping something that pretends
+        # to be notarized.
+        run: |
+          for app in apps/desktop/release/mac-arm64/InjOffice.app apps/desktop/release/mac/InjOffice.app; do
+            codesign --verify --deep --strict "$app"
+            if xcrun stapler validate "$app" >/dev/null 2>&1; then
+              echo "::error::$app claims notarization in an unsigned release"; exit 1
+            fi
+          done
       - name: Verify updater dependencies inside packaged applications
         run: node apps/desktop/scripts/check-packaged-updater.cjs apps/desktop/release --release
       - name: Verify Windows installer signature
