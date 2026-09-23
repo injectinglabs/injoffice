@@ -19,8 +19,7 @@ rectangle retains existing geometry limits; area sets also enforce the aggregate
 
 When headings occur inside the body, the disjoint body runs start separate page
 sequences. This conservative policy preserves source order without printing a
-heading twice on a page; it can require more pages than Excel or make a 1-page fit
-impossible. Printer-calibrated layout is not claimed.
+heading twice on a page; it can require more pages or make a 1-page fit impossible. Printer-calibrated layout is not claimed.
 The existing call without the fourth argument does not repeat headings.
 
 An opted-in page includes `regions`: body, repeated rows, repeated columns and (when
@@ -33,7 +32,7 @@ with each region before applying its transform, including repeated headings and 
 corner. Crossing drawings appear as clipped fragments; cached chart plots and unknown
 drawing placeholders remain approximate. Unavailable positions refuse the complete
 repeated-heading preview. Fit-to-page
-reserves heading space on every page but remains an approximation, not Excel fidelity.
+reserves heading space on every page but remains an approximation.
 
 Dependency-free contracts for fail-closed native spreadsheet saves. Version 1
 normalizes editor changes into a small JSON vocabulary; it does not apply the
@@ -60,8 +59,7 @@ use the largest whole-percent scale from 100% down to 10% that meets the actual
 whole-row/column page counts and 100-page budget. This never enlarges content.
 The required `scale` percentage remains metadata but is not applied in fit mode;
 each output page records its effective scale. Impossible targets and merged cells
-crossing a resulting page boundary still refuse without clipping. This is an
-explicit approximation, not Excel's fit algorithm or printer pagination fidelity.
+crossing a resulting page boundary still refuse without clipping. This is an explicit approximation, not printer-calibrated pagination.
 Opt-in leading repeated print titles are supported by the page planner; printer
 defaults are not implemented. Strict geometry and mutation authority are unchanged.
 
@@ -90,7 +88,7 @@ whole. No cell caches or source bytes are changed. Existing local-name ownership
 print-title checks, source joins and cell/page budgets still apply. The legacy
 single-rectangle inventory/selector remains literal-only. These semantics follow
 [Microsoft's OFFSET documentation](https://support.microsoft.com/en-us/Excel/functions/offset-function);
-they do not establish Excel print calibration or dynamic formula support.
+they do not establish print calibration or dynamic formula support.
 
 Compile one source-qualified geometry for each selected viewport, in that order,
 then call `compileNativeSheetPrintAreaSetPreviewV1(geometries, objects, hostPolicy?,
@@ -101,7 +99,7 @@ The batch validates the complete source set and refuses atomically if an area fa
 or the total exceeds 100 pages. There is no partial output or skipped range. Existing
 explicit repeated-title options apply to every area and refuse if any range is
 incompatible. Source range selection, saved or host page settings, and approximate
-rendering remain separate concerns; this is not an Excel print-fidelity claim.
+rendering remain separate concerns.
 
 ```bash
 npm install @injoffice/sheets
@@ -248,8 +246,7 @@ basis, and deterministic provider revision. Commands use viewport-local
 coordinates and identify the origin cell explicitly. Missing defaults or metrics,
 source dimension extras, clipped merged ranges, `zeroHeight` without explicit row
 visibility provenance, unsafe integer geometry, and oversized viewports are
-refused. The package never substitutes CSS, DOM, Canvas text measurement, a
-screenshot, or an Office/LibreOffice render.
+refused. The package never substitutes CSS, DOM, Canvas text measurement, a screenshot, or an external render.
 
 ## Exact fill and border decorations
 
@@ -389,8 +386,7 @@ double totals divider in accent1. Source-qualified default border styles are
 required on both sides of an edge. Explicit, unknown, overlapping-table, named
 style and unsupported differential border overrides remain unpainted. Custom
 DXF fonts/fills/borders, unqualified totals font styling, accounting positioning and text
-metrics are not fully reproduced. This is partial read-only presentation, not
-an Office-fidelity claim or mutation authority.
+metrics are not fully reproduced. This is partial read-only presentation, not mutation authority.
 
 `nativeTableTotalsTextPreview` identifies qualified Medium2 totals-row cells for
 bold text. It reuses source-qualified default-font style IDs and requires explicit

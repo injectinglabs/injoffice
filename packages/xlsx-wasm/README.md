@@ -122,8 +122,7 @@ workbook or authorize mutations. The matching engine must provide the optional
 
 The first chart-data subset is one explicit 2D clustered column/bar plot with
 complete saved numeric caches. Values may be stale; inspection never evaluates
-formulas or fetches external links. Chart styling, categories, drawing placement,
-and Office fidelity are not implied. Table metadata is reported, but built-in
+formulas or fetches external links. Chart styling, categories, and drawing placement are not implied. Table metadata is reported, but built-in
 table-style rendering remains unqualified.
 
 ## Separate source-style recovery
@@ -166,4 +165,4 @@ returns a frozen source-bound content rectangle with qualified inline rich runs,
 exact General numeric text and explicit outside geometry/count evidence. It
 accepts only the missing-parent-count profile described in
 [the rich-source contract](../../docs/XLSX-RICH-SOURCE-PREVIEW.md). This is an
-approximate read-only view, with no native editing or Excel print authority.
+approximate read-only view, with no native editing or print authority.

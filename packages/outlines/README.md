@@ -115,9 +115,7 @@ metadata is refused.
 The browser adapter owns visibility for outline-managed ranges. Applications
 that also hide rows or columns independently should provide an adapter that
 combines those visibility sources. Native file parity covers the supported
-group, collapse, and summary-direction semantics; Excel's outline header gutter
-controls remain follow-up UI work, so this package does not claim full Univer
-Pro outline parity yet.
+group, collapse, and summary-direction semantics; outline header gutter controls remain follow-up UI work.
 
 The collaboration package does not bundle identity, transport, durable event
 storage, offline replay, presence, structural-edit integration, property-level

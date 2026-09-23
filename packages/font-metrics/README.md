@@ -12,7 +12,7 @@ The browser-safe `@injoffice/font-metrics/layout` export provides
 {"version":1,"mappings":[{"sourceFamily":"Missing Family","weight":400,"style":"normal","targetFamily":"Supplied Family"}]}
 ```
 
-This is an operator choice, not Microsoft font-matching behavior. The bounded
+This is an operator choice. The bounded
 profile uses printable ASCII family names, Latin left-to-right whole runs and
 identical supplied weight/style/stretch. Exact fonts always win. No font is
 downloaded, discovered, synthesized, recursively substituted or bundled by this
@@ -153,8 +153,7 @@ must exactly match the digest-bound font tables. It rejects `.notdef`,
 structurally malformed/oversized fonts, fabricated metrics, collection confusion,
 unpaired surrogates, partial runs, authored bidi controls, unqualified
 scripts/explicit feature settings, system faces, variations, vertical directions, and every resource
-overflow. It never calls DOM, canvas, HTML, browser text measurement,
-LibreOffice, or OS-font substitution.
+overflow. It never calls DOM, canvas, HTML, browser text measurement, an external renderer, or OS-font substitution.
 
 Unspecified OpenType features use HarfBuzz 14.3.0's shaping defaults; that
 policy and runtime version are part of `providerRevision`.

@@ -5,8 +5,7 @@
 `NativePPTXExtractOptions.AllowInheritedTextPreview` separately enables a read-only
 `source-latin-inheritance-approximate-v1` preview. This declared policy combines
 presentation defaults, non-placeholder shape master `otherStyle`, shape `fontRef`,
-local list styles, and direct paragraph/run properties, in that order. It is not
-a qualification of PowerPoint's general inheritance precedence. Each layer is
+local list styles, and direct paragraph/run properties, in that order. Each layer is
 validated before projection; font, size and color must come from source. Missing
 bold/italic resolve to false, and source paragraph defaults supply left alignment
 and no bullet only when not authored. The bounded profile accepts graphic ASCII
@@ -15,8 +14,7 @@ checking metadata from layout. Font metrics, wrapping and terminal metrics can
 differ. Unknown or active unsupported source still refuses; source bytes and
 mutation safety remain unchanged. Shape autofit requires its separate opt-in.
 
-Within that policy, properties that PowerPoint lays out but native v1 paint does
-not model are validated, dropped from the projection, and disclosed per element
+Within that policy, properties that native v1 paint does not model are validated, dropped from the projection, and disclosed per element
 by `pptx.inherited-text-properties-omitted` (a sorted list such as `a:buClr`,
 `a:buSzPct`, `a:tabLst`, `a:rPr@spc`, `a:rPr@strike=noStrike`,
 `a:buFont@panose`, `a:endParaRPr`). Authored `a:br`
@@ -46,20 +44,17 @@ either layer, any unmodeled level attribute or child (for example `defTabSz`,
 malformed values refuse the text instead of being merged by guesswork. Text that
 is already self-contained stays exact and editable; placeholders, whose chain
 runs through master `txStyles`, and the inherited preview lanes are untouched.
-This is a declared projection of explicit matching levels, not a qualification
-of PowerPoint's inheritance precedence.
+This is a declared projection of explicit matching levels.
 
 `NativePPTXExtractOptions.AllowSourceFrameAutoFitPreview` explicitly permits a
 read-only preview of otherwise supported `spAutoFit` text in its saved source
 frame. Its native `textBody.autoFit` is `shape-source-frame`, with a persistent
 approximation diagnostic and non-editable status. No content-dependent resizing
-is performed; frame size, text layout, and overflow or clipping may differ from
-PowerPoint. Normal extraction and mutation remain strict. Malformed autofit,
+is performed; frame size, text layout, and overflow or clipping are approximate. Normal extraction and mutation remain strict. Malformed autofit,
 unsupported vertical modes, unsupported fonts and other independent gaps remain
 refusals.
 
-The same option admits `a:normAutofit` as a read-only approximation of the
-values PowerPoint itself authored: canonical `fontScale` (1%–100%, default 100%)
+The same option admits `a:normAutofit` as a read-only approximation of the authored values: canonical `fontScale` (1%–100%, default 100%)
 scales every resolved run size, rounded half up to whole hundredths of a point,
 and canonical `lnSpcReduction` (0%–99%, default 0%) travels in the contract as
 `textBody.lineSpacingReductionPercent1000` (thousandths of a percent, omitted
@@ -165,7 +160,7 @@ The renderer swaps the inner text frame's inline/block limits and transforms
 only text, independently of shape/group rotations. The bounded preview accepts
 non-bulleted ASCII Latin runs with LTR shaping; stacked, East Asian, RTL, other
 vertical modes, and vertical table cells remain unsupported. Existing native
-line-box policy labels still apply; this is not a claim of Office equivalence.
+line-box policy labels still apply.
 
 AutoShape frame rotations of 90, 180, and 270 degrees are projected as optional
 `transform.quarterTurns` and rendered around the source frame center. Their
@@ -236,8 +231,7 @@ can supply missing or equal list-level properties. Duplicate levels, conflicting
 defaults, implicit styled levels, and run/end-mark styling refuse; no competing
 source is guessed. Local slide paragraph/run overrides still win, including
 explicit nested list levels. Competing placeholder matches, grouped placeholders,
-and unmodeled master artwork remain outside this subset. This is not whole-master
-or PowerPoint fidelity.
+and unmodeled master artwork remain outside this subset. Whole-master inheritance is outside this subset.
 
 When that exact chain does not qualify and `AllowInheritedTextPreview` is set,
 `title`, `ctrTitle`, `subTitle`, `body`, `obj` and untyped placeholders resolve
@@ -258,8 +252,7 @@ placeholder itself they refuse. Ancestor prompt paragraphs are never painted;
 the element carries `pptx.placeholder-inheritance-approximate` describing the
 inherited frame and listing what was not painted, plus the inherited-text
 disclosures. A slide placeholder without a text body keeps its inherited frame
-and paints no text (PowerPoint shows no prompt); because PowerPoint slideshow
-and export hide placeholders without text, a painted frame on an empty
+and paints no text; because slideshow and export conventionally hide placeholders without text, a painted frame on an empty
 placeholder is disclosed as an approximation. `hidden` placeholders refuse, as
 do date, footer, slide-number, picture, chart, table, media and diagram
 placeholders. `element.placeholder` reports the family (`obj` and untyped report

@@ -124,8 +124,7 @@ const preview = await session.result
 `PrintPreviewManager` validates one-based all/page-list/page-range selection,
 page count and point geometry, structured-cloneable host payloads, lifecycle
 events, cancellation, and timeouts. Cell-range selection continues to travel
-in `PrintSnapshot.layout.subUnitIds`. It is a preview-session contract, not a
-browser or Excel-compatible renderer.
+in `PrintSnapshot.layout.subUnitIds`. It is a preview-session contract, not a renderer.
 
 The public model covers the current documented area, paper, orientation,
 scaling, repeated-heading, margin, alignment, gridline, header/footer,
