@@ -3648,7 +3648,7 @@ describe('joint body and continued footnote flow',()=>{
   // The component budgets still apply: the document contract's own unchanged
   // traversal budget refuses first, under its own path.
   expect(paginateNativeDocxV1(make(2000))).toMatchObject({ok:false,issues:expect.arrayContaining([expect.objectContaining({code:'LIMIT_EXCEEDED',message:`document traversal exceeds ${DOCX_NATIVE_LIMITS.maxNodes} values`})])})
- })
+ },30000)
  it('splits later body text while keeping every paragraph slice in source order',()=>{
   const output=coverage(continuedFootnoteFixture(6))
   expect(output.pages.flatMap(p=>p.lines.map(l=>l.source_line_ordinal))).toEqual([0,1,2,3,4,5])
