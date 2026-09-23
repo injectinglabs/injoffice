@@ -24,7 +24,7 @@ An adapter is responsible for:
 
 ## Safety contract
 
-- Agents discover capabilities instead of assuming Office parity.
+- Agents discover capabilities instead of assuming them.
 - Reads and operation batches have host-configured limits.
 - A change set is immutable and records its source revision.
 - Commit requires a matching expected revision and an idempotency key.

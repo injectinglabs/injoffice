@@ -5,7 +5,7 @@ preview separate `bodyPr@rot` and `upright=true` for text boxes and shapes.
 The native contract preserves raw signed `rotationAngle60000` and explicit
 `upright` presence. Nonzero rotation/upright parsed targets remain preserve-only,
 and actual mutation resolution rejects them. Existing absent/default behavior
-is unchanged. This is a bounded deterministic preview, not Office layout parity.
+is unchanged. This is a bounded deterministic preview, not a layout-equivalence claim.
 
 ## Source rules and preview policy
 
@@ -25,7 +25,7 @@ then body rotation acts about the group-scaled anchor center, before writing-mod
 layout. This ordering is supported by
 [DrawTextShape](https://github.com/apache/poi/blob/338882ac8898df5c13a7d15f533204c5dd8607d6/poi/src/main/java/org/apache/poi/sl/draw/DrawTextShape.java)
 and its group-aware `DrawShape.getAnchor` call. This is a disclosed deterministic
-preview policy, not a PowerPoint fidelity claim.
+preview policy, not an equivalence claim.
 
 For positive own-axis group scale `S`, body rotation `B`, and existing text
 counter-reflection `C`, the additional local transform is `C S⁻¹ B S`. The node
@@ -35,7 +35,7 @@ reduced exact rationals, with the existing 512-bit limit. All operations share
 the compile request budget; noncardinal angles retain the affine engine's
 explicit uncertainty allowance. The caller must qualify complete glyph/control
 and clip hulls after composition, including text outside the original frame.
-No formal libm enclosure or Office parity is claimed.
+No formal libm enclosure or rendering equivalence is claimed.
 
 ## Upright area proposal (dedicated helper only)
 

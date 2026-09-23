@@ -1,6 +1,6 @@
 # Bounded saved-literal COUNTA arguments for print areas
 
-This profile resolves a finite same-sheet `COUNTA` range used as an `OFFSET` numeric argument. It reads the exact saved package and grants no mutation authority. It does not calculate formulas, follow external references, repair data, or claim Excel printer calibration.
+This profile resolves a finite same-sheet `COUNTA` range used as an `OFFSET` numeric argument. It reads the exact saved package and grants no mutation authority. It does not calculate formulas, follow external references, repair data, or claim printer calibration.
 
 For example, `OFFSET('Data Set'!$A$1,0,0,COUNTA('Data Set'!$A$1:$A$1000),4)` describes a four-column list beginning at A1. COUNTA counts populated key cells; it does not find the last occupied row. An interior gap can therefore leave a later record outside the resulting print rectangle. Reinspect after changing the source range.
 

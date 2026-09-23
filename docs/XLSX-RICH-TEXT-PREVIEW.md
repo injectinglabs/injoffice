@@ -1,6 +1,6 @@
 # Approximate rich-run page preview
 
-This bounded read-only supplement preserves exact stored string text and run boundaries while presenting direct font name, size, opaque RGB color, bold and italic. It does not qualify complete rich styling, host fonts, layout or Excel print fidelity. Native extraction, style authority and mutation refusal remain unchanged.
+This bounded read-only supplement preserves exact stored string text and run boundaries while presenting direct font name, size, opaque RGB color, bold and italic. It does not qualify complete rich styling, host fonts, layout or print fidelity. Native extraction, style authority and mutation refusal remain unchanged.
 
 Each run starts independently from its own cell font. A wholly absent rPr inherits cell formatting; partial missing properties use explicitly disclosed approximate cell-font fallback. A previous run never supplies fallback properties. Every cell includes visible styling omissions; unknown, duplicate, foreign, unqualified theme-dependent or active unsupported effects omit all run styling for that cell and retain its source text.
 
@@ -10,7 +10,7 @@ Sources: SpreadsheetML [bold](https://learn.microsoft.com/en-us/dotnet/api/docum
 
 Ordinary inline and shared literal strings only; no formula groups/caches, wrapped/shrunk/rotated/merged/table cells, metadata or alternate content. Shared-string ownership and exact text/run/style joins bind the supplement to the opened package and cell. Maximum256 cells,1024 aggregate runs,32768 UTF16 text units;64 runs and2048 units per cell. Omitted or over-budget cells keep plain source text and warnings.
 
-Unchanged ClosedXML example `Examples/Styles/UsingRichText.xlsx` supplies A1 and A5/B5 direct-color/font/boolean cases after the separate initial-BOM compatibility fix. It is not an independent Excel visual reference. Sources, exact hashes and actual browser evidence stay external to git.
+Unchanged ClosedXML example `Examples/Styles/UsingRichText.xlsx` supplies A1 and A5/B5 direct-color/font/boolean cases after the separate initial-BOM compatibility fix. It is not an independent visual reference. Sources, exact hashes and actual browser evidence stay external to git.
 
 The playground toggle is off by default. Enabling it exposes source-rich-text samples in fixed, explicitly host-chosen boxes independently of page geometry. The same spans style supported cells only after normal page qualification succeeds. Stored plain text, source string location/style and per-run missing/omitted properties stay visible. Changing source or toggling invalidates stale pages. A missing or rejected supplement retains plain text; if adding the supplement would exceed the existing objects envelope's200000-node/depth12 ceiling, only that optional supplement is omitted.
 
@@ -26,7 +26,7 @@ Only individual spans receive browser single underline; following absent/none ru
 
 Underline is attested by the source inspector using the raw owned run. The extracted workbook model does not retain underline: the selector rejoins package, sheet, part/index, cell/style, exact run text and the five modeled font properties, but cannot independently authenticate replacing one valid underline declaration in an untrusted supplement with another. Use inspection from the trusted native worker; package hashes alone do not authenticate attacker-authored supplementary data.
 
-The unchanged ClosedXML example A3 supplies five original runs: Hell, o, space-BIG-space, W, orld. Its middle three explicitly request single underline. This improves the opt-in source sample; the original workbook's page geometry still refuses unsupported worksheet attributes. A separate synthetic source qualifies page-span behavior. Neither source is an independent Excel underline calibration reference.
+The unchanged ClosedXML example A3 supplies five original runs: Hell, o, space-BIG-space, W, orld. Its middle three explicitly request single underline. This improves the opt-in source sample; the original workbook's page geometry still refuses unsupported worksheet attributes. A separate synthetic source qualifies page-span behavior. Neither source is an independent underline calibration reference.
 
 
 ## Bounded theme Latin fonts
@@ -35,4 +35,4 @@ Printable ASCII runs with an explicit rFont and major/minor scheme can use the r
 
 The separate inspector gate requires one internal, content-typed Transitional theme, one fontScheme, unique major/minor collections and one supported Latin face each. East Asian/complex-script face declarations must be empty if present. Empty object defaults and extra color scheme lists are allowed; active defaults, extensions, unknown or duplicate font children, font metadata, missing explicit run names and non-ASCII scheme runs omit the whole cell's styling. Strict theme resolution remains outside this slice. Unrelated theme color/effect records provide no font authority. Existing ZIP/XML bounds and the outer objects-envelope ceiling remain in force; the rich supplement snapshot ceiling is 30000 nodes to accommodate the four bounded provenance fields on up to1024 runs.
 
-The unchanged ClosedXML A6 source declares Arial/major and Times New Roman/minor; its theme supplies Cambria and Calibri respectively. The sample preserves all five original runs, including the two spaces and final direct Cambria run. The inspector records raw declaration and theme identity, while the selector can independently check only the resolved font and existing run joins. These provenance fields require the trusted worker just as underline does; hashes are identity joins, not signatures. Browser font availability, shaping, page geometry and Excel print calibration are not established by this preview.
+The unchanged ClosedXML A6 source declares Arial/major and Times New Roman/minor; its theme supplies Cambria and Calibri respectively. The sample preserves all five original runs, including the two spaces and final direct Cambria run. The inspector records raw declaration and theme identity, while the selector can independently check only the resolved font and existing run joins. These provenance fields require the trusted worker just as underline does; hashes are identity joins, not signatures. Browser font availability, shaping, page geometry and print calibration are not established by this preview.

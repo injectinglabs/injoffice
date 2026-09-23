@@ -66,8 +66,7 @@ retains the existing full supplied-font axis-label rules.
 
 ## Reference boundaries and required follow-ups
 
-These observations qualify this source profile; they do not claim universal
-Office layout parity. Geometry still fits the full host plot frame and follows
+These observations qualify this source profile; they do not claim universal layout equivalence. Geometry still fits the full host plot frame and follows
 the existing explicit host axis-label layout policy. In the reversed reference,
 Office normalizes category-axis `axPos=b` to `t` on save; the raw difference is
 recorded instead of being reported as exact axis preservation.

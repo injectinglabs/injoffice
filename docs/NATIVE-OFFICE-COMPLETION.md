@@ -28,7 +28,7 @@ capability is `complete` only because `npm run check:native-office-completion`
 agrees. Each v3 capability binds a provenance-bound Microsoft `kind:
 office-export` fixture (Macintosh Word numbering, Excel Online `happy-tree.xlsx`,
 or Macintosh PowerPoint 16 `attendee-survey-qr.pptx`) plus the host-owned
-production E2E kit. This is not Word, Excel, or PowerPoint GUI parity. PNG
+production E2E kit. It qualifies file-level behavior only, not any application user interface. PNG
 comparators and screenshots never become semantic pass/fail. Live kit-v1
 host `observations.json` remains a separate production-E2E responsibility and
 is not a substitute for this matrix. Host integration behavior is outside the

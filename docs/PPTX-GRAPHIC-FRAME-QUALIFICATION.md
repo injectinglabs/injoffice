@@ -31,8 +31,7 @@ The external matrix retains original and Office-saved table/chart sources, frame
 fill discriminators, hashes, and vector/raster outputs. The coordinator's sole
 Office owner exported isolated copies and compared source transforms separately
 from their rendered positions. The resulting source-anchor policy and known
-Office importer difference are detailed below. No Office parity claim follows
-from helper tests alone.
+Office importer difference are detailed below. No rendering-equivalence claim follows from helper tests alone.
 
 Required connected evidence includes rotated/reflected/anisotropic actual font
 outlines, an outside-cell-x negative control, retained outside-cell-y overflow,
@@ -77,7 +76,7 @@ The initial conventional ancestor composition failed six nested discriminators a
 
 **This source-anchored policy does not emulate PowerPoint's table importer rewrite.** Two original synthetic noncardinal nested tables import at different positions. Relative to the source model, the retained turn/reflection case differs by about +11,673 EMU horizontally and −85,791 EMU vertically; the double-turn case differs by about −29,644 EMU horizontally and −68,429 EMU vertically. Exporting the first case before any save and after normalized PPTX save produced identical raster hashes: this is import behavior, not export ordering. PowerPoint's saved table/group transforms differ from the original, and the corrected source model matches those saved transforms' rendered positions.
 
-The preview must preserve the exact original frame and intrinsic table tracks, not infer or apply that importer rewrite. Original-vs-normalized comparisons remain retained qualification evidence; they are not relabeled as successful Office parity tests. Permanent tests instead assert independently derived source-model invariants and actual Office-retained source cases. Product admission still requires the explicit source-only profile, read-only mutation guard, complete ink/control/clip hull checks, and connected browser evidence.
+The preview must preserve the exact original frame and intrinsic table tracks, not infer or apply that importer rewrite. Original-vs-normalized comparisons remain retained qualification evidence; they are not relabeled as successful equivalence tests. Permanent tests instead assert independently derived source-model invariants and actual Office-retained source cases. Product admission still requires the explicit source-only profile, read-only mutation guard, complete ink/control/clip hull checks, and connected browser evidence.
 
 Microsoft's [grouping support documentation](https://support.microsoft.com/en-gb/office/graphics-visuals/group-or-ungroup-shapes-pictures-or-other-objects) says the Group command is unavailable when the selection contains a table, including in the macOS instructions. This is UI behavior, not a prohibition in the source XML grammar and not a reason to drop grouped-table support. It reinforces keeping the imported table normalization evidence distinct from chart grouping behavior.
 

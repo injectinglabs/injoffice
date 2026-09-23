@@ -16,7 +16,7 @@ InjOffice is designed as independently consumable TypeScript packages and Go mod
 - Contribution, conduct, security, collaboration-protocol, roadmap, NOTICE, Apache, and Unicode license documents exist.
 - The project license is Apache-2.0 and every package ships its SPDX metadata and license text.
 - XLSX pivot hydration and fail-closed inventory preservation are implemented in the canonical library.
-- Native extract/apply contracts exist for XLSX, DOCX, and PPTX. Native completion remains partial and is not Microsoft Office parity.
+- Native extract/apply contracts exist for XLSX, DOCX, and PPTX. Native completion remains partial.
 
 Workspace apps under `apps/` are public source but excluded from npm publication
 with `"private": true`. The in-repo `injoffice-server` is optional. Browser WASM packages can replace it for supported local workflows and must not become required by other packages.
@@ -27,7 +27,7 @@ with `"private": true`. The in-repo `injoffice-server` is optional. Browser WASM
 - **Editor shell.** Univer is an optional editor shell, not the file authority. Native paint is preview mode.
 - **Optional runtime.** Hosts may inject their own backend, use a published WASM package, or run offline. The in-repo `injoffice-server` and WASM runtimes must not become required by format-model packages.
 - **Product isolation.** The public repository must not contain consumer-specific gateways, dashboards, authentication configuration, tenant data, or credentials.
-- **No Office parity claim.** Native coverage is a completion matrix, not an unrestricted round-trip guarantee.
+- **Bounded coverage.** Native coverage is a completion matrix, not an unrestricted round-trip guarantee.
 
 ## Release status and remaining account setup
 

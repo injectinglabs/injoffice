@@ -230,8 +230,7 @@ tabs, OOXML line breaks, supplementary Unicode clusters, non-breaking spaces,
 and safe cluster boundaries. It applies resolved physical/logical indents,
 first-line/hanging offsets, alignment, before/after spacing, and Word
 auto/exact/at-least line heights. Ordinary decimal/letter/Roman/bullet markers,
-plus the ideographic stem, branch, counting and positional systems read off
-Word's own rendering, consume the resolver's source-ordered counter vector, final text, and hanging
+plus the ideographic stem, branch, counting and positional systems, consume the resolver's source-ordered counter vector, final text, and hanging
 geometry; TypeScript never reconstructs list state. An empty w:lvlText is a
 label with no text: the counter advances and, where no hanging indent reserves
 a label region, no marker reaches the wire at all. A skipped table in a
@@ -400,7 +399,7 @@ constrained balancing remain outside this column slice.
 This bounded interpretation follows the OOXML definitions of
 [`noColumnBalance`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.nocolumnbalance?view=openxml-3.0.1)
 and [`widowControl`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.widowcontrol?view=openxml-3.0.1).
-It does not establish visual equivalence with Microsoft Word.
+It makes no visual-equivalence claim.
 
 Paragraph placement applies `page_break_before`, `keep_lines`, and a provable
 atomic subset of `keep_next`. A keep-with-next chain is placed only when every
@@ -455,7 +454,7 @@ This implements the sequential fill policy described by
 and the paragraph atomicity of
 [`keepLines`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.keeplines?view=openxml-3.0.1).
 The imported Go fixture and actual HarfBuzz outline/paint replay validate this
-pipeline; they are synthetic OOXML evidence, not a Word visual reference.
+pipeline; they are synthetic OOXML evidence, not an external visual reference.
 
 The separate read-only rectangle preview now retains a bounded floating
 textbox's page-relative source offsets in `textbox_geometry.items[].page_anchor`.
@@ -508,7 +507,7 @@ described by [`FootnotePosition`](https://learn.microsoft.com/en-us/dotnet/api/d
 Explicit document/section positioning remains refused. Synthetic imported
 fixtures verify reference-stays/later-body-moves, reference-and-note-move,
 oversized-pair refusal and explicit-position refusal through actual native font
-shaping and outline paint. They do not establish Word visual equivalence.
+shaping and outline paint. They make no visual-equivalence claim.
 
 The qualified note slice is relationship-resolved and source-order driven.
 Each referenced footnote/endnote content story contains paragraphs only,
@@ -643,7 +642,7 @@ This profile follows the OOXML definitions of
 [`keepLines`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.keeplines?view=openxml-3.0.1),
 [`continuationSeparator`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.continuationseparatormark?view=openxml-3.0.1),
 and document-end [`endnote pos`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.endnoteposition?view=openxml-3.0.1).
-It does not establish visual equivalence with Microsoft Word.
+It makes no visual-equivalence claim.
 
 Pagination limits are 2,048 pages, 100,000 placed lines, 100,000 paragraph
 slices, 1,000 diagnostics, two million traversed output values, five million
@@ -771,7 +770,7 @@ untyped property bag.
    visual, preservation, editability, and performance results against the
    Office compatibility corpus.
 6. Remove Mammoth/HTML interpretation only after the native path passes the
-   preservation, Office reopen, fidelity, and performance gates in
+   preservation, reopen, rendering, and performance gates in
    [the independent-engine ADR](ADR-INDEPENDENT-ENGINES.md).
 
 The old and new renderers must not receive parallel fidelity features during

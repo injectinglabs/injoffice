@@ -82,7 +82,7 @@ fingerprints again. It uses shared exact decimal geometry, source paint, integer
 endpoint rounding and plot stroke clipping. Axis labels additionally require
 `chartAxisLabelsPreview` and exact supplied fonts under the existing bounded
 Latin/Common/Inherited label policy. Plot margins and placement remain disclosed
-host layout, not PowerPoint layout equivalence.
+host layout, not layout equivalence.
 
 The playground helper mode `charts=source-workbook` is separately selected from
 `charts=source-literal`. Go runs both existing extraction engines, then the paint

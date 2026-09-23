@@ -57,7 +57,7 @@ same choice through its `insertFeatures` prop.
 ## Univer Pro comparison
 
 InjOffice independently covers several areas that Univer categorizes as Pro,
-but it does not yet claim behavioral or file-format parity.
+but it does not yet claim complete behavioral or file-format coverage.
 
 | Pro category | InjOffice status | Principal gap |
 |---|---|---|
@@ -74,8 +74,8 @@ but it does not yet claim behavioral or file-format parity.
 | Data connectors | implemented core | Lifecycle includes host authorization, scheduling, cancellation, memory caching, schemas, preprocessing, atomic lifecycle/refresh undo, configurable Univer controls, credential-free round trips through an InjOffice custom OPC part, and server-owned ordered refresh with model/cell conflict checks; production credentials/egress, durable shared caches/logs/leases, Excel-native connection mapping, and complete UI remain host/integration work |
 | Range preprocessing | implemented core | Ordered host stages, cancellation, validation, lifecycle errors, connector wiring, SHA-256 collaboration fingerprints, and portable strict manifests are available; direct worksheet/formula-engine adapters, worker/cache policy, and production differential qualification remain |
 | Enhanced formula engine | partial | A configurable client facade, 142-function real-engine gate, and ordered authority/revision/spill-safe result sharing are available; Pro performance, complete semantics, authority election, worker behavior, and debugging parity remain |
-| Server-side calculation | partial | Deterministic host-injected jobs plus ordered collaborative result distribution and spill refusal exist; no bundled Excel-equivalent engine, managed authority/service, durable result transport, or differential conformance proof |
+| Server-side calculation | partial | Deterministic host-injected jobs plus ordered collaborative result distribution and spill refusal exist; no bundled server calculation engine, managed authority/service, durable result transport, or differential conformance proof |
 
-Parity work must be based on public behavior, public APIs, standards, and
+Compatibility work must be based on public behavior, public APIs, standards, and
 independently authored tests. Proprietary `@univerjs-pro/*` implementation code
 is not an InjOffice source dependency.
