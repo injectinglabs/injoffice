@@ -7,11 +7,18 @@ export default defineConfig({
   title: 'InjOffice Docs',
   description: 'Build document workflows with InjOffice: TypeScript and Go guides, tested code examples, native file contracts, and model-neutral agent integration.',
   lang: 'en-US',
-  base: process.env.DOCS_BASE || '/',
+  // Published at injoffice.com/docs/. Every page stays a real .html file (cleanUrls off):
+  // the CDN serves S3 objects directly and has no directory-index rewriting.
+  base: process.env.DOCS_BASE || '/docs/',
+  appearance: false,
   srcExclude: ['README.md', 'tests/**', 'scripts/**'],
   cleanUrls: false,
   lastUpdated: false,
-  head: [['meta', { name: 'theme-color', content: '#245cc5' }]],
+  head: [
+    ['meta', { name: 'theme-color', content: '#ffffff' }],
+    // The site's own font files, served from the domain root next to /docs/.
+    ['link', { rel: 'stylesheet', href: '/fonts/fonts.css' }],
+  ],
   markdown: { lineNumbers: false },
   themeConfig: {
     logo: '/logo.svg',
@@ -20,11 +27,12 @@ export default defineConfig({
       { text: 'Guides', link: '/getting-started/quickstart' },
       { text: 'Reference', link: '/reference/' },
       { text: 'Try the demo', link: 'https://injoffice.com/playground.html' },
+      { text: 'Download', link: 'https://injoffice.com/download.html' },
     ],
     socialLinks: [{ icon: 'github', link: 'https://github.com/injectinglabs/injoffice' }],
     search: { provider: 'local' },
     outline: { level: [2, 3], label: 'On this page' },
-    editLink: { pattern: 'https://github.com/injectinglabs/injoffice/edit/main/apps/docs/:path', text: 'Edit this guide on GitHub' },
+    editLink: { pattern: 'https://github.com/injectinglabs/injoffice/edit/main/apps/docs/:path', text: 'Edit this page on GitHub' },
     sidebar: [
       { text: 'Start here', items: [
         { text: 'Introduction', link: '/' },

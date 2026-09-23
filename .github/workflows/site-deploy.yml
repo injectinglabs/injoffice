@@ -86,6 +86,13 @@ jobs:
       - name: Build the site for the domain root
         if: steps.changes.outputs.deploy == 'true'
         run: npm run build -w apps/playground -- --base=/
+      - name: Build the docs into /docs
+        if: steps.changes.outputs.deploy == 'true'
+        run: |
+          npm run build -w apps/docs
+          test -f apps/docs/.vitepress/dist/index.html
+          rm -rf apps/playground/dist/docs
+          cp -R apps/docs/.vitepress/dist apps/playground/dist/docs
       - name: Verify native Office browser assets
         if: steps.changes.outputs.deploy == 'true'
         run: |
