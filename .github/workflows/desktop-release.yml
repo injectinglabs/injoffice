@@ -101,8 +101,6 @@ jobs:
       AZURE_TENANT_ID: ${{ matrix.platform == 'windows' && secrets.AZURE_TENANT_ID || '' }}
       AZURE_CLIENT_ID: ${{ matrix.platform == 'windows' && secrets.AZURE_CLIENT_ID || '' }}
       AZURE_CLIENT_SECRET: ${{ matrix.platform == 'windows' && secrets.AZURE_CLIENT_SECRET || '' }}
-      # Declared per run, and read by both the preflight and the release config.
-      INJOFFICE_MAC_UNSIGNED: ${{ inputs.mac_signing == 'unsigned' && '1' || '' }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -113,6 +111,10 @@ jobs:
           node-version: 22
           cache: npm
       - name: Validate tag and signing credentials
+        # Declared per run. Scoped to the steps that act on it, so the workspace tests keep
+        # checking the signed configuration they are written against.
+        env:
+          INJOFFICE_MAC_UNSIGNED: ${{ inputs.mac_signing == 'unsigned' && '1' || '' }}
         run: node apps/desktop/scripts/release-validation.mjs preflight ${{ matrix.platform }}
       - uses: actions/setup-go@v7
         with:
@@ -140,6 +142,8 @@ jobs:
       - run: npm run typecheck -w @injoffice/desktop
       - name: Package signed release installers and update metadata
         working-directory: apps/desktop
+        env:
+          INJOFFICE_MAC_UNSIGNED: ${{ inputs.mac_signing == 'unsigned' && '1' || '' }}
         run: npx electron-builder --config electron-builder.release.cjs ${{ matrix.args }} --publish never
       - name: Verify packaged host, renderer and native engines
         run: npm run test:packaged -w @injoffice/desktop
