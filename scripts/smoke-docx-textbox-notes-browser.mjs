@@ -76,7 +76,7 @@ try {
     };
   }` })
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
-  await cdp.send('Page.navigate', { url: `${server.url}#/docs?feature=editor` })
+  await cdp.send('Page.navigate', { url: `${server.url}playground.html#/docs?feature=editor` })
   await poll(() => evaluate(`Boolean(document.querySelector('[aria-label="Open a DOCX file"]'))`), 'DOCX workbench')
   await setFixtureData({textboxHash,footnoteHash,label})
   await upload(textboxFixture)

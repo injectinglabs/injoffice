@@ -34,7 +34,7 @@ try{
  cdp=await connect(chrome.target.webSocketDebuggerUrl)
  await cdp.send('Runtime.enable');await cdp.send('Page.enable');await cdp.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false})
  await cdp.send('Page.addScriptToEvaluateOnNewDocument',{source:`{const original=fetch;window.__areaPosts=[];window.__areaResponses=[];window.fetch=async(input,init)=>{if(init?.method==='POST'&&String(input).includes('/v1/')){const bytes=await init.body.arrayBuffer();const digest=await crypto.subtle.digest('SHA-256',bytes);window.__areaPosts.push({url:String(input),hash:[...new Uint8Array(digest)].map(n=>n.toString(16).padStart(2,'0')).join('')})}const response=await original(input,init);if(String(input).includes('/v1/pptx/slide-preview'))window.__areaResponses.push(await response.clone().json());return response}}`})
- await cdp.send('Page.navigate',{url:`${server.url}#/slides?feature=pptx-native`})
+ await cdp.send('Page.navigate',{url:`${server.url}playground.html#/slides?feature=pptx-native`})
  await poll(()=>evaluate(`!!document.querySelector('input[type=file]')`),'file input')
  for(const [index,name] of names.entries()){
   const workbook=name.startsWith('workbook-'),fixture=resolve(artifacts,name+'.pptx'),digest=hash(readFileSync(fixture));await upload(fixture)

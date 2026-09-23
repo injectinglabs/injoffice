@@ -47,7 +47,7 @@ try {
     };
   }` })
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
-  await cdp.send('Page.navigate', { url: `${server.url}#/sheets?feature=native` })
+  await cdp.send('Page.navigate', { url: `${server.url}playground.html#/sheets?feature=native` })
   await poll(() => evaluate(`Boolean(document.querySelector('[aria-label="Open an XLSX file"]'))`), 'XLSX workbench')
   await upload(valid)
   await poll(() => evaluate(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Save to XLSX')`), 'editable initial workbook', 45000)
