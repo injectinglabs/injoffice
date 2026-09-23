@@ -30,7 +30,7 @@ function close() {
 
 <template>
   <aside v-if="visible" class="star-banner" aria-label="Support InjOffice">
-    <p>InjOffice is free and open source. A star on GitHub helps other people find it.</p>
+    <p>Enjoying InjOffice? Rate us with a star on GitHub.</p>
     <a class="star-button" href="https://github.com/injectinglabs/injoffice" target="_blank" rel="noopener">
       <span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.3L12 17.1l-5.6 3 1.1-6.3L2.9 9.4l6.3-.9L12 2.8z" /></svg>Star on GitHub</span>
       <span v-if="count" class="star-count" :aria-label="`${count} stars`">{{ count }}</span>
