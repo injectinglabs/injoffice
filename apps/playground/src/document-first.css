@@ -43,7 +43,6 @@
 @media (max-width: 760px) {
   .app-shell .app-header-inner { min-height: 52px; height: auto; flex-wrap: nowrap; padding: 8px; gap: 6px; }
   .app-shell .app-header-actions { margin-left: auto; gap: 4px; }
-  .app-shell .scheme-toggle { flex-wrap: nowrap; }
   .app-shell .demo-context-header { align-items: start; }
   .app-shell .demo-context-header .page-heading-copy > p { display: none; }
   .app-shell .ds [data-demo-surface="agent"] .agent-demo__document { padding: 12px; }
