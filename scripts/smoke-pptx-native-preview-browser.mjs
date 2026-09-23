@@ -31,7 +31,7 @@ try{
  cdp=await connect(chrome.target.webSocketDebuggerUrl)
  await cdp.send('Runtime.enable');await cdp.send('Page.enable');await cdp.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false})
  await cdp.send('Page.addScriptToEvaluateOnNewDocument',{source:`{const original=fetch;window.__pptxPosts=[];window.fetch=async(input,init)=>{if(init?.method==='POST'&&String(input).includes('/v1/')){const bytes=await init.body.arrayBuffer();const digest=await crypto.subtle.digest('SHA-256',bytes);window.__pptxPosts.push({url:String(input),hash:[...new Uint8Array(digest)].map(n=>n.toString(16).padStart(2,'0')).join('')})}return original(input,init)}}`})
- await cdp.send('Page.navigate',{url:`${server.url}#/slides?feature=pptx-native`})
+ await cdp.send('Page.navigate',{url:`${server.url}playground.html#/slides?feature=pptx-native`})
  await poll(()=>evaluate(`!!document.querySelector('input[type=file]')`),'PPTX file input')
  await upload(fixture)
  await poll(()=>evaluate(`${section}?.textContent.includes('Nothing is uploaded')`),'native consent')

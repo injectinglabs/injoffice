@@ -141,7 +141,7 @@ try {
   await send('Page.enable')
   await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] })
   await send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: output })
-  await send('Page.navigate', { url: `${server.url}#/pdf?feature=editor` })
+  await send('Page.navigate', { url: `${server.url}playground.html#/pdf?feature=editor` })
   await until(`!!document.querySelector('[aria-label="Open a PDF file"]')`, 'PDF editor loads')
   await upload('[aria-label="Open a PDF file"]', sourcePath)
   await evaluate(`Array.from(document.querySelectorAll('[data-demo-surface="pdf"] [role="tab"]')).find(tab => tab.textContent.trim() === 'Forms').click()`)
