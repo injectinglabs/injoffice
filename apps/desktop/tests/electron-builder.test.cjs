@@ -116,13 +116,28 @@ test('the unsigned macOS declaration is scoped to the steps that use it', () => 
 
 // With no Mac certificate the job-wide CSC_LINK is an empty string, and electron-builder treats an
 // empty CSC_LINK as the working directory: the unsigned 0.1.13 Mac build failed "not a file" there.
-test('packaging drops an empty certificate link before electron-builder reads it', () => {
+// The release config clears it, so no step needs shell syntax (Windows steps run in PowerShell).
+test('the release config clears an empty certificate link and keeps a real one', () => {
+  const saved = {CSC_LINK: process.env.CSC_LINK, CSC_KEY_PASSWORD: process.env.CSC_KEY_PASSWORD};
+  const load = (env) => {
+    Object.assign(process.env, env);
+    delete require.cache[require.resolve('../electron-builder.release.cjs')];
+    require('../electron-builder.release.cjs');
+    return {link: process.env.CSC_LINK, password: process.env.CSC_KEY_PASSWORD};
+  };
+  try {
+    assert.deepEqual(load({CSC_LINK: '', CSC_KEY_PASSWORD: ''}), {link: undefined, password: undefined});
+    assert.deepEqual(load({CSC_LINK: 'cert.p12', CSC_KEY_PASSWORD: 'secret'}), {link: 'cert.p12', password: 'secret'});
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    delete require.cache[require.resolve('../electron-builder.release.cjs')];
+  }
   const workflow = fs.readFileSync(path.resolve(root, '../../.github/workflows/desktop-release.yml'), 'utf8');
-  const step = workflow.slice(workflow.indexOf('- name: Package signed release installers'));
-  const run = step.slice(step.indexOf('run: |'), step.indexOf('- name:', 1));
-  const guard = run.indexOf('[ -n "$CSC_LINK" ] || unset CSC_LINK CSC_KEY_PASSWORD');
-  assert.ok(guard >= 0, 'an empty CSC_LINK is unset');
-  assert.ok(guard < run.indexOf('npx electron-builder'), 'before electron-builder runs');
+  assert.match(workflow, /\n {8}run: npx electron-builder --config electron-builder\.release\.cjs \$\{\{ matrix\.args \}\} --publish never\n/,
+    'packaging stays one shell-neutral command, since Windows runs it in PowerShell');
 });
 
 // Whichever way macOS ships, the release proves something about the bundle: a signed run checks
