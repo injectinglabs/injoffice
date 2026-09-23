@@ -165,6 +165,8 @@ jobs:
         run: |
           for app in apps/desktop/release/mac-arm64/InjOffice.app apps/desktop/release/mac/InjOffice.app; do
             codesign --verify --deep --strict "$app"
+            codesign -dv "$app" 2>&1 | grep -q '^Signature=adhoc' || {
+              echo "::error::$app is not ad-hoc sealed, so Apple Silicon will refuse to launch it"; exit 1; }
             if xcrun stapler validate "$app" >/dev/null 2>&1; then
               echo "::error::$app claims notarization in an unsigned release"; exit 1
             fi
