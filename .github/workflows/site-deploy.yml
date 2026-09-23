@@ -23,25 +23,33 @@ concurrency:
 
 jobs:
   build:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
       deploy: ${{ steps.changes.outputs.deploy }}
       sha: ${{ steps.changes.outputs.sha }}
     steps:
+      # Check out main itself, never a ref taken from the triggering event: this workflow runs
+      # with the default branch's privileges. It deploys only when that checkout is exactly
+      # the commit Test just passed; if main has moved on, that newer commit's own Test run
+      # deploys it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # A workflow_run checkout must name the tested SHA, not whatever main is now.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 2
       - name: Check whether site inputs changed
         id: changes
         env:
           FORCE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           deploy=true
+          if [ -n "$TESTED_SHA" ] && [ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]; then
+            echo "::notice::main moved past the tested commit $TESTED_SHA; the newer commit's Test run deploys it."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$FORCE_DEPLOY" != 'true' ] && git rev-parse HEAD^ >/dev/null 2>&1; then
             if git diff --quiet HEAD^ HEAD -- \
               apps/playground \
@@ -128,7 +136,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: steps.config.outputs.ready == 'true'
         with:
-          ref: ${{ needs.build.outputs.sha }}
+          # The same main commit the build job checked out (github.sha).
           sparse-checkout: scripts/deploy-site.sh
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

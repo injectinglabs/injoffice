@@ -10,7 +10,10 @@ describe('injoffice.com automatic deploy', () => {
   it('publishes the tested commit, only from the site environment', () => {
     const workflow = read('.github/workflows/site-deploy.yml')
     expect(workflow).toContain('workflows: [Test]')
-    expect(workflow).toContain('ref: ${{ github.event.workflow_run.head_sha || github.sha }}')
+    // It checks out main itself, never an event-supplied ref, and deploys only the tested tip.
+    expect(workflow).not.toMatch(/ref: \$\{\{ github\.event/)
+    expect(workflow).toContain('[ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]')
+    expect(workflow).toContain("github.ref == 'refs/heads/main'")
     expect(workflow).toContain('npm run build -w apps/playground -- --base=/')
     expect(workflow).toMatch(/environment:\n\s+name: site/)
     expect(workflow).toContain('cancel-in-progress: false')
