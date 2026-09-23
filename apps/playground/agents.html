@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#ffffff" />
-    <meta name="description" content="InjOffice is a free, open-source desktop editor for Word, Excel, PowerPoint and PDF files, and the TypeScript and Go libraries that let people and AI agents make reviewable edits to them." />
-    <title>InjOffice — Office files, edited by hand or by agent</title>
+    <meta name="description" content="Let AI agents propose typed, revision-bound change sets to Word, Excel, PowerPoint and PDF files. Your application approves, commits and verifies them; the rest of the file stays byte-for-byte the same." />
+    <title>InjOffice for AI agents — reviewable edits to Office files</title>
     <script>
       // Hide the star banner before first paint for someone who already closed it.
       try { if (localStorage.getItem('injoffice-star-banner') === 'dismissed') document.documentElement.dataset.starDismissed = '' } catch (e) {}
@@ -146,9 +146,10 @@
       .path ul { margin: 0 0 24px; padding: 0; list-style: none; color: var(--ink-2); }
       .path li { padding: 7px 0; border-bottom: 1px solid var(--rule); font-size: 16px; }
       .path li:first-child { border-top: 1px solid var(--rule); }
-      .path .install { display: flex; align-items: center; gap: 10px; margin: 0 0 24px; padding: 12px 14px; border-radius: 10px; background: var(--ink); color: #e9ecf1; font: 14px var(--mono); overflow-x: auto; }
-      .path .install span { color: #8a93a3; user-select: none; }
+      .path .install, .open .install { display: flex; align-items: center; gap: 10px; margin: 0 0 24px; padding: 12px 14px; border-radius: 10px; background: var(--ink); color: #e9ecf1; font: 14px var(--mono); overflow-x: auto; }
+      .path .install span, .open .install span { color: #8a93a3; user-select: none; }
       .path .install code { white-space: nowrap; }
+      .open .install code { white-space: normal; overflow-wrap: anywhere; }
       .link { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
       .links { display: flex; flex-wrap: wrap; gap: 8px 22px; }
 
@@ -213,6 +214,51 @@
         .formats td.not::before { content: 'Not yet: '; font-weight: 600; }
         .open .facts { grid-template-columns: 1fr 1fr 1fr; }
       }
+
+      /* Agents page */
+      .page-hero .wrap { padding: 56px 0 72px; }
+      .page-hero h1 { font: 600 clamp(36px, 4.8vw, 58px)/1.06 var(--display); letter-spacing: -.035em; margin: 0 0 22px; max-width: 16ch; }
+      .page-hero .lede { font-size: 19px; color: var(--ink-2); margin: 0 0 32px; max-width: 40em; }
+      .reasons { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 40px; border-top: 1px solid var(--rule); }
+      .reasons li { padding: 20px 0 0; }
+      .reasons b { display: block; font: 600 19px/1.3 var(--display); letter-spacing: -.01em; margin-bottom: 8px; }
+      .reasons span { color: var(--ink-2); font-size: 16px; }
+      .lifecycle { width: 100%; border-collapse: collapse; font-size: 16px; }
+      .lifecycle th, .lifecycle td { text-align: left; vertical-align: top; padding: 13px 16px 13px 0; border-bottom: 1px solid var(--rule); }
+      .lifecycle thead th { font: 600 14px var(--body); color: var(--mute); border-bottom-color: var(--rule-strong); }
+      .lifecycle td:first-child { font: 500 14px var(--mono); white-space: nowrap; }
+      .lifecycle td.writes { font-weight: 600; color: var(--remove); }
+      .lifecycle td.reads { color: var(--mute); }
+      .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: start; }
+      .split > * { min-width: 0; }
+      .rules { margin: 0; padding: 0; list-style: none; }
+      .rules li { padding: 14px 0; border-bottom: 1px solid var(--rule); color: var(--ink-2); font-size: 16px; }
+      .rules li:first-child { border-top: 1px solid var(--rule); }
+      .rules b { color: var(--ink); }
+      .rules code { font: 14px var(--mono); }
+      .outcomes { margin: 0; display: grid; gap: 0; }
+      .outcomes div { display: grid; grid-template-columns: minmax(0, 12em) minmax(0, 1fr); gap: 16px; padding: 13px 0; border-bottom: 1px solid var(--rule); font-size: 16px; }
+      .outcomes div:first-child { border-top: 1px solid var(--rule); }
+      .outcomes dt { font-weight: 600; }
+      .outcomes dd { margin: 0; color: var(--ink-2); }
+      .ops { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 32px; border-top: 1px solid var(--rule); }
+      .ops > div { min-width: 0; padding-top: 18px; }
+      .ops h3 { font: 600 18px var(--display); margin: 0 0 10px; }
+      .ops ul { margin: 0; padding: 0; list-style: none; }
+      .ops li { font: 13.5px/1.9 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+      @media (max-width: 900px) {
+        .reasons, .split { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+        .ops { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
+      }
+      @media (max-width: 640px) {
+        .page-hero .wrap { padding: 32px 0 56px; }
+        .page-hero .lede { font-size: 17px; }
+        .lifecycle thead { display: none; }
+        .lifecycle tr { display: block; padding: 12px 0; border-bottom: 1px solid var(--rule); }
+        .lifecycle td { display: block; border: 0; padding: 2px 0; }
+        .outcomes div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+        .ops { grid-template-columns: minmax(0, 1fr); }
+      }
     </style>
   </head>
   <body>
@@ -242,169 +288,141 @@
     </header>
 
     <main>
-      <div class="hero">
+      <div class="page-hero">
         <div class="wrap">
-          <div>
-            <h1>Edit Office files by hand or by agent.</h1>
-            <p class="lede">
-              A free desktop editor for Word, Excel, PowerPoint and PDF, and the open-source libraries behind it.
-              Agents propose changes you review before anything is written. The rest of the file stays exactly as it was.
-            </p>
-            <div class="actions">
-              <a class="button primary" href="%BASE_URL%download.html">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4" /><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>
-                Download the app
-              </a>
-              <a class="button secondary" href="#build">Build with the libraries</a>
-            </div>
-            <p class="fine">macOS, Windows and Linux. Apache-2.0. Your files never leave your computer.</p>
+          <h1>Let agents edit Office files without handing them the file.</h1>
+          <p class="lede">
+            Your agent reads bounded parts of a Word, Excel, PowerPoint or PDF file and proposes a change set.
+            Your application reviews it, commits it against the exact version it was planned on, and verifies the
+            written file. The model never writes bytes and never approves its own change.
+          </p>
+          <div class="actions">
+            <a class="button primary" href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/agents/quickstart.md">Read the agent quickstart</a>
+            <a class="button secondary" href="https://github.com/injectinglabs/injoffice">View on GitHub</a>
           </div>
-
-          <div>
-            <div class="review" id="review" data-state="proposed">
-              <div class="review-head">
-                <span class="file-kind">XLSX</span>
-                <span class="file-name">launch-readiness-plan.xlsx</span>
-                <span class="who">Proposed by an agent</span>
-              </div>
-              <table class="sheet">
-                <thead>
-                  <tr><th scope="col" aria-label="Row"></th><th scope="col">A</th><th scope="col">B</th><th scope="col">C</th><th scope="col" class="wide">D</th></tr>
-                </thead>
-                <tbody>
-                  <tr class="label"><th scope="row">1</th><td>Workstream</td><td>Owner</td><td>Status</td><td class="num wide">Budget</td></tr>
-                  <tr><th scope="row">2</th><td>Platform</td><td>Maya Chen</td><td>On track</td><td class="num wide">185,000</td></tr>
-                  <tr><th scope="row">3</th><td>Mobile</td><td>Leo Martin</td><td>At risk</td><td class="num wide">120,000</td></tr>
-                  <tr><th scope="row">4</th><td>Analytics</td><td>Priya Shah</td><td>On track</td><td class="num wide">95,000</td></tr>
-                  <tr><th scope="row">5</th><td>Security</td><td>Omar Reed</td><td class="target"><span class="was">Review</span><span class="now">Ready</span></td><td class="num wide">80,000</td></tr>
-                  <tr><th scope="row">6</th><td>Enablement</td><td>Sofia King</td><td>On track</td><td class="num wide">55,000</td></tr>
-                </tbody>
-              </table>
-              <div class="review-foot">
-                <p class="op"><b>xlsx.cell.set_value</b> Sheet1!C5 "Review" to "Ready"</p>
-                <p class="review-note" id="review-note">One change. Nothing else in the workbook is rewritten.</p>
-                <div class="review-actions">
-                  <button type="button" class="approve" id="approve">Approve change</button>
-                  <button type="button" id="reject">Reject</button>
-                  <button type="button" id="reset" hidden>Show the proposal again</button>
-                  <span class="review-status" id="review-status" role="status" aria-live="polite"></span>
-                </div>
-              </div>
-            </div>
-            <p class="sample-note">An example of the review step, using the sample workbook from the <a href="%BASE_URL%playground.html">playground</a>.</p>
-          </div>
+          <p class="fine">Model-neutral TypeScript. Works with any tool-calling model, or with no model at all.</p>
         </div>
       </div>
 
-      <section id="get-started">
+      <section id="why">
         <div class="wrap">
-          <h2>Use the app, or build it into yours.</h2>
-          <p class="section-lede">The desktop editor and the libraries are the same engines, so a change you can make in one you can make in the other.</p>
-          <div class="paths">
-            <div class="path">
-              <h3>The desktop app</h3>
-              <p>Open and save documents on your own computer. Nothing is uploaded, and there is no account.</p>
-              <ul>
-                <li>macOS 11 or newer, Apple Silicon and Intel</li>
-                <li>Windows 10 and 11, signed installer</li>
-                <li>Linux AppImage, .deb and .rpm</li>
-              </ul>
-              <a class="button primary" href="%BASE_URL%download.html">Choose your download</a>
-            </div>
-            <div class="path" id="build">
-              <h3>The libraries</h3>
-              <p>TypeScript packages for the browser and Node, and Go modules for servers. Run everything locally, bring your own backend, or use the optional server.</p>
-              <p class="install"><span>$</span><code>npm install @injoffice/agent-tools @injoffice/agent-office</code></p>
-              <div class="links">
-                <a class="link" href="%BASE_URL%docs/index.html">Read the docs</a>
-                <a class="link" href="https://github.com/injectinglabs/injoffice#packages">Browse the packages</a>
-                <a class="link" href="%BASE_URL%playground.html">Try the playground</a>
-              </div>
-            </div>
-          </div>
+          <h2>Why not let the model write the file?</h2>
+          <p class="section-lede">An Office file is a package of XML parts, relationships and styles. A model that regenerates it loses whatever it did not read.</p>
+          <ul class="reasons">
+            <li><b>The original bytes stay in charge.</b><span>Engines patch only the parts a change touches. Everything else in the package is left byte-for-byte as it was.</span></li>
+            <li><b>Operations are typed.</b><span>The model chooses from the operations this particular file supports, each with a JSON input schema, instead of free-form edits.</span></li>
+            <li><b>Reads are bounded.</b><span>Capability schemas and bounded reads, with item and byte budgets, replace dumping whole archives into a prompt.</span></li>
+          </ul>
         </div>
       </section>
 
-      <section id="agents">
+      <section id="lifecycle">
         <div class="wrap">
-          <h2>How an agent edits a file.</h2>
-          <p class="section-lede">
-            An agent never rewrites your file. It proposes a change set against one exact version of the file, your
-            application decides whether to apply it, and the result is checked after it is written. It works with any
-            model, or with no model at all.
-          </p>
-          <div class="loop">
-            <ol class="steps">
-              <li><b>Open a session</b><span>on the file's bytes, and ask which operations this file supports.</span></li>
-              <li><b>Plan a change set</b><span>tied to the file's revision and fingerprint.</span></li>
-              <li><b>Validate, preview and diff</b><span>before anything is written.</span></li>
-              <li><b>Approve</b><span>the exact change set, from your own trusted review step.</span></li>
-              <li><b>Commit</b><span>only if the file has not changed since the plan.</span></li>
-              <li><b>Verify</b><span>the written file before anyone downloads it.</span></li>
-            </ol>
-            <div>
-<pre class="code"><code><span class="k">const</span> session = <span class="k">await</span> createAgentSession({
-  artifact: { kind: <span class="s">'injoffice.pdf'</span>, bytes,
-              artifactId: <span class="s">'report'</span> },
-  adapter: createPdfAgentAdapter(),
-  actor: { id: <span class="s">'proposal-agent'</span>, kind: <span class="s">'agent'</span> },
-})
-
-<span class="k">const</span> change = <span class="k">await</span> session.plan(
-  [{ name: <span class="s">'pdf.page.rotate'</span>,
-     input: { pages: [1], degrees: 90 } }],
-  { expectedRevision: session.identity.revision,
-    expectedFingerprint: session.identity.fingerprint },
-)
-<span class="k">const</span> { valid } = <span class="k">await</span> change.validate()
-<span class="k">const</span> preview = <span class="k">await</span> change.preview()
-<span class="k">const</span> diff = <span class="k">await</span> change.diff()
-
-<span class="c">// Later, from your review UI, after a person approves:</span>
-<span class="k">const</span> receipt = <span class="k">await</span> change.commit({ idempotencyKey })
-<span class="k">if</span> (!receipt.verification.verified) {
-  <span class="k">throw new</span> Error(<span class="s">'Written, but not verified'</span>)
-}</code></pre>
-              <p class="code-caption">From the <a href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/agents/quickstart.md">agent quickstart</a>, which is type-checked in CI.</p>
-              <p class="code-caption"><a class="link" href="%BASE_URL%agents.html">How InjOffice fits an agent</a></p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="formats">
-        <div class="wrap">
-          <h2>What it can change today.</h2>
-          <p class="section-lede">Each engine says which operations a file allows and refuses the rest, rather than guessing.</p>
-          <table class="formats">
-            <thead><tr><th scope="col">Format</th><th scope="col">Edits today</th><th scope="col">Not yet</th></tr></thead>
+          <h2>The change-set lifecycle.</h2>
+          <p class="section-lede">Every tool is plain JSON. Only two of them ever write, and both belong to your application.</p>
+          <table class="lifecycle">
+            <thead><tr><th scope="col">Tool</th><th scope="col">What it does</th><th scope="col">Writes the file?</th></tr></thead>
             <tbody>
-              <tr><th scope="row">Excel</th><td>Cell values and formulas, supported styles, row heights and column widths</td><td class="not">Inserting sheets, rows or columns, and other structural edits</td></tr>
-              <tr><th scope="row">Word</th><td>Replacing text in place, run by run</td><td class="not">Restructuring rich text, editing tracked changes, Word's exact pagination</td></tr>
-              <tr><th scope="row">PowerPoint</th><td>Slide text and shape properties</td><td class="not">Inserting or removing imported slides, editing charts, tables and animations</td></tr>
-              <tr><th scope="row">PDF</th><td>Page operations: rotate, crop, resize, reorder, insert and delete</td><td class="not">Rewriting text through the agent adapter</td></tr>
+              <tr><td>office.capabilities</td><td>Lists the operations this file supports and their input schemas</td><td class="reads">No</td></tr>
+              <tr><td>office.inspect, office.read</td><td>Returns bounded structure and content at the current revision</td><td class="reads">No</td></tr>
+              <tr><td>office.plan</td><td>Keeps an immutable change set bound to the file's revision and fingerprint</td><td class="reads">No</td></tr>
+              <tr><td>office.validate</td><td>Checks the plan against core and format rules</td><td class="reads">No</td></tr>
+              <tr><td>office.preview, office.diff</td><td>Shows the proposed result and the exact changes</td><td class="reads">No</td></tr>
+              <tr><td>office.verify</td><td>Checks the planned result</td><td class="reads">No</td></tr>
+              <tr><td>office.commit</td><td>Applies the change set only if the file has not changed, then verifies the written file</td><td class="writes">Yes</td></tr>
+              <tr><td>office.restore</td><td>Restores a host version, when the adapter supports it</td><td class="writes">Yes</td></tr>
             </tbody>
           </table>
-          <p class="formats-note">Coverage is partial and growing, and this is not Microsoft Office parity. The <a href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/getting-started/support.md">support page</a> lists every limit.</p>
         </div>
       </section>
 
-      <section class="open" id="open-source">
+      <section id="approval">
+        <div class="wrap">
+          <h2>The model proposes. Your application approves.</h2>
+          <p class="section-lede">An agent's proposal is untrusted input. InjOffice gives you revision checks and bounded operations; who may change which file stays your decision.</p>
+          <div class="split">
+            <ul class="rules">
+              <li><b>Bind approval to the exact plan:</b> the reviewer, the file, its revision and the complete change set. It expires when any of them changes.</li>
+              <li><b>Never take approval from model output.</b> Keep commit and restore out of the tools the model can call.</li>
+              <li><b>Commit with an idempotency key,</b> so a retry of one logical change cannot apply twice.</li>
+              <li><b>Authorize every write</b> in your application. Adapter confirmation flags add a guard; they are not access control.</li>
+            </ul>
+            <dl class="outcomes">
+              <div><dt>Refused</dt><dd>The plan cannot be applied as asked. Keep the original and show the issues.</dd></div>
+              <div><dt>Stale revision</dt><dd>The file changed after review. Re-read, re-plan and ask again.</dd></div>
+              <div><dt>Committed and verified</dt><dd>The replacement was written and the checks passed.</dd></div>
+              <div><dt>Written, not verified</dt><dd>A replacement exists but failed its checks. Withhold the download and keep the evidence.</dd></div>
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <section id="wire">
+        <div class="wrap">
+          <h2>Wire it to any tool-calling model.</h2>
+          <p class="section-lede">The dispatcher speaks one JSON envelope. Each tool descriptor carries a name, a description and a JSON input schema, so it maps onto any provider's tool format.</p>
+          <div class="split">
+<pre class="code"><code><span class="k">import</span> {
+  AGENT_TOOLS_PROTOCOL, AGENT_TOOLS_PROTOCOL_VERSION,
+  createAgentToolDispatcher,
+} <span class="k">from</span> <span class="s">'@injoffice/agent-tools'</span>
+
+<span class="k">const</span> dispatcher = createAgentToolDispatcher(session)
+
+<span class="c">// The model may read and propose. Commit and restore</span>
+<span class="c">// stay with your review step.</span>
+<span class="k">const</span> modelTools = dispatcher.descriptors.filter(
+  (tool) =&gt; ![<span class="s">'office.commit'</span>, <span class="s">'office.restore'</span>]
+    .includes(tool.name),
+)
+
+<span class="k">async function</span> onToolCall(call) {
+  <span class="k">if</span> (!modelTools.some((t) =&gt; t.name === call.name)) {
+    <span class="k">throw new</span> Error(<span class="s">'Not a model tool'</span>)
+  }
+  <span class="k">return</span> dispatcher.dispatch({
+    protocol: AGENT_TOOLS_PROTOCOL,
+    protocolVersion: AGENT_TOOLS_PROTOCOL_VERSION,
+    requestId: call.id,
+    method: call.name,
+    params: call.arguments,
+  })
+}</code></pre>
+            <ul class="rules">
+              <li><b>Any transport.</b> An HTTP route, an MCP server or a Worker bridge can carry these messages. The package does not install or authenticate a transport for you.</li>
+              <li><b>Any adapter.</b> Sessions take a format adapter from <code>@injoffice/agent-office</code>, or your own implementation of the adapter interface.</li>
+              <li><b>No model required.</b> A deterministic proposal exercises the same boundary, which is how the <a href="%BASE_URL%playground.html">playground</a>'s guided agent tasks work.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="operations">
+        <div class="wrap">
+          <h2>Operations an agent can propose.</h2>
+          <p class="section-lede">A session advertises only the operations the open file supports, and refuses the rest.</p>
+          <div class="ops">
+            <div><h3>Excel</h3><ul><li>xlsx.cell.set_value</li><li>xlsx.cell.clear_value</li><li>xlsx.cell.set_formula</li><li>xlsx.cell.clear_formula</li><li>xlsx.style.patch</li><li>xlsx.row.set_height</li><li>xlsx.column.set_width</li></ul></div>
+            <div><h3>Word</h3><ul><li>docx.text.replace</li></ul></div>
+            <div><h3>PowerPoint</h3><ul><li>pptx.native.text.replace</li><li>pptx.native.autoshape.update</li><li>pptx.authored.slide.update</li><li>pptx.authored.slide.move</li></ul></div>
+            <div><h3>PDF</h3><ul><li>pdf.page.rotate</li><li>pdf.page.crop</li><li>pdf.page.resize</li><li>pdf.page.reorder</li><li>pdf.page.insert_blank</li><li>pdf.page.delete</li><li>pdf.page.n_up</li></ul></div>
+          </div>
+          <p class="formats-note">Coverage is partial and growing, and this is not Microsoft Office parity. The <a href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/getting-started/support.md">support page</a> lists every limit, and the <a href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/agents/safety.md">safety guide</a> covers approval and verification in full.</p>
+        </div>
+      </section>
+
+      <section class="open" id="start">
         <div class="wrap">
           <div>
-            <h2>Open source, top to bottom.</h2>
-            <p>The editor, the engines and the agent libraries are all Apache-2.0. Read the code, file an issue, or ship it in your own product.</p>
+            <h2>Start with one reviewable change.</h2>
+            <p>The quickstart proposes a PDF page rotation with no model at all, shows the review, and commits it from a trusted handler.</p>
             <div class="links">
-              <a class="link" href="https://github.com/injectinglabs/injoffice">View on GitHub</a>
-              <a class="link" href="https://github.com/injectinglabs/injoffice/issues">Report an issue</a>
-              <a class="link" href="https://github.com/injectinglabs/injoffice/blob/main/CONTRIBUTING.md">Contribute</a>
+              <a class="link" href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/agents/quickstart.md">Agent quickstart</a>
+              <a class="link" href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/agents/integration.md">Tool protocol and adapters</a>
+              <a class="link" href="https://github.com/injectinglabs/injoffice">GitHub</a>
             </div>
           </div>
-          <dl class="facts">
-            <div><dt>26</dt><dd>npm packages</dd></div>
-            <div><dt>7</dt><dd>Go modules</dd></div>
-            <div><dt>4</dt><dd>file formats</dd></div>
-          </dl>
+          <p class="install"><span>$</span><code>npm install @injoffice/agent-tools @injoffice/agent-office</code></p>
         </div>
       </section>
     </main>
