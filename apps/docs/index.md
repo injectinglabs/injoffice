@@ -2,7 +2,7 @@
 
 InjOffice is a set of open-source TypeScript packages and Go engines for spreadsheets, documents, presentations, and PDFs. Use the packages independently, add an editor when you need one, or expose supported operations to an AI agent through a reviewable change-set workflow.
 
-These are the developer docs. The [interactive demo](https://injoffice.com/) is a separate application; reading the docs does not load its editors, sample files, or native engines.
+These are the developer docs. The [interactive demo](https://injoffice.com/playground.html) is a separate application; reading the docs does not load its editors, sample files, or native engines.
 
 ## Start with an outcome
 

@@ -23,4 +23,17 @@ describe('public site metadata', () => {
     // Unsigned builds warn on first launch; saying so here is part of the page.
     expect(html).toContain('not signed or notarized')
   })
+
+  // The project is free and open source: the download page asks for a GitHub star, lets the
+  // visitor close that ask for good, states the actual license, and ships one light theme.
+  it('asks for a GitHub star, states the Apache-2.0 license, and has a single light theme', () => {
+    const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
+    expect(html).toContain('id="star-banner"')
+    expect(html).toContain('class="star-button" href="https://github.com/injectinglabs/injoffice"')
+    expect(html).toContain("localStorage.setItem('injoffice-star-banner', 'dismissed')")
+    expect(html).toContain('Apache-2.0')
+    expect(html).not.toMatch(/MIT licen[cs]ed|MIT License/)
+    expect(html).not.toMatch(/data-theme|theme-toggle|prefers-color-scheme/)
+    expect(html).toContain('color-scheme: light')
+  })
 })

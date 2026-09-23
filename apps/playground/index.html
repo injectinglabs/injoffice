@@ -3,28 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#151b24" />
+    <meta name="theme-color" content="#f7f8fa" />
     <meta name="description" content="InjOffice is an open-source desktop editor for Word, Excel, PowerPoint and PDF files. Download for macOS, Windows or Linux — your documents stay on your computer." />
     <title>InjOffice — Download the open-source document editor</title>
     <script>
-      (function () {
-        try {
-          var param = new URLSearchParams(location.search).get('theme')
-          var stored = param === 'dark' || param === 'light' ? param : localStorage.getItem('injoffice-playground-theme')
-          if (param === 'dark' || param === 'light') localStorage.setItem('injoffice-playground-theme', param)
-          var scheme = stored === 'dark' || stored === 'light'
-            ? stored
-            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-          document.documentElement.dataset.theme = scheme
-          document.documentElement.style.colorScheme = scheme
-        } catch (e) {}
-      })()
+      // Hide the star banner before first paint for someone who already closed it.
+      try { if (localStorage.getItem('injoffice-star-banner') === 'dismissed') document.documentElement.dataset.starDismissed = '' } catch (e) {}
     </script>
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%logo.svg" />
     <link rel="apple-touch-icon" href="%BASE_URL%logo.svg" />
     <link rel="stylesheet" href="%BASE_URL%fonts/fonts.css" />
     <style>
       :root {
+        color-scheme: light;
         --page: #f7f8fa;
         --surface: #ffffff;
         --surface-soft: #f1f3f7;
@@ -41,24 +32,6 @@
         --xlsx: #217346;
         --pptx: #c43e1c;
         --pdf: #b32c2c;
-      }
-      :root[data-theme='dark'] {
-        --page: #11151c;
-        --surface: #181d26;
-        --surface-soft: #1f2530;
-        --border: #2b3240;
-        --border-strong: #3a4353;
-        --text: #eef1f6;
-        --text-muted: #9aa5b7;
-        --accent: #6ea0ff;
-        --accent-fill: #2f6fe0;
-        --accent-text: #ffffff;
-        --shadow: rgba(0, 0, 0, .4);
-        --shadow-lift: rgba(0, 0, 0, .55);
-        --docx: #7ba4e0;
-        --xlsx: #5cb98a;
-        --pptx: #e8845f;
-        --pdf: #e4726f;
       }
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; }
@@ -80,11 +53,6 @@
       nav.site { display: flex; align-items: center; gap: 22px; font-size: 14px; }
       nav.site a { color: var(--text-muted); text-decoration: none; }
       nav.site a:hover { color: var(--text); }
-      .theme-toggle {
-        border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
-        border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer;
-      }
-      .theme-toggle:hover { color: var(--text); border-color: var(--border-strong); }
 
       .hero { padding: 56px 0 8px; text-align: center; }
       .hero h1 {
@@ -164,6 +132,27 @@
       footer.site a:hover { color: var(--text); text-decoration: underline; }
       footer.site .spacer { margin-left: auto; }
 
+      /* Star banner: one quiet line above the site header. Closing it is remembered per browser. */
+      .star-banner { background: #e9f0fb; border-bottom: 1px solid #d3e0f4; color: var(--text); font-size: 14px; }
+      :root[data-star-dismissed] .star-banner, .star-banner[hidden] { display: none; }
+      .star-banner .wrap { display: flex; align-items: center; gap: 12px 16px; min-height: 48px; padding: 8px 0; flex-wrap: wrap; }
+      .star-banner p { margin: 0; flex: 1 1 280px; color: #29344a; }
+      .star-button {
+        display: inline-flex; align-items: stretch; border: 1px solid var(--border-strong); border-radius: 8px;
+        background: var(--surface); color: var(--text); text-decoration: none; font-weight: 600; font-size: 13px; line-height: 1;
+      }
+      .star-button:hover { border-color: #9fb2cf; }
+      .star-button span { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; }
+      .star-button svg { width: 15px; height: 15px; color: #c98a00; }
+      .star-button .star-count { border-left: 1px solid var(--border); font-variant-numeric: tabular-nums; color: var(--text-muted); }
+      .star-button .star-count:empty { display: none; }
+      .star-close {
+        width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 8px;
+        background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 20px; line-height: 1;
+        margin-left: auto;
+      }
+      .star-close:hover { background: #d9e5f7; color: var(--text); }
+      .star-button:focus-visible, .star-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       @media (max-width: 640px) {
         .hero { padding-top: 36px; }
         nav.site .hide-sm { display: none; }
@@ -173,6 +162,15 @@
     </style>
   </head>
   <body>
+    <aside class="star-banner" id="star-banner" aria-label="Support InjOffice">
+      <div class="wrap">
+        <p>InjOffice is free and open source. A star on GitHub helps other people find it.</p>
+        <a class="star-button" href="https://github.com/injectinglabs/injoffice" target="_blank" rel="noopener">
+          <span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.3L12 17.1l-5.6 3 1.1-6.3L2.9 9.4l6.3-.9L12 2.8z" /></svg>Star on GitHub</span><span class="star-count" id="star-count"></span>
+        </a>
+        <button class="star-close" type="button" id="star-close" aria-label="Close">&times;</button>
+      </div>
+    </aside>
     <div class="wrap">
       <header class="site">
         <span class="brand"><img src="%BASE_URL%logo.svg" alt="" /> InjOffice</span>
@@ -180,7 +178,6 @@
           <a class="hide-sm" href="%BASE_URL%playground.html">Playground</a>
           <a class="hide-sm" href="https://github.com/injectinglabs/injoffice">Source</a>
           <a href="https://github.com/injectinglabs/injoffice/releases">Releases</a>
-          <button class="theme-toggle" type="button" id="theme-toggle">Theme</button>
         </nav>
       </header>
     </div>
@@ -207,7 +204,7 @@
               <span id="primary-download-label">Download InjOffice</span>
             </a>
             <p class="meta">
-              <span id="release-meta">Free and open source, MIT licensed</span>
+              <span id="release-meta">Free and open source, Apache-2.0 licensed</span>
               · <a href="#all-downloads">All platforms</a>
             </p>
           </div>
@@ -262,7 +259,7 @@
             </div>
             <div class="card">
               <h3>Open source</h3>
-              <p>MIT licensed, built in TypeScript and Go. Read the code, file an issue, or build it yourself.</p>
+              <p>Apache-2.0 licensed, built in TypeScript and Go. Read the code, file an issue, or build it yourself.</p>
             </div>
           </div>
         </div>
@@ -272,7 +269,7 @@
     <div class="wrap">
       <footer class="site">
         <span>© InjOffice contributors</span>
-        <a href="https://github.com/injectinglabs/injoffice/blob/main/LICENSE">MIT License</a>
+        <a href="https://github.com/injectinglabs/injoffice/blob/main/LICENSE">Apache-2.0 License</a>
         <a href="https://github.com/injectinglabs/injoffice">GitHub</a>
         <a href="%BASE_URL%playground.html">Browser playground</a>
         <a href="%BASE_URL%privacy.html">Privacy</a>
@@ -437,7 +434,7 @@
           }
 
           var meta = document.getElementById('release-meta')
-          if (meta) meta.textContent = 'Version ' + newest.version + ' · free and open source, MIT licensed'
+          if (meta) meta.textContent = 'Version ' + newest.version + ' · free and open source, Apache-2.0 licensed'
           var footer = document.getElementById('footer-version')
           if (footer) {
             footer.innerHTML = ''
@@ -449,6 +446,27 @@
         }
 
         render(FALLBACK)
+
+        // The banner works without the count. It appears once GitHub answers, and only when it is
+        // large enough to help: a handful of stars reads as a reason not to try the project.
+        fetch('https://api.github.com/repos/' + REPO, { headers: { Accept: 'application/vnd.github+json' } })
+          .then(function (response) { return response.ok ? response.json() : null })
+          .then(function (repo) {
+            var stars = repo && Number(repo.stargazers_count)
+            var count = document.getElementById('star-count')
+            if (!count || !Number.isFinite(stars) || stars < 50) return
+            count.textContent = stars >= 1000 ? (Math.round(stars / 100) / 10).toString().replace(/\.0$/, '') + 'k' : String(stars)
+            count.setAttribute('aria-label', stars + ' stars')
+          })
+          .catch(function () {})
+
+        var close = document.getElementById('star-close')
+        if (close) {
+          close.addEventListener('click', function () {
+            document.getElementById('star-banner').hidden = true
+            try { localStorage.setItem('injoffice-star-banner', 'dismissed') } catch (e) {}
+          })
+        }
 
         fetch('https://api.github.com/repos/' + REPO + '/releases?per_page=10', { headers: { Accept: 'application/vnd.github+json' } })
           .then(function (response) { return response.ok ? response.json() : null })
@@ -467,15 +485,6 @@
           })
           .catch(function () {})
 
-        var toggle = document.getElementById('theme-toggle')
-        if (toggle) {
-          toggle.addEventListener('click', function () {
-            var next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'
-            document.documentElement.dataset.theme = next
-            document.documentElement.style.colorScheme = next
-            try { localStorage.setItem('injoffice-playground-theme', next) } catch (e) {}
-          })
-        }
       })()
     </script>
   </body>

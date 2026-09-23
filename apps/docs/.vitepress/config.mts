@@ -19,7 +19,7 @@ export default defineConfig({
     nav: [
       { text: 'Guides', link: '/getting-started/quickstart' },
       { text: 'Reference', link: '/reference/' },
-      { text: 'Try the demo', link: 'https://injoffice.com/' },
+      { text: 'Try the demo', link: 'https://injoffice.com/playground.html' },
     ],
     socialLinks: [{ icon: 'github', link: 'https://github.com/injectinglabs/injoffice' }],
     search: { provider: 'local' },

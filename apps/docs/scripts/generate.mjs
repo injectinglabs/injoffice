@@ -19,7 +19,7 @@ function links(markdown, source) {
     if (/^\s*(`{3,}|~{3,})/.test(line)) { fenced = !fenced; return line }
     if (fenced) return line
     return line.replace(/\]\(([^\s)]+)(\s+"[^"]*")?\)/g, (whole, href, title = '') => {
-      if (href.startsWith('#/')) return `](https://injoffice.com/${href}${title})`
+      if (href.startsWith('#/')) return `](https://injoffice.com/playground.html${href}${title})`
       if (/^(https?:|mailto:|data:|#)/.test(href)) return whole
       const [file, hash] = href.split('#')
       const path = relative(root, resolve(dirname(resolve(root, source)), file)).split('/').map(encodeURIComponent).join('/')
