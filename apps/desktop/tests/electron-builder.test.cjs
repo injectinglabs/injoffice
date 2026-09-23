@@ -136,7 +136,7 @@ test('the release config clears an empty certificate link and keeps a real one',
     delete require.cache[require.resolve('../electron-builder.release.cjs')];
   }
   const workflow = fs.readFileSync(path.resolve(root, '../../.github/workflows/desktop-release.yml'), 'utf8');
-  assert.match(workflow, /\n {8}run: npx electron-builder --config electron-builder\.release\.cjs \$\{\{ matrix\.args \}\} --publish never\n/,
+  assert.match(workflow, /\r?\n {8}run: npx electron-builder --config electron-builder\.release\.cjs \$\{\{ matrix\.args \}\} --publish never\r?\n/,
     'packaging stays one shell-neutral command, since Windows runs it in PowerShell');
 });
 
