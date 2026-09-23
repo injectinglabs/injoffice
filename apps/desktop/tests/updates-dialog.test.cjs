@@ -124,3 +124,31 @@ test('Linux packages download in-app and explain the administrator prompt before
     assert.doesNotMatch(JSON.stringify(view.toJSON()), /Download installer|browser/);
   } finally { if (view) await act(async () => view.unmount()); delete global.window; }
 });
+
+// The update arrives in the background, so the moment it is ready the dialog raises itself and
+// the only question left is whether to restart. It asks once per version, and a manual-install
+// target is left alone because there the download is still the user's own act.
+test('a ready update raises the dialog once per version, except for manual installs', async () => {
+  const Notice = await loadDialog('UpdateNotice'); let event, opened = 0;
+  global.window = { injDesktop: { getUpdateState: async () => initial, onUpdateState: fn => { event = fn; return () => {}; } } };
+  let view;
+  try {
+    await act(async () => { view = create(React.createElement(Notice, { onOpen() { opened++; } })); });
+    await act(async () => event({ ...initial, status: 'available', version: '0.2.0' }));
+    assert.equal(opened, 0, 'finding an update does not interrupt');
+    await act(async () => event({ ...initial, status: 'downloaded', version: '0.2.0' }));
+    assert.equal(opened, 1, 'a ready update asks about restarting');
+    await act(async () => event({ ...initial, status: 'downloaded', version: '0.2.0' }));
+    assert.equal(opened, 1, 'and asks only once for that version');
+    await act(async () => event({ ...initial, status: 'downloaded', version: '0.3.0' }));
+    assert.equal(opened, 2, 'a later version asks again');
+  } finally { if (view) await act(async () => view.unmount()); delete global.window; }
+
+  let manualEvent, manualOpened = 0, manualView;
+  global.window = { injDesktop: { getUpdateState: async () => initial, onUpdateState: fn => { manualEvent = fn; return () => {}; } } };
+  try {
+    await act(async () => { manualView = create(React.createElement(Notice, { onOpen() { manualOpened++; } })); });
+    await act(async () => manualEvent({ ...initial, status: 'downloaded', version: '0.2.0', manualInstall: true }));
+    assert.equal(manualOpened, 0, 'a manual-install target is not interrupted')
+  } finally { if (manualView) await act(async () => manualView.unmount()); delete global.window; }
+});
