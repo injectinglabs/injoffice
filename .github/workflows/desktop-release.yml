@@ -144,7 +144,12 @@ jobs:
         working-directory: apps/desktop
         env:
           INJOFFICE_MAC_UNSIGNED: ${{ inputs.mac_signing == 'unsigned' && '1' || '' }}
-        run: npx electron-builder --config electron-builder.release.cjs ${{ matrix.args }} --publish never
+        # The job declares CSC_LINK for every platform, so without a Mac certificate it is an empty
+        # string, not absent. electron-builder reads an empty CSC_LINK as a path relative to the
+        # working directory and fails with "not a file" as soon as it signs, ad-hoc included.
+        run: |
+          [ -n "$CSC_LINK" ] || unset CSC_LINK CSC_KEY_PASSWORD
+          npx electron-builder --config electron-builder.release.cjs ${{ matrix.args }} --publish never
       - name: Verify packaged host, renderer and native engines
         run: npm run test:packaged -w @injoffice/desktop
       - name: Verify Linux installer metadata and icons

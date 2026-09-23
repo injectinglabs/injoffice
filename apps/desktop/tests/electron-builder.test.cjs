@@ -114,6 +114,17 @@ test('the unsigned macOS declaration is scoped to the steps that use it', () => 
   assert.equal((steps.match(/INJOFFICE_MAC_UNSIGNED/g) ?? []).length, 2, 'preflight and packaging, and nothing else');
 });
 
+// With no Mac certificate the job-wide CSC_LINK is an empty string, and electron-builder treats an
+// empty CSC_LINK as the working directory: the unsigned 0.1.13 Mac build failed "not a file" there.
+test('packaging drops an empty certificate link before electron-builder reads it', () => {
+  const workflow = fs.readFileSync(path.resolve(root, '../../.github/workflows/desktop-release.yml'), 'utf8');
+  const step = workflow.slice(workflow.indexOf('- name: Package signed release installers'));
+  const run = step.slice(step.indexOf('run: |'), step.indexOf('- name:', 1));
+  const guard = run.indexOf('[ -n "$CSC_LINK" ] || unset CSC_LINK CSC_KEY_PASSWORD');
+  assert.ok(guard >= 0, 'an empty CSC_LINK is unset');
+  assert.ok(guard < run.indexOf('npx electron-builder'), 'before electron-builder runs');
+});
+
 // Whichever way macOS ships, the release proves something about the bundle: a signed run checks
 // the Developer ID signature and the notarization ticket, an unsigned run checks the ad-hoc seal
 // and that nothing pretends to be notarized. Neither may be silently absent.
