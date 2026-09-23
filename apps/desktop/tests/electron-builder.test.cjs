@@ -56,3 +56,25 @@ test('preview Mac signing seals the bundle without leaking into Developer ID rel
   assert.equal(release.mac.hardenedRuntime, true);
   assert.equal(release.mac.notarize, true);
 });
+
+// The installed application is called InjOffice on every platform; its version belongs in the
+// app's update view, not in the name a system settings screen shows.
+test('the installed name carries no version on any platform', () => {
+  const { build } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  assert.equal(build.productName, 'InjOffice');
+  // electron-builder defaults this to "${productName} ${version}", which is what Windows shows
+  // under Apps & features, so it has to be set explicitly.
+  assert.equal(build.nsis.uninstallDisplayName, '${productName}');
+  for (const [name, value] of Object.entries(build.nsis)) {
+    assert.doesNotMatch(String(value), /\$\{version\}/, `nsis.${name} must not name the version`);
+  }
+  // Linux package identity and the macOS bundle name are separate from the version field; only
+  // the artifact file names carry it.
+  assert.equal(build.linux.executableName, 'injoffice');
+  for (const section of ['linux', 'mac', 'win']) {
+    for (const [name, value] of Object.entries(build[section] ?? {})) {
+      if (name === 'artifactName') continue;
+      assert.doesNotMatch(String(value), /\$\{version\}/, `${section}.${name} must not name the version`);
+    }
+  }
+});
