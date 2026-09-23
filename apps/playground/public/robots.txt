@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://injoffice.com/sitemap.xml
+Sitemap: https://injoffice.com/docs/sitemap.xml

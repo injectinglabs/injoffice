@@ -85,7 +85,6 @@ export default defineConfig(async ({ command }) => {
       rollupOptions: {
         input: {
           index: fileURLToPath(new URL('./index.html', import.meta.url)),
-          download: fileURLToPath(new URL('./download.html', import.meta.url)),
           agents: fileURLToPath(new URL('./agents.html', import.meta.url)),
           playground: fileURLToPath(new URL('./playground.html', import.meta.url)),
         },
