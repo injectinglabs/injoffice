@@ -149,7 +149,8 @@
       .path .install, .open .install { display: flex; align-items: center; gap: 10px; margin: 0 0 24px; padding: 12px 14px; border-radius: 10px; background: var(--ink); color: #e9ecf1; font: 14px var(--mono); overflow-x: auto; }
       .path .install span, .open .install span { color: #8a93a3; user-select: none; }
       .path .install code { white-space: nowrap; }
-      .open .install code { white-space: normal; overflow-wrap: anywhere; }
+      .open .install code { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+      .path .install code { min-width: 0; }
       .link { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
       .links { display: flex; flex-wrap: wrap; gap: 8px 22px; }
 
@@ -297,7 +298,7 @@
             written file. The model never writes bytes and never approves its own change.
           </p>
           <div class="actions">
-            <a class="button primary" href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/agents/quickstart.md">Read the agent quickstart</a>
+            <a class="button primary" href="%BASE_URL%docs/agents/quickstart.html">Read the agent quickstart</a>
             <a class="button secondary" href="https://github.com/injectinglabs/injoffice">View on GitHub</a>
           </div>
           <p class="fine">Model-neutral TypeScript. Works with any tool-calling model, or with no model at all.</p>
@@ -407,7 +408,7 @@
             <div><h3>PowerPoint</h3><ul><li>pptx.native.text.replace</li><li>pptx.native.autoshape.update</li><li>pptx.authored.slide.update</li><li>pptx.authored.slide.move</li></ul></div>
             <div><h3>PDF</h3><ul><li>pdf.page.rotate</li><li>pdf.page.crop</li><li>pdf.page.resize</li><li>pdf.page.reorder</li><li>pdf.page.insert_blank</li><li>pdf.page.delete</li><li>pdf.page.n_up</li></ul></div>
           </div>
-          <p class="formats-note">Coverage is partial and growing, and this is not Microsoft Office parity. The <a href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/getting-started/support.md">support page</a> lists every limit, and the <a href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/agents/safety.md">safety guide</a> covers approval and verification in full.</p>
+          <p class="formats-note">Coverage is partial and growing, and this is not Microsoft Office parity. The <a href="%BASE_URL%docs/getting-started/support.html">support page</a> lists every limit, and the <a href="%BASE_URL%docs/agents/safety.html">safety guide</a> covers approval and verification in full.</p>
         </div>
       </section>
 
@@ -417,8 +418,8 @@
             <h2>Start with one reviewable change.</h2>
             <p>The quickstart proposes a PDF page rotation with no model at all, shows the review, and commits it from a trusted handler.</p>
             <div class="links">
-              <a class="link" href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/agents/quickstart.md">Agent quickstart</a>
-              <a class="link" href="https://github.com/injectinglabs/injoffice/blob/main/apps/docs/agents/integration.md">Tool protocol and adapters</a>
+              <a class="link" href="%BASE_URL%docs/agents/quickstart.html">Agent quickstart</a>
+              <a class="link" href="%BASE_URL%docs/agents/integration.html">Tool protocol and adapters</a>
               <a class="link" href="https://github.com/injectinglabs/injoffice">GitHub</a>
             </div>
           </div>
