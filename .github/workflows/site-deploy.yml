@@ -25,6 +25,10 @@ jobs:
   build:
     if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Read which commit the site environment last deployed successfully.
+      deployments: read
     timeout-minutes: 20
     outputs:
       deploy: ${{ steps.changes.outputs.deploy }}
@@ -36,12 +40,14 @@ jobs:
       # deploys it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 2
+          # Full history, so the change check can diff against whatever commit is live.
+          fetch-depth: 0
       - name: Check whether site inputs changed
         id: changes
         env:
           FORCE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' }}
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           deploy=true
@@ -50,8 +56,19 @@ jobs:
             echo "deploy=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ "$FORCE_DEPLOY" != 'true' ] && git rev-parse HEAD^ >/dev/null 2>&1; then
-            if git diff --quiet HEAD^ HEAD -- \
+          # Compare with the commit that is live, not with HEAD^: a site change followed by an
+          # unrelated commit would otherwise never deploy (the site commit's run skips because
+          # main moved on, and the next run sees no site change in its own commit). The live
+          # commit is the newest successful deployment to the site environment.
+          live=''
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=site&per_page=20" --jq '.[].id' 2>/dev/null); do
+            if [ "$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=1" --jq '.[0].state' 2>/dev/null)" = success ]; then
+              live=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id" --jq .sha); break
+            fi
+          done
+          echo "live=$live"
+          if [ "$FORCE_DEPLOY" != 'true' ] && [ -n "$live" ] && git merge-base --is-ancestor "$live" HEAD 2>/dev/null; then
+            if git diff --quiet "$live" HEAD -- \
               apps/playground \
               apps/docs \
               packages \
