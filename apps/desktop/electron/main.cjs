@@ -187,13 +187,17 @@ app.whenReady().then(async () => {
   if (!primaryInstance) return;
   recovery = new RecoveryStore(path.join(app.getPath('userData'), 'recovery'));
   const recentFiles = new RecentFiles(path.join(app.getPath('userData'), 'recent-files.json'));
-  let release = false;
+  let release = false, macSigned = true;
   try {
     const metadata = JSON.parse(await fs.readFile(path.join(app.getAppPath(), 'package.json'), 'utf8'));
     await fs.access(path.join(process.resourcesPath, 'app-update.yml'));
     release = metadata.injofficeRelease === true;
+    // A release that shipped macOS without a Developer ID identity says so here.
+    macSigned = metadata.injofficeMacSigned !== false;
   } catch { /* Source builds may have no native update configuration. */ }
-  const manualInstall = process.platform === 'darwin' && !release;
+  // The native Mac updater needs a real signature, so an unsigned release takes the same DMG
+  // route a preview takes instead of failing every update check.
+  const manualInstall = process.platform === 'darwin' && (!release || !macSigned);
   let packageType;
   if (process.platform === 'linux') {
     if (process.env.APPIMAGE) packageType = 'AppImage';

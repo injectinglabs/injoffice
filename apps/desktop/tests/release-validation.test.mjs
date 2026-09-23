@@ -92,3 +92,16 @@ test('a subset release requires its own platforms and refuses strays', async t =
   assets(short, { only: ['windows'] })
   assert.ok(collect(short, { platforms: ['windows', 'linux'] }).problems.length > 0, 'a missing named platform still fails')
 })
+
+// macOS may ship unsigned while no Developer ID exists. That has to be declared by the run:
+// silence is not consent, because an unsigned build warns at Gatekeeper and cannot use the
+// native Mac updater.
+test('an unsigned macOS release is allowed only when the run declares it', async () => {
+  const onTag = { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: `desktop-v${version}` }
+  const missing = preflight('mac', onTag).join('\n')
+  assert.match(missing, /MAC_CSC_LINK/, 'by default the Apple credentials are still required')
+  assert.match(missing, /APPLE_ID/)
+  assert.deepEqual(preflight('mac', { ...onTag, INJOFFICE_MAC_UNSIGNED: '1' }), [], 'a declared unsigned build needs none of them')
+  // The declaration is macOS-only: Windows still needs its Azure account either way.
+  assert.ok(preflight('windows', { ...onTag, INJOFFICE_MAC_UNSIGNED: '1' }).length > 0)
+})

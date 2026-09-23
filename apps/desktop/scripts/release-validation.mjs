@@ -49,7 +49,8 @@ export const readDesktopVersion = () => JSON.parse(fs.readFileSync(path.join(her
 
 export function preflight(platform, env = process.env, { desktopVersion = readDesktopVersion() } = {}) {
   const problems = []
-  const secrets = SIGNING_ENV[platform]
+  const macUnsigned = platform === 'mac' && env.INJOFFICE_MAC_UNSIGNED === '1'
+  const secrets = macUnsigned ? {} : SIGNING_ENV[platform]
   if (!secrets) return [`unknown platform "${platform}"; expected ${Object.keys(SIGNING_ENV).join(', ')}`]
   const tag = env.GITHUB_REF_TYPE === 'tag' ? TAG.exec(env.GITHUB_REF_NAME ?? '') : null
   if (!tag) {
