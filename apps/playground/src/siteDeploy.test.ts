@@ -92,6 +92,19 @@ describe('the release-only change-set rule', () => {
 
 // The CloudFront function that serves clean URLs is kept in infra/clean-urls.js and inlined in
 // the stack template; the two must not drift apart.
+// A site change followed by an unrelated commit must still deploy: the change check diffs
+// against the commit that is live (the last successful site deployment), not against HEAD^.
+describe('deploy change detection', () => {
+  it('compares with the live deployment, not the previous commit', () => {
+    const workflow = read('.github/workflows/site-deploy.yml')
+    expect(workflow).not.toContain('git diff --quiet HEAD^ HEAD')
+    expect(workflow).toContain('deployments?environment=site')
+    expect(workflow).toContain('git diff --quiet "$live" HEAD')
+    expect(workflow).toContain('fetch-depth: 0')
+    expect(workflow).toContain('deployments: read')
+  })
+})
+
 describe('clean page URLs', () => {
   it('inlines exactly the tested function source in the site stack', () => {
     const source = read('infra/clean-urls.js').trimEnd().split('\n')
