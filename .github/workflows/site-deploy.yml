@@ -66,6 +66,8 @@ jobs:
           node-version: '24'
           # No shared npm cache: this job runs checked-out code in the default branch's
           # context, and a cache it could write would be read by later privileged runs.
+          # setup-node caches on its own when package.json names a packageManager.
+          package-manager-cache: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         if: steps.changes.outputs.deploy == 'true'
         with:
