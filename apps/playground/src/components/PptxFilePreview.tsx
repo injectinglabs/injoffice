@@ -86,7 +86,7 @@ export default function PptxFilePreview({deck}:{deck:NativePptxDeck}){
  if(geometry?.omitted)issues.push(`Preview limited to 500 objects; ${geometry.omitted} remaining objects are preserved.`)
  return <section aria-label="Presentation file preview" className="ds-panel">
   <div className="ds-workstrip"><DsButton variant="outlined" disabled={index===0} onClick={()=>setAt(index-1)}>Previous slide</DsButton><DsField label="Slide"><DsSelect value={index} onChange={event=>setAt(Number(event.target.value))}>{deck.slides.map((item,i)=><option key={item.id} value={i}>{i+1} of {deck.slides.length}</option>)}</DsSelect></DsField><DsButton variant="outlined" disabled={index+1>=deck.slides.length} onClick={()=>setAt(index+1)}>Next slide</DsButton></div>
-  <p className="ds-status">Approximate file preview · browser fonts and text wrapping. Not PowerPoint-equivalent rendering. Editing remains limited to verified targets below.</p>
+  <p className="ds-status">Approximate file preview · browser fonts, wrapping and line height are approximate. Editing remains limited to verified targets below.</p>
   {geometry?<PptxFilePreviewVector deck={deck} geometry={geometry}/>:<p role="status">{active?.error?`Geometry preview unavailable: ${active.error}. The source file is unchanged.`:'Preparing local geometry preview…'}</p>}
   {issues.length>0&&<details open><summary>{issues.length} preview limitations</summary><ul>{issues.map((issue,i)=><li key={i}>{issue}</li>)}</ul></details>}
   {geometry?.tree.diagnostics.some(d=>d.code==='geometry.deterministicPathTone')&&<p role="note">Shaded paths use the native preview’s declared relative-tone policy; PowerPoint color equivalence is not established.</p>}

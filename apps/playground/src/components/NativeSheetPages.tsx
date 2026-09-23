@@ -176,7 +176,7 @@ function SheetPagesSession({ workbook, sheet, objects, rows, columns }: Props) {
   }
   return <section className="ds-panel native-sheet-pages" aria-label="Spreadsheet page preview">
     <h3>Page preview</h3>
-    <p className="ds-muted">Preview an A1 range or supported saved print areas on paper. Saved areas keep their source order and start on separate pages. Column widths use the exact Normal font; text and cached charts use approximate browser layout. This is not Excel print fidelity.</p>
+    <p className="ds-muted">Preview an A1 range or supported saved print areas on paper. Saved areas keep their source order and start on separate pages. Column widths use the exact Normal font; text and cached charts use approximate browser layout. The printed result is approximate.</p>
     <label><input type="checkbox" checked={printPagePreview} onChange={event => { invalidate(); setPrintPagePreview(event.target.checked); if (event.target.checked) { setUsePrintArea(true); setUseSource(true) } }}/> Source print-page preview (96 DPI)</label>
     <p className="ds-muted">Opt-in source print-page preview uses saved print areas and authored page setup only. Printer-dependent DPI, missing paper/margins/scale, and fit-to-page are refused with an explicit reason; defaults are not invented. It is an approximate preview, not printer-calibrated output. The grid preview stays available.</p>
     <div className="native-sheet-page-controls">

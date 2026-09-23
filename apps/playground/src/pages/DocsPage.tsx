@@ -492,7 +492,7 @@ export default function DocsPage() {
       </p>
       <DsCallout
         tone="note"
-        title="Approximate content preview · not Word pagination"
+        title="Approximate content preview · not exact page layout"
       >
         {mode === 'browser'
           ? 'Edit supported text and download a real Word file, entirely in your browser. This preview shows document structure; page layout and drawings may look different in Word.'

@@ -167,7 +167,7 @@ describe('selected-range page presentation', () => {
   it('labels the setup as approximate and requires an explicit local font', () => {
     const props = fixture()
     const html = renderToStaticMarkup(createElement(NativeSheetPages, { ...props, rows: 2, columns: 1 }))
-    expect(html).toContain('not Excel print fidelity')
+    expect(html).toContain('The printed result is approximate.')
     expect(html).toContain('type="file"')
     expect(html).toContain('Normal font: Exact Font')
     expect(html).toContain('Use saved page settings')
