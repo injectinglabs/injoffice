@@ -21,6 +21,11 @@ DRY=()
 [ "${DRY_RUN:-}" = 1 ] && DRY=(--dryrun)
 
 log() { echo "[deploy-site] $*"; }
+RUNNER_TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$RUNNER_TEMP_DIR"' EXIT
+
+# True only for a pure release switch; the rule lives in site-release-change-set.jq.
+release_only_change_set() { jq -e -f "$(dirname "$0")/site-release-change-set.jq" "$1" >/dev/null; }
 fail() { echo "::error::$*" >&2; exit 1; }
 
 [[ $RELEASE_ID =~ ^[0-9a-f]{40}$ ]] || fail "RELEASE_ID must be a full 40-character commit, got '$RELEASE_ID'"
@@ -70,13 +75,17 @@ else
                  ParameterKey=HostedZoneId,UsePreviousValue=true \
                  ParameterKey=PublishDns,UsePreviousValue=true >/dev/null
   aws cloudformation wait change-set-create-complete --region "$REGION" --stack-name "$SITE_STACK" --change-set-name "$cs"
-  # Moving ReleaseId must only modify the distribution's origin path, in place.
-  changes=$(aws cloudformation describe-change-set --region "$REGION" --stack-name "$SITE_STACK" --change-set-name "$cs" \
-    --query 'Changes[].ResourceChange.[Action,LogicalResourceId,Replacement]' --output text)
-  log "change set: $changes"
-  if [ "$changes" != "$(printf 'Modify\tDistribution\tFalse')" ]; then
+  # Moving ReleaseId must only modify the distribution, in place, because of ReleaseId. The
+  # apex A/AAAA aliases point at the distribution's domain name, so CloudFormation lists them
+  # as a runtime re-check whenever the distribution changes; that name never changes, and
+  # past release switches never updated them. Anything else is refused.
+  aws cloudformation describe-change-set --region "$REGION" --stack-name "$SITE_STACK" --change-set-name "$cs" \
+    --query 'Changes[].ResourceChange.{Action:Action,Id:LogicalResourceId,Replacement:Replacement,Details:Details[].{Source:ChangeSource,Evaluation:Evaluation,Cause:CausingEntity,Name:Target.Name}}' \
+    --output json > "$RUNNER_TEMP_DIR/change-set.json"
+  log "change set: $(jq -c '[.[] | "\(.Action) \(.Id)"]' "$RUNNER_TEMP_DIR/change-set.json")"
+  if ! release_only_change_set "$RUNNER_TEMP_DIR/change-set.json"; then
     aws cloudformation delete-change-set --region "$REGION" --stack-name "$SITE_STACK" --change-set-name "$cs" || true
-    fail "the change set does more than move the distribution's origin; deleted it without executing"
+    fail "the change set does more than move the release; deleted it without executing: $(jq -c . "$RUNNER_TEMP_DIR/change-set.json")"
   fi
   aws cloudformation execute-change-set --region "$REGION" --stack-name "$SITE_STACK" --change-set-name "$cs"
   aws cloudformation wait stack-update-complete --region "$REGION" --stack-name "$SITE_STACK"

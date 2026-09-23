@@ -1,4 +1,6 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const read = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf8')
@@ -23,12 +25,14 @@ describe('injoffice.com automatic deploy', () => {
 
   it('never deletes, publishes index.html last, and executes only a release-only change set', () => {
     const script = read('scripts/deploy-site.sh')
-    expect(script).not.toMatch(/--delete|\brm\b|s3 rm|delete-object/)
+    // Nothing published is ever removed (the only local rm is the script's own temp directory).
+    expect(script).not.toMatch(/--delete|s3 rm|s3api delete|delete-object/)
+    expect(script.match(/\brm\b.*/g)).toEqual([`rm -rf "$RUNNER_TEMP_DIR"' EXIT`])
     expect(script).not.toContain('s3 sync')
     expect(script.lastIndexOf('/index.html"')).toBeGreaterThan(script.indexOf("--exclude index.html"))
     expect(script).toContain("public,max-age=31536000,immutable")
     expect(script).toContain('--content-type application/wasm')
-    expect(script).toContain("printf 'Modify\\tDistribution\\tFalse'")
+    expect(script).toContain('release_only_change_set "$RUNNER_TEMP_DIR/change-set.json"')
     expect(script).toContain('--use-previous-template')
   })
 
@@ -44,5 +48,38 @@ describe('injoffice.com automatic deploy', () => {
     expect(role).not.toMatch(/Action:\s*['"]?\*/)
     // The one stack action that deletes anything only discards an unexecuted change set.
     expect(role.match(/\w+:Delete\w+/g)).toEqual(['cloudformation:DeleteChangeSet'])
+  })
+})
+
+// The change-set rule, run against the change set AWS produced for a real release switch.
+describe('the release-only change-set rule', () => {
+  const rule = fileURLToPath(new URL('../../../scripts/site-release-change-set.jq', import.meta.url))
+  const alias = (id: string) => ({ Action: 'Modify', Id: id, Replacement: 'False', Details: [
+    { Source: 'ResourceAttribute', Evaluation: 'Dynamic', Cause: 'Distribution.DomainName', Name: 'AliasTarget' },
+  ] })
+  const release = () => [
+    { Action: 'Modify', Id: 'Distribution', Replacement: 'False', Details: [
+      { Source: 'ParameterReference', Evaluation: 'Static', Cause: 'ReleaseId', Name: 'DistributionConfig' },
+      { Source: 'DirectModification', Evaluation: 'Dynamic', Cause: null, Name: 'DistributionConfig' },
+    ] },
+    alias('DomainIPv4'),
+    alias('DomainIPv6'),
+  ]
+  const accepts = (changes: unknown) => spawnSync('jq', ['-e', '-f', rule], { input: JSON.stringify(changes) }).status === 0
+
+  it('accepts a pure release switch, with or without the alias re-checks', () => {
+    expect(accepts(release())).toBe(true)
+    expect(accepts(release().slice(0, 1))).toBe(true)
+  })
+
+  it('refuses anything else', () => {
+    const replaced = release(); replaced[0]!.Replacement = 'True'
+    const renamed = release(); renamed[0]!.Details.push({ Source: 'ParameterReference', Evaluation: 'Static', Cause: 'DomainName', Name: 'Aliases' })
+    const staticAlias = release(); staticAlias[1]!.Details[0]!.Evaluation = 'Static'
+    const extra = [...release(), { Action: 'Modify', Id: 'BucketPolicy', Replacement: 'False', Details: [] }]
+    const removed = [...release(), { Action: 'Remove', Id: 'Certificate', Replacement: null, Details: [] }]
+    for (const changes of [replaced, renamed, staticAlias, extra, removed, release().slice(1), []]) {
+      expect(accepts(changes)).toBe(false)
+    }
   })
 })
