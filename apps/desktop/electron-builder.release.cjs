@@ -5,6 +5,14 @@ const {build} = require('./package.json');
 // warn on first launch and updates fall back to downloading the DMG, so it is never a default.
 const macUnsigned = process.env.INJOFFICE_MAC_UNSIGNED === '1';
 
+// The release job declares CSC_LINK for every platform, so without a Mac certificate it is an
+// empty string, not absent. electron-builder reads an empty CSC_LINK as a path relative to the
+// working directory and fails "not a file" as soon as it signs, ad-hoc included. Clearing it here
+// rather than in the workflow keeps it out of shell syntax: Windows runs steps in PowerShell.
+for (const name of ['CSC_LINK', 'CSC_KEY_PASSWORD']) {
+  if (process.env[name] === '') delete process.env[name];
+}
+
 // Windows is signed by Azure Artifact Signing (formerly Trusted Signing): there is no
 // certificate file, so electron-builder installs the TrustedSigning PowerShell module on the
 // runner and signs through the account's certificate profile. The account identifiers are not
