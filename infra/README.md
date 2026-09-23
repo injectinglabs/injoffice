@@ -76,8 +76,44 @@ before retrying; do not delete the bucket to resolve a name conflict. Storage,
 DNS and delivery incur normal AWS usage charges. Asset cleanup, logging/budgets,
 and optional backend hosting require separate decisions.
 
-This is an explicitly operated deployment. The separate GitHub Pages
-workflow does not update AWS; this setup grants no CI deployment credentials.
+## Automatic deploys
+
+`.github/workflows/site-deploy.yml` publishes every tested `main` commit that changes
+site inputs. It runs after the Test workflow succeeds, builds `apps/playground` with
+`--base=/`, and runs `scripts/deploy-site.sh`, which performs the "Build and publish"
+steps above: shared immutable `assets/`, `releases/<commit>/` with `index.html` last, a
+change set that may only modify the distribution's origin path, a `/*` invalidation,
+and a check that the live `index.html` is the uploaded one. It deletes nothing, and a
+rerun of the same commit reuses its uploaded release.
+
+The job assumes a role from `site-deploy-role.yaml`. That role trusts only this
+repository's `site` GitHub environment and can upload under `assets/` and `releases/`,
+move `ReleaseId` on the site stack, and invalidate the distribution. It cannot change
+the template, DNS, the certificate or the bucket policy, and it cannot delete objects.
+Template changes to `demo-site.yaml` stay an explicit owner action.
+
+One-time setup (the account already trusts GitHub's OIDC issuer):
+
+```sh
+aws cloudformation deploy --region us-east-1 --stack-name injoffice-site-deploy-role \
+  --template-file infra/site-deploy-role.yaml --capabilities CAPABILITY_IAM \
+  --parameter-overrides SiteStackName=YOUR_SITE_STACK BucketName=YOUR_BUCKET DistributionId=YOUR_DISTRIBUTION
+aws cloudformation describe-stacks --region us-east-1 --stack-name injoffice-site-deploy-role \
+  --query "Stacks[0].Outputs[?OutputKey=='RoleArn'].OutputValue" --output text
+```
+
+Then create the `site` environment in the repository settings, allow deployments only
+from `main`, and set four environment variables: `SITE_DEPLOY_ROLE_ARN` (the output
+above), `SITE_BUCKET`, `SITE_DISTRIBUTION` and `SITE_STACK` (the site stack's name and
+outputs). Until they are set, the deploy job is skipped with a notice. Run the workflow
+by hand (`workflow_dispatch`) to publish the current `main` once it is configured.
+
+To publish by hand instead, run the same script with owner credentials:
+`SITE_BUCKET=… SITE_DISTRIBUTION=… SITE_STACK=… RELEASE_ID=$(git rev-parse HEAD) scripts/deploy-site.sh`.
+`DRY_RUN=1` lists every upload and stops before changing the stack.
+
+Rollback is unchanged: move `ReleaseId` back to an earlier uploaded commit and invalidate.
+The separate GitHub Pages workflow does not update AWS.
 
 References: [AWS secure static hosting](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/getting-started-secure-static-website-cloudformation-template.html),
 [private S3 origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html),

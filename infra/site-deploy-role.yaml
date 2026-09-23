@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  GitHub Actions role that publishes injoffice.com releases: upload a build, move the site
+  stack's ReleaseId to it, and invalidate the CDN. It cannot change the template, DNS, the
+  certificate, the bucket policy, or delete anything.
+
+Parameters:
+  GitHubRepository:
+    Type: String
+    Default: injectinglabs/injoffice
+    Description: owner/name of the repository whose workflow may assume the role.
+  GitHubEnvironment:
+    Type: String
+    Default: site
+    Description: GitHub environment the deploy job runs in. Only that environment's jobs get the role.
+  SiteStackName:
+    Type: String
+    Description: Name of the demo-site.yaml stack (for example injoffice-demo-site).
+  BucketName:
+    Type: String
+    Description: BucketName output of the site stack.
+  DistributionId:
+    Type: String
+    Description: DistributionId output of the site stack.
+
+Resources:
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Publishes injoffice.com releases from GitHub Actions.
+      MaxSessionDuration: 3600
+      # The account already trusts GitHub's OIDC issuer; this role only accepts tokens for one
+      # repository and one environment, so a fork, another branch's job or another workflow
+      # outside that environment cannot assume it.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepository}:environment:${GitHubEnvironment}'
+      Policies:
+        - PolicyName: publish-site-release
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Add objects under the two published prefixes. No delete: older releases and
+              # hashed assets stay reachable for rollback and for tabs that are already open.
+              - Sid: UploadRelease
+                Effect: Allow
+                Action: [s3:PutObject, s3:GetObject]
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${BucketName}/assets/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${BucketName}/releases/*'
+              - Sid: ListReleases
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BucketName}'
+                Condition:
+                  StringLike:
+                    s3:prefix: ['assets/*', 'releases/*']
+              # Switch ReleaseId through a reviewed change set on the existing template.
+              - Sid: SwitchRelease
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${SiteStackName}/*'
+              # CloudFormation updates the distribution's origin path with the caller's rights,
+              # then the deploy invalidates the cache. Read-only lookups cover the resources the
+              # distribution references.
+              - Sid: UpdateDistribution
+                Effect: Allow
+                Action:
+                  - cloudfront:GetDistribution
+                  - cloudfront:GetDistributionConfig
+                  - cloudfront:UpdateDistribution
+                  - cloudfront:ListTagsForResource
+                  - cloudfront:TagResource
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetInvalidation
+                Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DistributionId}'
+              - Sid: ReadDistributionReferences
+                Effect: Allow
+                Action:
+                  - cloudfront:GetOriginAccessControl
+                  - cloudfront:GetCachePolicy
+                  - cloudfront:GetResponseHeadersPolicy
+                  - acm:DescribeCertificate
+                  - acm:ListCertificates
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: injoffice-demo
+
+Outputs:
+  RoleArn:
+    Description: Set this as the SITE_DEPLOY_ROLE_ARN variable of the GitHub environment.
+    Value: !GetAtt DeployRole.Arn

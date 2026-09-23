@@ -1,0 +1,157 @@
+name: Deploy injoffice.com
+
+# Publishes the tested main commit to injoffice.com with scripts/deploy-site.sh. It runs after
+# the Test workflow succeeds on main, builds the same inputs as the Pages deploy with the
+# domain's root base, and assumes an AWS role that can only upload, move ReleaseId and
+# invalidate (infra/site-deploy-role.yaml). Until the `site` environment has that role,
+# the deploy job is skipped and says so.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-deploy
+  # A release switch must finish; the next run starts from where it left off.
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      deploy: ${{ steps.changes.outputs.deploy }}
+      sha: ${{ steps.changes.outputs.sha }}
+    steps:
+      # Check out main itself, never a ref taken from the triggering event: this workflow runs
+      # with the default branch's privileges. It deploys only when that checkout is exactly
+      # the commit Test just passed; if main has moved on, that newer commit's own Test run
+      # deploys it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+      - name: Check whether site inputs changed
+        id: changes
+        env:
+          FORCE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          deploy=true
+          if [ -n "$TESTED_SHA" ] && [ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]; then
+            echo "::notice::main moved past the tested commit $TESTED_SHA; the newer commit's Test run deploys it."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$FORCE_DEPLOY" != 'true' ] && git rev-parse HEAD^ >/dev/null 2>&1; then
+            if git diff --quiet HEAD^ HEAD -- \
+              apps/playground \
+              apps/docs \
+              packages \
+              go/xlsxpatch \
+              go/docxpatch \
+              go/pptxpatch \
+              go/officecompat \
+              scripts \
+              package.json \
+              package-lock.json \
+              .github/workflows/site-deploy.yml
+            then
+              deploy=false
+            fi
+          fi
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        if: steps.changes.outputs.deploy == 'true'
+        with:
+          node-version: '24'
+          # No shared npm cache: this job runs checked-out code in the default branch's
+          # context, and a cache it could write would be read by later privileged runs.
+          # setup-node caches on its own when package.json names a packageManager.
+          package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        if: steps.changes.outputs.deploy == 'true'
+        with:
+          go-version: '1.23'
+          cache: false
+      - if: steps.changes.outputs.deploy == 'true'
+        run: npm ci
+      - name: Build the site for the domain root
+        if: steps.changes.outputs.deploy == 'true'
+        run: npm run build -w apps/playground -- --base=/
+      - name: Verify native Office browser assets
+        if: steps.changes.outputs.deploy == 'true'
+        run: |
+          test -n "$(find apps/playground/dist -type f -name 'xlsxnative-*.wasm' -print -quit)"
+          test -n "$(find apps/playground/dist -type f -name 'docxnative-*.wasm' -print -quit)"
+          test -n "$(find apps/playground/dist -type f -name 'pptxnative-*.wasm' -print -quit)"
+          grep -R -q 'injoffice.native-wasm-worker' apps/playground/dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: steps.changes.outputs.deploy == 'true'
+        with:
+          name: site-dist
+          path: apps/playground/dist
+          retention-days: 7
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    if: ${{ needs.build.outputs.deploy == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: site
+      url: https://injoffice.com
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-1
+      SITE_BUCKET: ${{ vars.SITE_BUCKET }}
+      SITE_DISTRIBUTION: ${{ vars.SITE_DISTRIBUTION }}
+      SITE_STACK: ${{ vars.SITE_STACK }}
+      SITE_DEPLOY_ROLE_ARN: ${{ vars.SITE_DEPLOY_ROLE_ARN }}
+      RELEASE_ID: ${{ needs.build.outputs.sha }}
+    steps:
+      - name: Check deployment configuration
+        id: config
+        run: |
+          missing=''
+          for name in SITE_DEPLOY_ROLE_ARN SITE_BUCKET SITE_DISTRIBUTION SITE_STACK; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice::injoffice.com was not deployed: the site environment is missing$missing. See infra/README.md, 'Automatic deploys'."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.config.outputs.ready == 'true'
+        with:
+          # The same main commit the build job checked out (github.sha).
+          sparse-checkout: scripts/deploy-site.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.config.outputs.ready == 'true'
+        with:
+          name: site-dist
+          path: site-dist
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: steps.config.outputs.ready == 'true'
+        with:
+          role-to-assume: ${{ env.SITE_DEPLOY_ROLE_ARN }}
+          role-session-name: site-deploy-${{ github.run_id }}
+          aws-region: us-east-1
+      - name: Publish the release
+        if: steps.config.outputs.ready == 'true'
+        env:
+          SITE_DIST: site-dist
+        run: bash scripts/deploy-site.sh
