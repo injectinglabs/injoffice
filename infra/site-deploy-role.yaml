@@ -5,10 +5,14 @@ Description: >-
   certificate, the bucket policy, or delete anything.
 
 Parameters:
-  GitHubRepository:
+  SubjectPrefix:
     Type: String
-    Default: injectinglabs/injoffice
-    Description: owner/name of the repository whose workflow may assume the role.
+    Default: 'repo:injectinglabs@260610605/injoffice@1380539575'
+    Description: >-
+      The repository's OIDC subject prefix, from
+      `gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix`.
+      This repository uses GitHub's immutable subjects, which carry the owner and repository
+      IDs, so a recreated repository with the same name cannot assume the role.
   GitHubEnvironment:
     Type: String
     Default: site
@@ -30,8 +34,8 @@ Resources:
       Description: Publishes injoffice.com releases from GitHub Actions.
       MaxSessionDuration: 3600
       # The account already trusts GitHub's OIDC issuer; this role only accepts tokens for one
-      # repository and one environment, so a fork, another branch's job or another workflow
-      # outside that environment cannot assume it.
+      # repository (by its immutable IDs) and one environment, so a fork, another branch's job
+      # or another workflow outside that environment cannot assume it.
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -42,7 +46,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepository}:environment:${GitHubEnvironment}'
+                token.actions.githubusercontent.com:sub: !Sub '${SubjectPrefix}:environment:${GitHubEnvironment}'
       Policies:
         - PolicyName: publish-site-release
           PolicyDocument:

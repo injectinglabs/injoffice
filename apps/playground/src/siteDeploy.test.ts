@@ -34,7 +34,9 @@ describe('injoffice.com automatic deploy', () => {
 
   it('scopes the deploy role to one environment and grants no delete', () => {
     const role = read('infra/site-deploy-role.yaml')
-    expect(role).toContain("token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepository}:environment:${GitHubEnvironment}'")
+    expect(role).toContain("token.actions.githubusercontent.com:sub: !Sub '${SubjectPrefix}:environment:${GitHubEnvironment}'")
+    // The repository issues immutable subjects (owner and repository IDs), so that is the default.
+    expect(role).toContain("Default: 'repo:injectinglabs@260610605/injoffice@1380539575'")
     expect(role).toContain('token.actions.githubusercontent.com:aud: sts.amazonaws.com')
     for (const action of ['s3:DeleteObject', 's3:PutBucketPolicy', 'cloudformation:UpdateStack', 'cloudformation:DeleteStack', 'route53:', 'iam:PassRole', 'iam:Create']) {
       expect(role).not.toContain(action)
