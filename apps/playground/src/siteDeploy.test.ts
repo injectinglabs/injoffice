@@ -17,6 +17,10 @@ describe('injoffice.com automatic deploy', () => {
     expect(workflow).toContain('[ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]')
     expect(workflow).toContain("github.ref == 'refs/heads/main'")
     expect(workflow).toContain('npm run build -w apps/playground -- --base=/')
+    // The docs are published under /docs/ inside the same release.
+    expect(workflow).toContain('npm run build -w apps/docs')
+    expect(workflow).toContain('cp -R apps/docs/.vitepress/dist apps/playground/dist/docs')
+    expect(workflow.indexOf('cp -R apps/docs/.vitepress/dist')).toBeLessThan(workflow.indexOf('name: site-dist'))
     expect(workflow).toMatch(/environment:\n\s+name: site/)
     expect(workflow).toContain('cancel-in-progress: false')
     // The build job holds no OIDC permission; only the deploy job can ask for AWS credentials.

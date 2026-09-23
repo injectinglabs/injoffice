@@ -1,36 +1,30 @@
-/* An Office-adjacent reading surface: blue ink, white paper, quiet navigation. */
+/* The injoffice.com reading surface: white paper, near-black ink, the site's insert green. */
 :root {
-  --vp-c-brand-1: #245cc5;
-  --vp-c-brand-2: #1c4ca7;
-  --vp-c-brand-3: #245cc5;
-  --vp-c-brand-soft: #245cc512;
-  --vp-c-text-1: #18263d;
-  --vp-c-text-2: #53677f;
+  --vp-c-brand-1: #0c7a45;
+  --vp-c-brand-2: #09633a;
+  --vp-c-brand-3: #0c7a45;
+  --vp-c-brand-soft: #0c7a4514;
+  --vp-c-text-1: #15171c;
+  --vp-c-text-2: #3a3f4a;
+  --vp-c-text-3: #5f6673;
   --vp-c-bg: #ffffff;
-  --vp-c-bg-alt: #f4f7fb;
-  --vp-c-tip-1: #28704b;
-  --vp-font-family-base: 'Aptos', 'Segoe UI', 'Helvetica Neue', sans-serif;
-  --vp-font-family-mono: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
+  --vp-c-bg-alt: #f5f6f8;
+  --vp-c-divider: #e3e6eb;
+  --vp-c-tip-1: #0c7a45;
+  --vp-font-family-base: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --vp-font-family-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --vp-sidebar-width: 272px;
+  --vp-button-brand-bg: #15171c;
+  --vp-button-brand-hover-bg: #2a2e37;
 }
-.dark {
-  --vp-c-brand-1: #9fbfff;
-  --vp-c-brand-2: #c0d4ff;
-  --vp-c-brand-3: #4779d8;
-  --vp-c-brand-soft: #9fbfff18;
-  --vp-c-text-1: #e4ecf9;
-  --vp-c-text-2: #acbdd4;
-  --vp-c-bg: #182437;
-  --vp-c-bg-alt: #142033;
-  --vp-c-tip-1: #84cfaa;
-}
-.vp-doc { font-size: 16px; line-height: 1.8; }
-.vp-doc h1 { letter-spacing: -0.035em; line-height: 1.2; font-size: 36px; }
-.vp-doc h2 { letter-spacing: -0.02em; }
+.vp-doc { font-size: 16px; line-height: 1.75; }
+.vp-doc h1, .vp-doc h2, .vp-doc h3, .VPNavBarTitle .title { font-family: 'Sora', system-ui, sans-serif; }
+.vp-doc h1 { letter-spacing: -0.035em; line-height: 1.15; font-size: 36px; font-weight: 600; }
+.vp-doc h2 { letter-spacing: -0.02em; font-weight: 600; }
 .vp-doc p, .vp-doc li { max-width: 76ch; }
-.vp-doc div[class*='language-'] { border-radius: 6px; }
+.vp-doc div[class*='language-'] { border-radius: 10px; }
 .VPSidebarItem.is-active > .item > .link > .text { font-weight: 650; }
-.VPNavBarTitle .title { font-weight: 650; letter-spacing: -0.025em; }
+.VPNavBarTitle .title { font-weight: 600; letter-spacing: -0.02em; }
 .vp-doc a:focus-visible, button:focus-visible { outline: 2px solid var(--vp-c-brand-1); outline-offset: 4px; }
 @media (max-width: 640px) { .vp-doc h1 { font-size: 29px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
