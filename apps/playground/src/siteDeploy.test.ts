@@ -42,7 +42,9 @@ describe('injoffice.com automatic deploy', () => {
     // The repository issues immutable subjects (owner and repository IDs), so that is the default.
     expect(role).toContain("Default: 'repo:injectinglabs@260610605/injoffice@1380539575'")
     expect(role).toContain('token.actions.githubusercontent.com:aud: sts.amazonaws.com')
-    for (const action of ['s3:DeleteObject', 's3:PutBucketPolicy', 'cloudformation:UpdateStack', 'cloudformation:DeleteStack', 'route53:', 'iam:PassRole', 'iam:Create']) {
+    // Route 53 access is one read: CloudFormation validates the HostedZoneId parameter with it.
+    expect(role.match(/route53:\w+/g)).toEqual(['route53:GetHostedZone'])
+    for (const action of ['s3:DeleteObject', 's3:PutBucketPolicy', 'cloudformation:UpdateStack', 'cloudformation:DeleteStack', 'iam:PassRole', 'iam:Create']) {
       expect(role).not.toContain(action)
     }
     expect(role).not.toMatch(/Action:\s*['"]?\*/)

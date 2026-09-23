@@ -90,7 +90,8 @@ The job assumes a role from `site-deploy-role.yaml`. That role trusts only this
 repository's `site` GitHub environment, matched by the repository's OIDC subject prefix
 (`gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix`; this
 repository uses immutable subjects that carry its owner and repository IDs), and can upload under `assets/` and `releases/`,
-move `ReleaseId` on the site stack, and invalidate the distribution. It cannot change
+move `ReleaseId` on the site stack, and invalidate the distribution. It can read the hosted zone (CloudFormation validates the
+`HostedZoneId` parameter with the caller's rights) but cannot change
 the template, DNS, the certificate or the bucket policy, and it cannot delete objects.
 Template changes to `demo-site.yaml` stay an explicit owner action.
 
@@ -99,7 +100,7 @@ One-time setup (the account already trusts GitHub's OIDC issuer):
 ```sh
 aws cloudformation deploy --region us-east-1 --stack-name injoffice-site-deploy-role \
   --template-file infra/site-deploy-role.yaml --capabilities CAPABILITY_IAM \
-  --parameter-overrides SiteStackName=YOUR_SITE_STACK BucketName=YOUR_BUCKET DistributionId=YOUR_DISTRIBUTION
+  --parameter-overrides SiteStackName=YOUR_SITE_STACK BucketName=YOUR_BUCKET DistributionId=YOUR_DISTRIBUTION HostedZoneId=YOUR_ZONE
 aws cloudformation describe-stacks --region us-east-1 --stack-name injoffice-site-deploy-role \
   --query "Stacks[0].Outputs[?OutputKey=='RoleArn'].OutputValue" --output text
 ```

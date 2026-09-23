@@ -26,6 +26,9 @@ Parameters:
   DistributionId:
     Type: String
     Description: DistributionId output of the site stack.
+  HostedZoneId:
+    Type: String
+    Description: HostedZoneId parameter of the site stack (read only, to validate that parameter).
 
 Resources:
   DeployRole:
@@ -92,6 +95,13 @@ Resources:
                   - cloudfront:CreateInvalidation
                   - cloudfront:GetInvalidation
                 Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DistributionId}'
+              # The site stack's HostedZoneId parameter has an AWS-specific type, and CloudFormation
+              # validates it with the caller's rights before any update. Reading the zone is all
+              # that needs; the role cannot change records.
+              - Sid: ValidateHostedZoneParameter
+                Effect: Allow
+                Action: route53:GetHostedZone
+                Resource: !Sub 'arn:${AWS::Partition}:route53:::hostedzone/${HostedZoneId}'
               - Sid: ReadDistributionReferences
                 Effect: Allow
                 Action:
