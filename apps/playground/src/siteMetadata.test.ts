@@ -29,7 +29,7 @@ describe('public site metadata', () => {
     expect(html).toContain('The installer is signed')
     expect(html).toContain('class="github" href="https://github.com/injectinglabs/injoffice"')
     expect(html).toContain('xlsx.cell.set_value')
-    expect(html).toContain('not Microsoft Office parity')
+    expect(html).toContain('Coverage is partial and growing.')
   })
 
   it('has no separate download page any more', () => {
@@ -104,7 +104,6 @@ const CONTENT: Record<string, { file: string; title: RegExp; assets?: string[] }
   'download/linux': { file: 'download/linux.html', title: /Open-source office suite for Linux/, assets: ['linux-x86_64.AppImage', 'linux-amd64.deb', 'linux-x86_64.rpm'] },
   'guides/edit-docx-offline': { file: 'guides/edit-docx-offline.html', title: /Edit Word documents offline/ },
   'guides/open-xlsx-without-excel': { file: 'guides/open-xlsx-without-excel.html', title: /Open and edit XLSX files without Excel/ },
-  'compare/libreoffice': { file: 'compare/libreoffice.html', title: /InjOffice vs LibreOffice/ },
   compatibility: { file: 'compatibility.html', title: /compatibility/i },
   changelog: { file: 'changelog.html', title: /changelog/i },
 }
@@ -133,11 +132,18 @@ describe('content pages', () => {
     })
   }
 
-  // A comparison page has to say where the other product is the better choice.
-  it('says plainly where LibreOffice is better', () => {
-    const html = page('compare/libreoffice.html')
-    expect(html).toContain('<h2 id="where-libreoffice-is-better">Where LibreOffice is better</h2>')
-    expect(html).toContain('If you need a full office suite, LibreOffice is the better choice today.')
+  // The site describes InjOffice on its own terms: no comparison pages, no links to one,
+  // and no page that measures InjOffice against another product.
+  it('has no comparison pages and names no other office product', () => {
+    expect(existsSync(new URL('../compare', import.meta.url))).toBe(false)
+    const sitemap = readFileSync(new URL('../public/sitemap.xml', import.meta.url), 'utf8')
+    expect(sitemap).not.toContain('/compare')
+    const files = ['index.html', 'agents.html', 'playground.html', ...Object.values(CONTENT).map(entry => entry.file)]
+    for (const file of files) {
+      const html = page(file)
+      expect(html, file).not.toContain('/compare')
+      expect(html, file).not.toMatch(/LibreOffice|OnlyOffice|WPS Office|Google (Docs|Workspace)|Microsoft Office|\bvs\.? [A-Z]|comparison/i)
+    }
   })
 
   it('is listed in the sitemap and linked from the home page', () => {
@@ -147,7 +153,7 @@ describe('content pages', () => {
       expect(sitemap).toContain(`<loc>https://injoffice.com/${path}</loc>`)
     }
     for (const os of ['macos', 'windows', 'linux']) expect(home).toContain(`href="%BASE_URL%download/${os}"`)
-    for (const path of ['guides/edit-docx-offline', 'compare/libreoffice', 'compatibility', 'changelog']) {
+    for (const path of ['guides/edit-docx-offline', 'compatibility', 'changelog']) {
       expect(home).toContain(`href="%BASE_URL%${path}"`)
     }
   })

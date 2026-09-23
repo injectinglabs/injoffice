@@ -18,6 +18,10 @@ function handler(event) {
     };
   }
 
+  // Comparison pages were removed on purpose; tell crawlers they are gone for good.
+  if (uri === '/compare' || uri.slice(0, 9) === '/compare/') {
+    return { statusCode: 410, statusDescription: 'Gone', headers: { 'cache-control': { value: 'public, max-age=3600' } } };
+  }
   // The download page now lives on the home page.
   if (uri === '/download' || uri === '/download.html') return redirect('/', '#download');
   // A directory without its slash would otherwise resolve to /docs.html.

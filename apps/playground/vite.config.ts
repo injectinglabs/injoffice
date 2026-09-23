@@ -92,7 +92,6 @@ export default defineConfig(async ({ command }) => {
           'download-linux': fileURLToPath(new URL('./download/linux.html', import.meta.url)),
           'guide-edit-docx-offline': fileURLToPath(new URL('./guides/edit-docx-offline.html', import.meta.url)),
           'guide-open-xlsx-without-excel': fileURLToPath(new URL('./guides/open-xlsx-without-excel.html', import.meta.url)),
-          'compare-libreoffice': fileURLToPath(new URL('./compare/libreoffice.html', import.meta.url)),
           'compatibility': fileURLToPath(new URL('./compatibility.html', import.meta.url)),
           'changelog': fileURLToPath(new URL('./changelog.html', import.meta.url)),
         },

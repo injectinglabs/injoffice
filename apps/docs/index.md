@@ -36,4 +36,4 @@ For agent workflows, insert bounded inspection, a proposed change set, and your 
 
 This documentation tracks the repository's `main` branch. An npm version can lag behind it. Confirm availability and exports before installing; use the [release reference](reference/generated/contracts/public-release) and [source checkout instructions](getting-started/quickstart#from-source) when necessary.
 
-InjOffice implements bounded capabilities, not complete Microsoft Office or Google Workspace parity. Start with the [support matrix](getting-started/support), and always honor runtime refusals and unsupported-content records.
+InjOffice implements bounded capabilities. Start with the [support matrix](getting-started/support), and always honor runtime refusals and unsupported-content records.
