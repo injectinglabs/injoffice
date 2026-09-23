@@ -6,6 +6,20 @@
     <meta name="theme-color" content="#ffffff" />
     <meta name="description" content="Let AI agents propose typed, revision-bound change sets to Word, Excel, PowerPoint and PDF files. Your application approves, commits and verifies them; the rest of the file stays byte-for-byte the same." />
     <title>InjOffice for AI agents — reviewable edits to Office files</title>
+    <link rel="canonical" href="https://injoffice.com/agents" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="InjOffice" />
+    <meta property="og:title" content="InjOffice for AI agents — reviewable edits to Office files" />
+    <meta property="og:description" content="Let AI agents propose typed, revision-bound change sets to Word, Excel, PowerPoint and PDF files. Your application approves, commits and verifies them." />
+    <meta property="og:url" content="https://injoffice.com/agents" />
+    <meta property="og:image" content="https://injoffice.com/og/injoffice.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="InjOffice: a spreadsheet cell changing from Review to Ready as a tracked change" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="InjOffice for AI agents — reviewable edits to Office files" />
+    <meta name="twitter:description" content="Let AI agents propose typed, revision-bound change sets to Word, Excel, PowerPoint and PDF files. Your application approves, commits and verifies them." />
+    <meta name="twitter:image" content="https://injoffice.com/og/injoffice.png" />
     <script>
       // Hide the star banner before first paint for someone who already closed it.
       try { if (localStorage.getItem('injoffice-star-banner') === 'dismissed') document.documentElement.dataset.starDismissed = '' } catch (e) {}
@@ -263,9 +277,9 @@
     </style>
   </head>
   <body>
-    <aside class="star-banner" id="star-banner" aria-label="Support InjOffice">
+    <aside class="star-banner" id="star-banner" aria-label="Rate InjOffice on GitHub">
       <div class="wrap">
-        <p>InjOffice is free and open source. A star on GitHub helps other people find it.</p>
+        <p>Enjoying InjOffice? Rate us with a star on GitHub.</p>
         <a class="star-button" href="https://github.com/injectinglabs/injoffice" target="_blank" rel="noopener">
           <span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.3L12 17.1l-5.6 3 1.1-6.3L2.9 9.4l6.3-.9L12 2.8z" /></svg>Star on GitHub</span><span class="star-count" id="star-count"></span>
         </a>
@@ -277,10 +291,10 @@
       <div class="wrap">
         <a class="brand" href="%BASE_URL%"><img src="%BASE_URL%logo.svg" alt="" /> InjOffice</a>
         <nav class="site" aria-label="Site">
-          <a href="%BASE_URL%download.html">Download</a>
-          <a href="%BASE_URL%agents.html">Agents</a>
-          <a class="hide-sm" href="%BASE_URL%docs/index.html">Docs</a>
-          <a class="hide-sm" href="%BASE_URL%playground.html">Playground</a>
+          <a href="%BASE_URL%#download">Download</a>
+          <a href="%BASE_URL%agents">Agents</a>
+          <a class="hide-sm" href="%BASE_URL%docs/">Docs</a>
+          <a class="hide-sm" href="%BASE_URL%playground">Playground</a>
           <a class="github" href="https://github.com/injectinglabs/injoffice">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.5a10.5 10.5 0 0 0-3.3 20.5c.5.1.7-.2.7-.5v-1.8c-2.9.6-3.5-1.4-3.5-1.4-.5-1.2-1.2-1.6-1.2-1.6-1-.7.1-.7.1-.7 1 .1 1.6 1.1 1.6 1.1.9 1.6 2.5 1.2 3.1.9.1-.7.4-1.2.7-1.4-2.3-.3-4.8-1.2-4.8-5.2 0-1.1.4-2.1 1.1-2.8-.1-.3-.5-1.4.1-2.8 0 0 .9-.3 2.9 1.1a10 10 0 0 1 5.3 0c2-1.4 2.9-1.1 2.9-1.1.6 1.4.2 2.5.1 2.8.7.7 1.1 1.7 1.1 2.8 0 4-2.5 4.9-4.8 5.2.4.3.7 1 .7 2v2.9c0 .3.2.6.7.5A10.5 10.5 0 0 0 12 1.5z" /></svg><span class="github-label">GitHub</span>
           </a>
@@ -298,7 +312,7 @@
             written file. The model never writes bytes and never approves its own change.
           </p>
           <div class="actions">
-            <a class="button primary" href="%BASE_URL%docs/agents/quickstart.html">Read the agent quickstart</a>
+            <a class="button primary" href="%BASE_URL%docs/agents/quickstart">Read the agent quickstart</a>
             <a class="button secondary" href="https://github.com/injectinglabs/injoffice">View on GitHub</a>
           </div>
           <p class="fine">Model-neutral TypeScript. Works with any tool-calling model, or with no model at all.</p>
@@ -392,7 +406,7 @@
             <ul class="rules">
               <li><b>Any transport.</b> An HTTP route, an MCP server or a Worker bridge can carry these messages. The package does not install or authenticate a transport for you.</li>
               <li><b>Any adapter.</b> Sessions take a format adapter from <code>@injoffice/agent-office</code>, or your own implementation of the adapter interface.</li>
-              <li><b>No model required.</b> A deterministic proposal exercises the same boundary, which is how the <a href="%BASE_URL%playground.html">playground</a>'s guided agent tasks work.</li>
+              <li><b>No model required.</b> A deterministic proposal exercises the same boundary, which is how the <a href="%BASE_URL%playground">playground</a>'s guided agent tasks work.</li>
             </ul>
           </div>
         </div>
@@ -408,7 +422,7 @@
             <div><h3>PowerPoint</h3><ul><li>pptx.native.text.replace</li><li>pptx.native.autoshape.update</li><li>pptx.authored.slide.update</li><li>pptx.authored.slide.move</li></ul></div>
             <div><h3>PDF</h3><ul><li>pdf.page.rotate</li><li>pdf.page.crop</li><li>pdf.page.resize</li><li>pdf.page.reorder</li><li>pdf.page.insert_blank</li><li>pdf.page.delete</li><li>pdf.page.n_up</li></ul></div>
           </div>
-          <p class="formats-note">Coverage is partial and growing, and this is not Microsoft Office parity. The <a href="%BASE_URL%docs/getting-started/support.html">support page</a> lists every limit, and the <a href="%BASE_URL%docs/agents/safety.html">safety guide</a> covers approval and verification in full.</p>
+          <p class="formats-note">Coverage is partial and growing, and this is not Microsoft Office parity. The <a href="%BASE_URL%docs/getting-started/support">support page</a> lists every limit, and the <a href="%BASE_URL%docs/agents/safety">safety guide</a> covers approval and verification in full.</p>
         </div>
       </section>
 
@@ -418,8 +432,8 @@
             <h2>Start with one reviewable change.</h2>
             <p>The quickstart proposes a PDF page rotation with no model at all, shows the review, and commits it from a trusted handler.</p>
             <div class="links">
-              <a class="link" href="%BASE_URL%docs/agents/quickstart.html">Agent quickstart</a>
-              <a class="link" href="%BASE_URL%docs/agents/integration.html">Tool protocol and adapters</a>
+              <a class="link" href="%BASE_URL%docs/agents/quickstart">Agent quickstart</a>
+              <a class="link" href="%BASE_URL%docs/agents/integration">Tool protocol and adapters</a>
               <a class="link" href="https://github.com/injectinglabs/injoffice">GitHub</a>
             </div>
           </div>
@@ -432,13 +446,13 @@
       <div class="wrap">
         <span>InjOffice by Injecting Inc. Apache-2.0 licensed.</span>
         <nav aria-label="Footer">
-          <a href="%BASE_URL%download.html">Download</a>
-          <a href="%BASE_URL%playground.html">Playground</a>
+          <a href="%BASE_URL%#download">Download</a>
+          <a href="%BASE_URL%playground">Playground</a>
           <a href="https://github.com/injectinglabs/injoffice">GitHub</a>
           <a href="https://github.com/injectinglabs/injoffice/releases">Releases</a>
           <a href="https://github.com/injectinglabs/injoffice/blob/main/LICENSE">License</a>
-          <a href="%BASE_URL%privacy.html">Privacy</a>
-          <a href="%BASE_URL%company.html">Company</a>
+          <a href="%BASE_URL%privacy">Privacy</a>
+          <a href="%BASE_URL%company">Company</a>
         </nav>
       </div>
     </footer>
