@@ -28,4 +28,4 @@ The example deliberately does not expose the commit closure as a model tool. Its
 
 Replace only the proposal producer. Validate the model's structured output against the discovered operation schemas, enforce limits, and keep the review/commit boundary unchanged. Do not let a proposal supply approval or choose host credentials.
 
-The [public demo](https://injoffice.com/) uses simulated proposals with real bounded document operations across its four formats. This docs example is independent of that application and calls no model service.
+The [public demo](https://injoffice.com/playground.html) uses simulated proposals with real bounded document operations across its four formats. This docs example is independent of that application and calls no model service.
