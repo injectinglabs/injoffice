@@ -7,7 +7,7 @@ bindings live in [`go/pptxpatch`](../go/pptxpatch) and
 [`@injoffice/pptx-native`](../packages/pptx-native).
 
 The authoritative extractor and DOM-free RenderTree now consume this boundary.
-Surgical native patching and complete PowerPoint layout remain separate migration
+Surgical native patching and complete slide layout remain separate migration
 lanes from the architecture ADR.
 
 ## Invariants

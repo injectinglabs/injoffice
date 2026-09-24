@@ -54,12 +54,12 @@ optional: omit its callback or set its `InjOfficeInsertFeatureConfig` key to
 `false` and the command is not registered or shown. `UniverEditor` exposes the
 same choice through its `insertFeatures` prop.
 
-## Univer Pro comparison
+## Advanced spreadsheet capabilities
 
-InjOffice independently covers several areas that Univer categorizes as Pro,
-but it does not yet claim complete behavioral or file-format coverage.
+Status of InjOffice's advanced spreadsheet capabilities. Each is built and tested
+independently; coverage is growing.
 
-| Pro category | InjOffice status | Principal gap |
+| Capability | Status | Next steps |
 |---|---|---|
 | Collaboration | partial | Client permissions, live-share viewports, a durable outbound reconnect journal, and causal remote/offline undo-redo coordination are available; server authorization/durability, persistent undo history, complete offline conflicts, structure-versus-content-range/object transforms, a concrete Univer command-stack adapter, and complete UI remain |
 | Edit history | partial | Lifecycle/model, configurable Univer commands, an accessible timeline, and a fail-closed collaboration restore coordinator are available; automatic Sheets mounting and concrete production storage/authz/atomic reset services remain |
@@ -70,10 +70,10 @@ but it does not yet claim complete behavioral or file-format coverage.
 | Sparklines | partial | Native x14 persistence, model, deterministic renderer, configurable Univer lifecycle commands, undo, and ordered server-first object collaboration are implemented; a bundled collaboration service/reconnect queue, collaborative undo rebase, cell renderer, and editing UI remain |
 | Outlines/grouping | partial | Row/column model, native XLSX persistence, configurable Univer commands/undo, and an authority-gated server-first collaboration protocol for stable-ID create/update/collapse/remove are available; the outline gutter, hosted durable/offline service, structural-edit coordination, collaborative undo rebase, property-level merge, and native transaction remain |
 | Shapes | partial | Stable native update/delete, configurable create/update/remove commands with snapshot undo, and ordered stable-ID collaboration are covered for top-level shapes; durable/offline transport, collaborative undo rebase, grouping, layering, rotation, rich text, gradients, direct-editor transforms, and complete connector authoring remain |
-| In-cell graphics | partial | Public drawing preset supplies images; broader Pro graphics are not matched |
+| In-cell graphics | partial | Public drawing preset supplies images; further in-cell graphics are planned |
 | Data connectors | implemented core | Lifecycle includes host authorization, scheduling, cancellation, memory caching, schemas, preprocessing, atomic lifecycle/refresh undo, configurable Univer controls, credential-free round trips through an InjOffice custom OPC part, and server-owned ordered refresh with model/cell conflict checks; production credentials/egress, durable shared caches/logs/leases, Excel-native connection mapping, and complete UI remain host/integration work |
 | Range preprocessing | implemented core | Ordered host stages, cancellation, validation, lifecycle errors, connector wiring, SHA-256 collaboration fingerprints, and portable strict manifests are available; direct worksheet/formula-engine adapters, worker/cache policy, and production differential qualification remain |
-| Enhanced formula engine | partial | A configurable client facade, 142-function real-engine gate, and ordered authority/revision/spill-safe result sharing are available; Pro performance, complete semantics, authority election, worker behavior, and debugging parity remain |
+| Enhanced formula engine | partial | A configurable client facade, 142-function real-engine gate, and ordered authority/revision/spill-safe result sharing are available; Performance work, complete semantics, authority election, worker behavior, and debugging parity remain |
 | Server-side calculation | partial | Deterministic host-injected jobs plus ordered collaborative result distribution and spill refusal exist; no bundled server calculation engine, managed authority/service, durable result transport, or differential conformance proof |
 
 Compatibility work must be based on public behavior, public APIs, standards, and
