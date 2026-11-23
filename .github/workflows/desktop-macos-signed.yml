@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ inputs.release_tag }}
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -46,7 +46,7 @@ jobs:
             if (releases.flat().some(release => release.tag_name === process.env.RELEASE_TAG && !release.draft))
               throw new Error("Use a new version; published installer bytes must not be replaced.");
           '
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@v7.1.0
         with:
           go-version-file: go/xlsxpatch/go.mod
           cache: false
